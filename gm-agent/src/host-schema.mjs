@@ -6,10 +6,10 @@ import { FUNCTION_NAMES, MODEL_FUNCTIONS, providerLabel, routeFor } from "./llm/
 import { WRITING_MAX_LENGTH } from "./writing.mjs";
 
 export const GROUPS = [
-  { id: "table", title: "牌桌", help: "语言、AI 队友与开场。频道的规则系统来自平台（在 GM 工作区中修改）。" },
+  { id: "table", title: "牌桌", help: "语言与开场。频道的规则系统来自平台（在 GM 工作区中修改）。" },
   { id: "writing", title: "纯文本写作指导", help: "第一步：决定故事怎么写，包括文风、细节和总篇幅。预填原有指导，保存后替换该项默认文本；只发送给写作模型。规则、角色权限和无人值守限制仍由系统管理。" },
   { id: "presentation", title: "消息呈现指导（结构化输出）", help: "第二步：决定原文在聊天中怎么呈现。可要求每条短一些、合并成长消息，或按句子分多条；只发送给排版模型。不同说话人、收件人和私聊内容仍分别呈现。" },
-  { id: "llm", title: "主持模型", help: "GM、NPC 与 AI 队友所用的模型。服务商、地址与密钥在公共配置中设置。" },
+  { id: "llm", title: "主持模型", help: "GM 与 NPC 所用的模型。服务商、地址与密钥在公共配置中设置。" },
   { id: "models", title: "模型分配", help: "每项功能在哪个服务商的哪个模型上运行。服务商（地址与密钥）由公共配置的 providers 定义，这里只选择名字；留空的功能使用“主持模型”（default）。用量统计按实际回答的服务商与模型记录。" },
   { id: "planner", title: "剧情规划", help: "较慢、较深的规划模型：节拍、线索与会后总结。" },
   { id: "pacing", title: "节奏", help: "回应前的等待与每回合的动作数。" },
@@ -28,8 +28,8 @@ const minutes = (ms) => Math.round(ms / 60000);
 const EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
 // One row of fields per function (llm/routes.mjs): its provider (a name from the shared file; `dynamic` fills the
 // options), model and effort. The effective values are those of the route the function's calls take.
-const FUNCTION_LABELS = { forge: "开局共创", director: "主持（GM 与 NPC）", coplayers: "AI 队友", formatting: "聊天排版", planner: "剧情规划", memory: "记忆压缩", readers: "场景判读", pictures: "插画选择", cards: "角色卡生成" };
-const FUNCTION_HELP = { forge: "开局访谈、世界和角色共同构建、评审及独立试跑。", director: "每回合 GM 的决定与台词，上下文最大。", coplayers: "AI 队友的发言与短信。", formatting: "只读取本轮草稿，将原文排成聊天消息及桌面操作。可选用更快的模型。", planner: "剧情规划的草稿、评审与修订（也可在“剧情规划”组设置）。", memory: "把较早的聊天压缩成章节。", readers: "判断谁在何处的小调用：在场、移动、座位纠正、场景交接。", pictures: "为插画挑选时刻、搜寻过去的剧情。", cards: "生成与修复角色卡（启动与新建 NPC 时）。" };
+const FUNCTION_LABELS = { forge: "开局共创", director: "主持（GM 与 NPC）", formatting: "聊天排版", planner: "剧情规划", memory: "记忆压缩", readers: "场景判读", pictures: "插画选择", cards: "角色卡生成" };
+const FUNCTION_HELP = { forge: "开局访谈、世界和角色共同构建、评审及独立试跑。", director: "每回合 GM 的决定与台词，上下文最大。", formatting: "只读取本轮草稿，将原文排成聊天消息及桌面操作。可选用更快的模型。", planner: "剧情规划的草稿、评审与修订（也可在“剧情规划”组设置）。", memory: "把较早的聊天压缩成章节。", readers: "判断谁在何处的小调用：在场、移动、座位纠正、场景交接。", pictures: "为插画挑选时刻、搜寻过去的剧情。", cards: "生成与修复角色卡（启动与新建 NPC 时）。" };
 const modelFields = FUNCTION_NAMES.flatMap((fn) => {
   const route = (c) => routeFor(c, MODEL_FUNCTIONS[fn][0]);
   return [
@@ -40,14 +40,11 @@ const modelFields = FUNCTION_NAMES.flatMap((fn) => {
 });
 export const FIELDS = [
   f("table.language", "enum", "语言", "GM 与 AI 角色写作的语言。留空则跟随频道设置。", (c) => c.language, { options: ["", "zh-CN", "zh-TW", "en", "ja", "ko", "es", "fr", "de", "ru", "pt", "it"] }),
-  f("table.coplayers", "int", "AI 队友数量", "启动时准备的 GM 扮演队友数（已有的会被沿用）。", (c) => c.coplayers, { min: 0, max: 8 }),
-  f("table.level", "int", "新队友等级（D&D）", "D&D 频道中新建 AI 队友的等级；已有角色保持原等级。", (c) => c.level, { min: 1, max: 20 }),
-  f("table.coplayer_windows", "list", "队友初始窗口", "AI 队友起始所在的窗口名，逗号分隔。留空则为主聊天。", (c) => c.coplayerWindows),
-  f("channel.era", "string", "时代", "生成队友时参考的时代（例如 1920s）。", (c) => c.era),
+  f("table.level", "int", "新角色等级（D&D）", "D&D 频道中开局共创（Forge）新建角色的等级；已有角色保持原等级。", (c) => c.level, { min: 1, max: 20 }),
+  f("channel.era", "string", "时代", "新建频道的时代（例如 1920s），GM 生成 NPC 时参考。", (c) => c.era),
   f("table.kickoff", "bool", "启动时开场", "启动后 GM 立即在主场景开场。", (c) => c.kickoff),
   f("table.verbose", "bool", "详细日志", "在日志中记录更多细节。", (c) => c.verbose),
   f("writing.gm", "text", "GM 与 NPC 写作指导", "用于 GM 的叙述、NPC 台词和短信。支持多段文字；留空或恢复默认会使用原有指导。", (c) => c.writing.gm, { maxLength: WRITING_MAX_LENGTH }),
-  f("writing.coplayer", "text", "AI 陪玩写作指导", "用于陪玩在场景中的动作和台词，包括无人值守日常。支持多段文字；留空或恢复默认会使用原有指导。", (c) => c.writing.coplayer, { maxLength: WRITING_MAX_LENGTH }),
   f("writing.formatting", "text", "消息长短与拆分指导", "预填现有排版习惯，可直接改写。只调整原文的分组与拆条；故事本身写得详细还是简练，请在上方写作指导中设置。留空或恢复默认会使用原有指导。", (c) => c.writing.formatting, { group: "presentation", maxLength: WRITING_MAX_LENGTH }),
 
   f("llm.model", "string", "模型", "留空则使用公共配置或服务商默认模型。", (c) => c.llm.model),
@@ -68,7 +65,6 @@ export const FIELDS = [
   f("planner.cooldown_minutes", "int", "规划冷却", "任何一次规划之后的冷却时间。", (c) => minutes(c.planner.cooldownMs), { min: 0, unit: "分钟" }),
   f("planner.stall_turns", "int", "停滞回合", "剧情停滞这么多回合后提前规划。", (c) => c.planner.stallTurns, { min: 2 }),
   f("planner.max_runs_per_hour", "int", "每小时最多规划", "规划次数上限。", (c) => c.planner.maxRunsPerHour, { min: 1 }),
-  f("planner.impulse_lines", "int", "冲动间隔行数", "NPC 冲动的检查间隔。", (c) => c.planner.impulseLines, { min: 1 }),
   f("planner.plan_tokens", "int", "计划篇幅", "交给 GM 的计划摘要令牌数。", (c) => c.planner.planTokens, { min: 300 }),
   f("planner.wish_window", "bool", "规划窗口", "开放“致剧情规划”窗口，供玩家写下愿望与纠正。", (c) => c.planner.wishWindow),
   f("planner.final_review", "bool", "会后总结", "玩家离开后复盘本次游戏。", (c) => c.planner.finalReview),
@@ -77,31 +73,24 @@ export const FIELDS = [
 
   f("pacing.debounce_ms", "int", "回应等待", "玩家停笔多久后 GM 回应。", (c) => c.debounceMs, { min: 0, unit: "ms" }),
   f("pacing.post_delay_ms", "int", "发言间隔", "连续发出的两行之间的停顿。", (c) => c.postDelayMs, { min: 0, unit: "ms" }),
-  f("pacing.max_actions_per_turn", "int", "每回合最多动作", "GM 与队友一回合内的动作上限。", (c) => c.maxActionsPerTurn, { min: 1 }),
+  f("pacing.max_actions_per_turn", "int", "每回合最多动作", "GM 一回合内的动作上限。", (c) => c.maxActionsPerTurn, { min: 1 }),
 
   f("context.gm_tokens", "int", "GM 上下文预算", "GM 提示词的令牌预算，较早的历史会被压缩为章节。", (c) => c.gmContextTokens, { min: 8000 }),
-  f("context.coplayer_tokens", "int", "队友上下文预算", "每位 AI 队友的令牌预算。", (c) => c.coplayerContextTokens, { min: 4000 }),
   f("context.recall_tokens", "int", "回忆片段预算", "从久远历史中召回的片段令牌数。", (c) => c.recallTokens, { min: 0, max: 4000 }),
   f("context.page_lines", "int", "同步分页行数", "同步聊天时每页读取的行数。", (c) => c.contextLines, { min: 10, max: 200 }),
   f("context.backfill_lines", "int", "历史回填行数", "首次启动时读取的历史行数。", (c) => c.historyBackfillLines, { min: 0 }),
   f("context.daily_token_budget", "int", "每日令牌预算", "计费等价令牌（缓存读取按十分之一计）。用尽后停止自主回合。0 为不限。", (c) => c.dailyTokenBudget, { min: 0 }),
 
-  f("autonomy.enabled", "bool", "启用自主推进", "队友独处的支线与安静的共享窗口自行推进。", (c) => c.autonomy),
+  f("autonomy.enabled", "bool", "启用自主推进", "安静的共享窗口自行推进。", (c) => c.autonomy),
   f("autonomy.tick_ms", "int", "检查间隔", "自主推进的检查周期。", (c) => c.autonomyTickMs, { min: 1000, unit: "ms" }),
-  f("autonomy.side_interval_ms", "int", "支线推进间隔", "只有 AI 队友的支线多久推进一次。", (c) => c.autonomySideIntervalMs, { min: 0, unit: "ms" }),
   f("autonomy.quiet_ms", "int", "安静多久后推进", "共享窗口沉默多久后 GM 推进。", (c) => c.autonomyQuietMs, { min: 0, unit: "ms" }),
   f("autonomy.quiet_turns", "int", "安静推进次数", "无人回应时最多推进几次。", (c) => c.autonomyQuietTurns, { min: 0 }),
-  f("autonomy.coplayer_idle_lines", "int", "陪玩冷落检查", "同场景已有多少条剧情而陪玩未参与时，GM 重新审视其安排。0 为关闭。", (c) => c.coplayerIdleLines, { min: 0 }),
-  f("autonomy.coplayer_idle_minutes", "int", "陪玩沉默时长", "有剧情进展且沉默这么久，也会触发检查；同一陪玩两次检查至少间隔这么久。", (c) => c.coplayerIdleMinutes, { min: 1, unit: "分钟" }),
   f("autonomy.max_turns_per_hour", "int", "每小时自主回合", "自主回合的上限。", (c) => c.autonomyMaxTurnsPerHour, { min: 0 }),
   f("autonomy.idle_minutes", "int", "离开判定", "多久没有玩家发言视为离开：共享窗口暂停。", (c) => c.autonomyIdleMinutes, { min: 1, unit: "分钟" }),
-  f("autonomy.away_side_interval_ms", "int", "离开时支线间隔", "玩家离开期间支线的推进间隔（0 为暂停）。", (c) => c.awaySideIntervalMs, { min: 0, unit: "ms" }),
 
   f("timelines.auto", "bool", "主动分头", "GM 报告行踪，牌桌自动分头与重聚。关闭则回到模型主导的分头。", (c) => c.timelineAuto),
   f("timelines.scene_forks", "bool", "场景分叉", "开启：首次分头后主线移入私有分叉窗口，主聊天变为 GM 不叙述的大厅（多名玩家）。关闭：主线留在主聊天（单人）。", (c) => c.sceneForks),
   f("timelines.max_active", "int", "同时最多线程", "包括主线在内。", (c) => c.timelineMaxActive, { min: 1 }),
-  f("timelines.guard_turns", "int", "防反复回合", "撤销近期移动前需要的一致回合数。", (c) => c.timelineGuardTurns, { min: 0 }),
-  f("timelines.guard_ms", "int", "防反复时长", "撤销近期移动前需要经过的时间。", (c) => c.timelineGuardMs, { min: 0, unit: "ms" }),
   f("timelines.pc_cooldown_ms", "int", "玩家新窗口冷却", "同一玩家两次获得新窗口的最短间隔。", (c) => c.timelinePcCooldownMs, { min: 0, unit: "ms" }),
   f("timelines.max_arrivals_per_hour", "int", "每小时到场回合", "开启新场景或重聚的回合上限。", (c) => c.timelineMaxArrivalsPerHour, { min: 0 }),
 
@@ -110,7 +99,7 @@ export const FIELDS = [
   f("scenarios.min_lines", "int", "场景最少行数", "当前场景至少这么多行。", (c) => c.scenarioMinLines, { min: 0 }),
 
   f("worldbook.gm_tokens", "int", "GM 词条预算", "GM 提示词中同时使用的词条上限（令牌）。", (c) => c.worldbook.gm_tokens, { min: 0, max: 20000 }),
-  f("worldbook.coplayer_tokens", "int", "队友词条预算", "AI 队友提示词中同时使用的公开词条上限（令牌）。", (c) => c.worldbook.coplayer_tokens, { min: 0, max: 20000 }),
+  f("worldbook.coplayer_tokens", "int", "公开词条预算", "平台机器人备忘中同时使用的公开词条上限（令牌）。", (c) => c.worldbook.coplayer_tokens, { min: 0, max: 20000 }),
   f("worldbook.recent_lines", "int", "词条检索行数", "在窗口最近多少行里查找词条的标题与关键词；GM 查阅过的词条也保留这么多行。", (c) => c.worldbook.recent_lines, { min: 1, max: 200 }),
   f("calendar.min_minutes", "int", "日期推进冷却", "日期变化后，至少过这么久才能再推进。", (c) => c.calendarMinMinutes, { min: 0, unit: "分钟" }),
   f("calendar.min_lines", "int", "日期推进所需行数", "以及这么多玩家发言。", (c) => c.calendarMinLines, { min: 0 }),
@@ -122,12 +111,10 @@ export const FIELDS = [
   f("modes.secrets_file", "string", "GM 秘密文件", "相对于本频道配置文件的路径。", (c) => c.secretsFile),
   f("modes.casual", "tri", "日常模式", "手机、短信与故事日历。留空则保持状态文件中的设置。", (c) => c.casual),
   f("modes.casual_max_delay_minutes", "int", "短信最长延迟", "NPC 短信最晚多久送达。", (c) => c.casualMaxDelayMinutes, { min: 0, unit: "分钟" }),
-  f("modes.casual_ai_texts_per_hour", "int", "AI 间短信每小时", "AI 角色之间每小时最多回复的短信数。", (c) => c.casualAiTextsPerHour, { min: 0 }),
   f("illustrations.enabled", "bool", "启用插画", "每个小事件结束时为其最动人的一刻配图，GM 也可为动人的时刻配图；每次场景切换时为上一场景配图（避开已画过的时刻）；玩家可在“致剧情规划”窗口用 /画 请求为过去的剧情配图。关闭则三者都不画。", (c) => c.illustrations.enabled),
   f("illustrations.max_per_hour", "int", "游戏中每小时配图", "游戏中每小时配图的上限：每个小事件结束时的配图与 GM 为动人时刻的配图合计（场景切换与玩家请求的配图不计入）。0 表示游戏中不配图。", (c) => c.illustrations.maxPerHour, { min: 0, max: 20 }),
   f("illustrations.requests_per_hour", "int", "玩家每小时插画请求", "每位玩家每小时可在“致剧情规划”窗口用 /画 请求为过去的剧情配图的次数。0 表示关闭该命令。", (c) => c.illustrations.requestsPerHour, { min: 0, max: 20 }),
   f("illustrations.allow_cloud", "bool", "允许云端绘制", "确认描述与角色立绘可以发送给服务器配置的云端图像服务。关闭时只有本地图像服务能画。", (c) => c.illustrations.allowCloud),
-  f("modes.casual_ai_chain", "int", "AI 间连续短信", "两名 AI 角色连续往来的上限，玩家发言后重置。", (c) => c.casualAiChain, { min: 1 }),
 ];
 const BY_KEY = new Map(FIELDS.map((x) => [x.key, x]));
 
@@ -182,11 +169,6 @@ function coerce(x, v) {
     case "enum":
       if (!x.options.includes(String(v))) bad(`必须是 ${x.options.filter(Boolean).join(" / ")} 之一`);
       return String(v);
-    case "list": {
-      const items = (Array.isArray(v) ? v : String(v).split(",")).map((s) => String(s).trim()).filter(Boolean);
-      if (items.some((s) => s.length > 120)) bad("的每一项不能超过 120 个字符");
-      return items;
-    }
     default: {
       const s = String(v);
       if (s.length > 500 || /[\r\n]/.test(s)) bad("必须是一行文本（不超过 500 字符）");

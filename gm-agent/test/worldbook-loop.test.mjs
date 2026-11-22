@@ -1,10 +1,11 @@
-// The worldbook and the co-players' intentions at a real table: the files the host's Web UI edits, read by the turns.
+// The worldbook at a real table: the file the host's Web UI edits, read by the turns.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Table } from "../src/loop.mjs";
+import { botBrief } from "../src/table/bots.mjs";
 import { Roster } from "../src/roles/roster.mjs";
 import { MockLlm } from "../src/llm/mock.mjs";
 import { buildConfig } from "../src/config.mjs";
@@ -19,7 +20,6 @@ const ENTRIES = [
 ];
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "worldbook-"));
 const bookFile = (dir) => operatorPath(dir, "ch", "worldbook");
-const intentFile = (dir) => operatorPath(dir, "ch", "intentions");
 
 async function setup({ improv = IMPROV, llm = new MockLlm(), dir = tmp(), logs = [] } = {}) {
   const api = new FakeApi();
@@ -48,10 +48,10 @@ test("worldbook: created from the world setting, never posted, and an edit reach
   assert.match(gm, /- Drowned keeper \[secret: yours alone\]/);
   assert.ok(gm.includes("LORE-GUILD") && gm.includes("LORE-KEEPER"), "the entries mentioned are in play for the GM, the secret one too");
   assert.ok(!gm.includes("LORE-MARKET"), "an entry nobody mentioned stays a title");
-  const cp = last(llm, "coplayer_turn");
-  assert.ok(cp.includes("LORE-GUILD"), "the co-player knows what came up where it was");
-  assert.ok(!cp.includes("LORE-KEEPER") && !cp.includes("Drowned keeper"), "never a secret entry");
-  assert.ok(!cp.includes("Fish market"), "no index for a co-player");
+  const brief = botBrief(t);
+  assert.ok(brief.includes("LORE-GUILD"), "the platform's bots are told what came up where everyone could read it");
+  assert.ok(!brief.includes("LORE-KEEPER") && !brief.includes("Drowned keeper"), "never a secret entry");
+  assert.ok(!brief.includes("Fish market"), "no index for the bots");
   assert.ok(!api.posts.some((p) => /WORLD-PUBLIC|LORE-/.test(p.content)), "nothing of the world is posted");
 });
 
@@ -122,23 +122,4 @@ test("worldbook: without entries a table reads exactly as before, no section and
   assert.ok(!tools.includes("worldbook_read"));
   assert.ok(!last(llm, "director").includes("## Worldbook"));
   assert.ok(!llm.calls.find((c) => c.purpose === "director").system.includes("worldbook_read"));
-});
-
-test("intentions: only that co-player reads its intention, it pulls in the entries it names, and clearing it takes effect", async () => {
-  const dir = tmp();
-  writeOperatorFile(bookFile(dir), () => ({ bible: IMPROV.world, hidden: IMPROV.secrets, entries: ENTRIES, nextId: 4 }));
-  writeOperatorFile(intentFile(dir), () => ({ intentions: { "c-harriet": { text: "INTENT-X: win the dockmasters over while keeping the club united." }, "c-alice": { text: "INTENT-ALICE" } } }));
-  const { t, api, llm } = await setup({ dir });
-  await says(t, api, "Good morning.");
-  await settle(t);
-  const cp = last(llm, "coplayer_turn");
-  assert.match(cp, /YOUR STANDING INTENTION/);
-  assert.ok(cp.includes("INTENT-X"));
-  assert.ok(cp.includes("LORE-GUILD"), "the entry its intention names");
-  assert.ok(!llm.calls.some((c) => c.purpose !== "coplayer_turn" && JSON.stringify(c).includes("INTENT-X")), "the GM never reads it");
-  assert.equal(t.intentionOf("c-alice"), "", "a player character has no intention");
-  writeOperatorFile(intentFile(dir), (cur) => ({ ...cur, intentions: {} }));
-  await says(t, api, "Anything new?");
-  await settle(t);
-  assert.ok(!last(llm, "coplayer_turn").includes("INTENT-X"));
 });

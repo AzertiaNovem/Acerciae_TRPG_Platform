@@ -57,7 +57,7 @@ test("worldbook: entries come into play by mention, newest first, within the bud
 test("worldbook: an entry is found by title, id or key; the GM's index lists what exists", () => {
   assert.equal(findEntry(BOOK, "harbour guild").id, "e1");
   assert.equal(findEntry(BOOK, "dockmasters").id, "e1");
-  assert.equal(findEntry(BOOK, "lighthouse"), null, "a secret entry is not found for a co-player");
+  assert.equal(findEntry(BOOK, "lighthouse"), null, "a secret entry is found only for the GM");
   assert.equal(findEntry(BOOK, "lighthouse", { secret: true }).id, "e2");
   const index = renderIndex(BOOK);
   assert.match(index, /- The drowned keeper \[secret: yours alone\] \(keys: lighthouse\)/);
@@ -88,17 +88,4 @@ test("operator files: revisioned atomic writes, conflicts refused, readers see c
   fs.writeFileSync(`${file}.lock`, ""); fs.utimesSync(`${file}.lock`, new Date(0), new Date(0));
   assert.equal(writeOperatorFile(file, () => ({ bible: "three" })).bible, "three", "a stale lock is cleared");
   assert.ok(!fs.existsSync(`${file}.lock`));
-});
-
-test("intentions: an edit sets or clears a co-player's intention, and only a co-player's", async () => {
-  const { intentionsState, applyIntentions, renderIntention } = await import("../src/intentions.mjs");
-  const current = { intentions: { "c-h": { text: "old", at: "x" }, "c-z": { text: "keep", at: "y" } } };
-  const out = applyIntentions(current, { "c-h": "  Win Mina's trust.  ", "c-q": "" }, { coplayers: ["c-h", "c-q", "c-z"], now: "now" });
-  assert.deepEqual(out, { "c-h": { text: "Win Mina's trust.", at: "now" }, "c-z": { text: "keep", at: "y" } });
-  assert.deepEqual(Object.keys(applyIntentions(current, { "c-h": "" }, { coplayers: ["c-h"] })), ["c-z"], "an empty text clears it");
-  assert.throws(() => applyIntentions(current, { "c-alice": "x" }, { coplayers: ["c-h"] }), /not a co-player/);
-  assert.throws(() => applyIntentions(current, { "c-h": "x".repeat(1001) }, { coplayers: ["c-h"] }), /at most 1000/);
-  assert.deepEqual(intentionsState({ intentions: { "bad id!": { text: "x" }, ok: { text: " " } } }).intentions, {});
-  assert.equal(renderIntention(""), "");
-  assert.match(renderIntention("Win."), /^YOUR STANDING INTENTION .*\nWin\.$/s);
 });

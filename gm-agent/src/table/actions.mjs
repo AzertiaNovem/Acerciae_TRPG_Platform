@@ -50,7 +50,8 @@ export async function act(table, windowId, a, ctx, { mode, parent = mode, scope 
       case "npc":
       case "new_npc": {
         const who = table.characterByName(a.name);
-        if (table.roster.coplayerByName(a.name) || who?.kind === "pc") { table.log(`the GM tried to voice ${a.name}, a ${table.roster.isCoplayer(who?.id) || !who ? "co-player" : "player character"}; skipped`); return 0; }
+        // The GM voices its own cast (the real NPCs, a PC this account owns among them), never a player's character.
+        if (who && table.isPc(who.id)) { table.log(`the GM tried to voice ${a.name}, a player character; skipped`); return 0; }
         let npc = table.roster.npcByName(a.name);
         if (!npc && a.type === "npc") {
           // Not posted: a misspelled or invented name must not create a character by accident. The note tells the next
@@ -66,8 +67,7 @@ export async function act(table, windowId, a, ctx, { mode, parent = mode, scope 
           const move = table.pbta.pack.moves.find(m => m.id === a.move_id);
           if (!sheet || !move || /^[.。]/.test(a.text.trim())) return 0;
           await prepareActor(table.api, table.llm, table.channelId, {
-            rules: table.pbta, language: table.language, world: table.improv.world, existing: sheet,
-            npc: true, requiredBook: move.book,
+            rules: table.pbta, language: table.language, world: table.improv.world, existing: sheet, requiredBook: move.book,
           });
           const line = await table.api.postMessage(table.channelId, windowId, {
             content: a.text, kind: "ic", character_id: npc.characterId,
@@ -99,8 +99,7 @@ export async function act(table, windowId, a, ctx, { mode, parent = mode, scope 
           const move = table.pbta.pack.moves.find(m => m.id === a.move_id);
           if (!move) return 0;
           await prepareActor(table.api, table.llm, table.channelId, {
-            rules: table.pbta, language: table.language, world: table.improv.world, existing: target,
-            npc: true, requiredBook: move.book,
+            rules: table.pbta, language: table.language, world: table.improv.world, existing: target, requiredBook: move.book,
           });
         }
         const result = await table.api.pbtaRuling(table.channelId, windowId, { ...a, op: a.type, revision: table.pbta.revision });
@@ -109,8 +108,6 @@ export async function act(table, windowId, a, ctx, { mode, parent = mode, scope 
         return 1;
       }
       case "request_roll": return table.pbta ? 0 : table.requestRoll(windowId, a, scope);
-      case "split": return table.cfg.timelineAuto ? 0 : table.legacySplit(windowId, a);
-      case "rejoin": return table.cfg.timelineAuto ? 0 : table.legacyRejoin(a);
       case "timeline": {
         const t = table.timelines.byName(a.timeline) ?? table.timelines.main();
 
@@ -130,12 +127,12 @@ export async function requestRoll(table, windowId, a, scope = null) {
     const target = table.characterByName(a.who);
     if (!table.profile.roll.test(command) || !target) return a.text ? table.post(windowId, { content: a.text, kind: "narration" }) : 0;
     // Only someone in this scene (or a player writing here from elsewhere) can be asked to roll for it.
-    if (scope && (table.isPc(target.id) || table.roster.isCoplayer(target.id)) && !scope.has(target.id)) {
+    if (scope && table.isPc(target.id) && !scope.has(target.id)) {
       return table.post(windowId, { content: `Roll request for ${target.name} not posted: they are not in this scene.`, kind: "narration", visibility: "gm_only" });
     }
     let n = 0;
-    if (table.roster.isCoplayer(target.id) || table.roster.isNpc(target.id)) {
-      // The client rolls for the characters it plays; the platform rolls against their own sheets.
+    if (table.roster.isNpc(target.id)) {
+      // The client rolls for the characters it voices; the platform rolls against their own sheets.
       if (a.text) n += await table.post(windowId, { content: a.text, kind: "narration" });
       n += await table.post(windowId, { content: command, kind: "ic", character_id: target.id });
       return n;
@@ -153,7 +150,7 @@ export async function requestRoll(table, windowId, a, scope = null) {
     return table.post(where, { content, kind: "narration" });
   }
 
-// A player character a person plays (not a co-player, not a PC nobody plays): the one who can tap the card.
+// A player character a person plays (not one the GM voices, not a PC nobody plays): the one who can tap the card.
 function humanPc(table, id) {
     const user = table.userOf(id);
     return table.isPc(id) && Boolean(user) && user !== table.me?.id;
@@ -221,7 +218,7 @@ export async function scenarioVerdict(table, windowId, mode, parent = mode) {
     if (mode === "manual") return { ok: true };
     if (!table.cfg.scenarioAuto) return { ok: false, reason: "automatic scenario changes are off" };
     if (windowId !== table.primaryWindowId()) return { ok: false, reason: table.forks ? "only from the primary scene" : "only from the Main Chat" };
-    if (!["human", "followup"].includes(mode) || !["human", "relay"].includes(parent)) return { ok: false, reason: "only right after a player's or co-player's line, never in an autonomous turn" };
+    if (!["human", "followup"].includes(mode) || !["human", "relay"].includes(parent)) return { ok: false, reason: "only in a turn that answers a player's line, never in an autonomous turn" };
     const short = table.timelines.active().find((t) => t.id !== MAIN && t.span !== "long");
     if (short) return { ok: false, reason: `the party is briefly split ("${short.name}"): bring them together first` };
     const minutes = (table.now() - (table.scenario?.since ?? 0)) / 60000;

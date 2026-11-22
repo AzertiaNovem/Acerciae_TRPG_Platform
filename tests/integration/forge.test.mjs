@@ -124,13 +124,17 @@ test('real runtime resumes preplay, explicitly starts, then ignores the original
 
 test('CoC and D&D generated numbers pass platform preview; card receipts and version guards protect existing sheets',async()=>{
   const {MockLlm}=await import('../../gm-agent/src/llm/mock.mjs');
-  const {generateCoplayer}=await import('../../gm-agent/src/roles/cardgen.mjs');
+  const {generateNpc}=await import('../../gm-agent/src/roles/cardgen.mjs');
+  const {allocatePointBuy}=await import('../../gm-agent/src/roles/pointbuy.mjs');
   const {rulesProfile}=await import('../../gm-agent/src/rules/index.mjs');
   for(const rule of ['coc7e','dnd2024']) {
     const {gm,channel:ch}=await fixture(rule);await gm.updateChannel(ch.id,{point_buy:true});
-    const profile=rulesProfile(rule),rules=await profile.fetchRules(gm,ch.id);
-    const generated=await generateCoplayer(new MockLlm(),{profile,rules,pointsMode:true,language:'English',era:'modern',takenNames:[],partyNotes:'',index:0,total:1,level:1,world:'Bookshop'});
-    const card=profile.card.normalize(generated.role_card,{rules,kind:'coplayer',level:1,pointsMode:true});
+    const profile=rulesProfile(rule),rules=await profile.fetchRules(gm,ch.id),llm=new MockLlm();
+    // A generated character's numbers made into a player character's card under point buy, as the Forge does.
+    const generated=await generateNpc(llm,{profile,rules,pointsMode:true,language:'English',era:'modern',name:'Reviewed '+rule,brief:'A bookshop regular.'});
+    let card=profile.card.normalize(generated.role_card,{rules,kind:'pc',level:1,pointsMode:true});
+    if(rule==='coc7e') { card.career={name:rules.careers[0].name,choices:[],specialties:[]}; card=await allocatePointBuy(llm,card,{rules,language:'English'}); }
+    if(rule==='dnd2024'&&profile.card.check(card,rules).violations?.length) card=await profile.card.repair(llm,card,{rules,language:'English',level:1});
     const preview=await gm.previewCard(ch.id,{rule_system:rule,role_card:card});
     assert.equal(preview.points.violations.length,0);
     const c=await gm.createCharacter(ch.id,{name:'Reviewed '+rule,kind:'pc'});

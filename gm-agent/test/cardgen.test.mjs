@@ -1,8 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeCard, derived, skillIndex, generateCoplayer } from "../src/roles/cardgen.mjs";
+import { normalizeCard, derived, skillIndex } from "../src/roles/cardgen.mjs";
 import { MockLlm } from "../src/llm/mock.mjs";
 import { completeJson } from "../src/llm/index.mjs";
+import { normalizeDnd } from "../src/roles/dndcard.mjs";
+import { DND_RULES } from "./fixtures/dndRules.mjs";
 
 const rules = {
   skills: [{ name: "Spot Hidden", base: 25, names: { "zh-CN": "侦查" } }, { name: "Library Use", base: 20, names: {} }, { name: "Cthulhu Mythos", base: 0, names: {} }],
@@ -31,6 +33,17 @@ test("skill names are matched to the platform's names, unknown ones dropped, Myt
   assert.equal(skillIndex(null)("Anything"), "Anything");
 });
 
+test("a player character's card keeps the creation ranges; the older kind \"coplayer\" means the same", () => {
+  const src = { characteristics: { STR: 120, SIZ: 30 }, skills: { "Cthulhu Mythos": 40, "Library Use": 120 } };
+  const pc = normalizeCard(src, { rules, kind: "pc" });
+  assert.deepEqual([pc.characteristics.STR, pc.characteristics.SIZ, pc.skills["Cthulhu Mythos"], pc.skills["Library Use"]], [90, 40, 10, 99]);
+  assert.deepEqual(normalizeCard(src, { rules, kind: "coplayer" }), pc);
+  assert.deepEqual(normalizeCard(src, { rules }), pc, "the default");
+  const dnd = { class: "Rogue", base: { STR: 3, DEX: 18 }, method: "manual" };
+  assert.deepEqual(normalizeDnd(dnd, { rules: DND_RULES, kind: "coplayer", pointsMode: false }), normalizeDnd(dnd, { rules: DND_RULES, kind: "pc", pointsMode: false }));
+  assert.deepEqual([normalizeDnd(dnd, { rules: DND_RULES, kind: "pc", pointsMode: false }).base.STR, normalizeDnd(dnd, { rules: DND_RULES, kind: "npc", pointsMode: false }).base.STR], [8, 3]);
+});
+
 test("NPC cards may go beyond investigator limits", () => {
   const card = normalizeCard({ characteristics: { STR: 150 }, skills: { "Cthulhu Mythos": 60 } }, { rules, kind: "npc" });
   assert.equal(card.characteristics.STR, 150);
@@ -40,13 +53,8 @@ test("NPC cards may go beyond investigator limits", () => {
 test("a reply that is not JSON gets one repair round", async () => {
   const replies = ["Sure! Here it is", "```json\n{\"name\": \"Ada\", \"role_card\": {}}\n```"];
   const llm = { calls: 0, async complete() { return replies[this.calls++]; } };
-  const out = await completeJson(llm, { system: "s", user: "u", purpose: "coplayer_card" }, (x) => x);
+  const out = await completeJson(llm, { system: "s", user: "u", purpose: "npc_card" }, (x) => x);
   assert.equal(out.name, "Ada");
   assert.equal(llm.calls, 2);
 });
 
-test("improvisation: a co-player is written into the GM's world setting", async () => {
-  const llm = new MockLlm();
-  await generateCoplayer(llm, { language: "English", era: "1920s", rules: null, pointsMode: false, takenNames: [], partyNotes: "", index: 0, total: 1, world: "WORLD-GEN: Kingsport, 1923" });
-  assert.ok(llm.calls[0].messages[0].content.includes("WORLD-GEN: Kingsport, 1923"));
-});

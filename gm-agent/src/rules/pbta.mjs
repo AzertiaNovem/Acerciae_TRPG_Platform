@@ -8,11 +8,10 @@ export const PBTA = Object.freeze({
     losses: "resources, conditions and items gained or lost",
   }),
   framing: () => "the GM (Game master) of a Powered by the Apocalypse campaign",
-  coplayerGame: () => "a Powered by the Apocalypse game",
   fetchRules: (api, channelId) => api.pbtaRules(channelId),
   roll: /^\.move [a-z][a-z0-9_-]*(?: [+-]?\d{1,2})?$/,
   gmDice: null,
-  dice: { requestRoll: ".move <move-id>", coplayerShape: ".move <move-id>", gmHelp: "" },
+  dice: { requestRoll: ".move <move-id>", gmHelp: "" },
   combatRule: "",
   castNote: () => "",
 });

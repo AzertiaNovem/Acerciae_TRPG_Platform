@@ -23,11 +23,11 @@ test("a blank card gives just the name; long fields are clipped", () => {
   assert.ok(line.length < 420 && line.endsWith("…"));
 });
 
-test("investigators are the player characters, then the co-players, never real NPCs", () => {
-  const characters = [{ id: "cp1", kind: "npc" }, { id: "npc", kind: "npc" }, { id: "cp2", kind: "npc" }, { id: "pc", kind: "pc" }];
-  const roster = new Roster({ coplayers: [{ characterId: "cp1", seats: [] }, { characterId: "cp2", seats: [] }], npcs: [{ characterId: "npc" }] });
-  assert.deepEqual(investigatorsFor(characters, roster).map((c) => c.id), ["pc", "cp1", "cp2"]);
-  assert.deepEqual(investigatorsFor(characters, roster, { except: "cp1" }).map((c) => c.id), ["pc", "cp2"]);
+test("investigators are the player characters (a platform bot's among them), never real NPCs or a PC the GM voices", () => {
+  const characters = [{ id: "own", kind: "pc", user_id: "gm" }, { id: "npc", kind: "npc" }, { id: "pc", kind: "pc", user_id: "u-pc" }, { id: "bot", kind: "pc", user_id: "u-wren" }];
+  const roster = new Roster().reconcile(characters, { castBy: "gm" });
+  assert.deepEqual(investigatorsFor(characters, roster).map((c) => c.id), ["pc", "bot"]);
+  assert.deepEqual(investigatorsFor(characters, roster, { except: "pc" }).map((c) => c.id), ["bot"]);
 });
 
 test("a D&D card: traits from the final scores (18 and above, 7 and below), the build line, never a number", () => {

@@ -1,5 +1,5 @@
-// 世界书 and 队友意图: forms over two files in the state directory (host-manager.mjs). They can be edited whether the
-// channel is running or not; a running table reads the change at its next turn. Every text is set with textContent
+// 世界书: a form over a file in the state directory (host-manager.mjs). It can be edited whether the channel is running
+// or not; a running table reads the change at its next turn. Every text is set with textContent
 // or value, never as HTML.
 'use strict';
 
@@ -89,7 +89,7 @@ export function worldbookEditor(root, { api, notice }) {
       el('section', { class: 'card' }, el('h3', { text: '世界书' }),
         el('p', { class: 'muted small', text: status }),
         data.improv ? null : el('p', { class: 'banner error', text: '本频道未开启即兴模式，世界书暂不生效。' }),
-        el('p', { text: '世界圣经每回合都交给 GM、NPC 与 AI 队友；隐藏设定只给 GM 一方。词条只在需要时使用：标题或关键词出现在该窗口最近的聊天里时（AI 队友只看自己亲历的部分），或 GM 用 worldbook_read 主动查阅时。秘密词条只给 GM、NPC 与剧情规划，AI 队友永远读不到。' }),
+        el('p', { text: '世界圣经每回合都交给 GM 与 NPC，也写进平台机器人的备忘；隐藏设定只给 GM 一方。词条只在需要时使用：标题或关键词出现在该窗口最近的聊天里时（机器人的备忘只看所有人都能读到的聊天），或 GM 用 worldbook_read 主动查阅时。秘密词条只给 GM、NPC 与剧情规划，机器人永远读不到。' }),
         el('p', { class: 'muted small', text: '世界书不会发到聊天里，只保存在运行主持程序的这台机器上。运行中的频道会在下一回合读到修改。' })),
       el('section', { class: 'card' }, el('div', { class: 'row' }, el('h3', { text: '世界圣经（总是使用，所有人都知道）' }), count(view.bible, data.limits.bible)), view.bible),
       el('section', { class: 'card' }, el('div', { class: 'row' }, el('h3', { text: '隐藏设定（总是使用，只给 GM 一方）' }), count(view.hidden, data.limits.hidden)), view.hidden),
@@ -122,52 +122,4 @@ export function worldbookEditor(root, { api, notice }) {
     catch (error) { if (mine === serial) root.replaceChildren(el('p', { class: 'banner error', text: `无法读取世界书：${error.message}` })); }
   }
   return { load, dirty, reset: () => { channel = ''; loaded = null; filter = ''; root.replaceChildren(); } };
-}
-
-export function intentionsEditor(root, { api, notice }) {
-  let channel = '', loaded = null, inputs = new Map(), saving = false, serial = 0;
-  const changes = () => Object.fromEntries([...inputs].filter(([id, input]) => input.value.trim() !== (loaded.coplayers.find(c => c.id === id)?.intention ?? '')).map(([id, input]) => [id, input.value]));
-  const dirty = () => Boolean(loaded) && Object.keys(changes()).length > 0;
-  const savebar = el('div', { class: 'savebar', hidden: true });
-  const refreshBar = () => { savebar.hidden = !dirty(); };
-
-  function render(data) {
-    loaded = data; inputs = new Map();
-    const rows = data.coplayers.map(c => {
-      const input = el('textarea', { class: 'wb-text', rows: 3, value: c.intention, placeholder: '例如：追求米娜，同时努力维持社团的团结。', 'aria-label': `${c.name} 的意图`, oninput: refreshBar });
-      inputs.set(c.id, input);
-      return el('section', { class: 'card' }, el('div', { class: 'row' }, el('h3', { text: c.name }), count(input, data.limit)),
-        input, el('p', { class: 'muted small', text: c.intention ? `设定于 ${when(c.at)}。清空并保存即可取消。` : '未设定。' }));
-    });
-    root.replaceChildren(
-      el('section', { class: 'card' }, el('h3', { text: '队友意图' }),
-        el('p', { text: '为 AI 队友手动设定一个长期意图，例如“追求某人，同时努力维持组织团结”。队友会在合适的时候，以自己的选择一步步去追求它。' }),
-        el('p', { class: 'muted small', text: '只有该队友本人读取；GM、剧情规划和其他队友都不知道。意图不会自动完成或改变，需要时在这里修改或清空。它不会越过牌桌规则：不替玩家角色做决定，不逼迫被动在场的角色。' }),
-        el('p', { class: 'muted small', text: `文件 ${data.file}${data.revision ? ` · 第 ${data.revision} 版` : ' · 尚未创建'}` })),
-      ...(rows.length ? rows : [el('p', { class: 'muted', text: '本频道还没有 AI 队友。启动并准备频道后，队友会出现在这里。' })]),
-      savebar);
-    refreshBar();
-  }
-
-  const discard = el('button', { type: 'button', class: 'quiet', text: '放弃修改', onclick: () => { if (confirm('放弃对意图的修改？')) load(channel, { force: true }); } });
-  const save = el('button', { type: 'button', class: 'primary', text: '保存意图', onclick: async () => {
-    if (saving || !loaded) return;
-    saving = true; save.disabled = true;
-    try {
-      const data = await api(`/api/channels/${channel}/intentions`, { revision: loaded.revision, changes: changes() });
-      render(data); notice('意图已保存。运行中的频道会在队友下一次行动时读到。', 'ok');
-    } catch (error) { notice(error.status === 409 ? conflictText : `未保存：${error.message}`, 'bad'); }
-    finally { saving = false; save.disabled = false; }
-  } });
-  savebar.append(el('span', { text: '意图有未保存的修改' }), el('div', {}, discard, save));
-
-  async function load(id, { force = false } = {}) {
-    if (!force && id === channel && loaded) return;
-    const mine = ++serial;
-    channel = id; loaded = null;
-    root.replaceChildren(el('p', { class: 'muted', text: '正在读取意图…' }));
-    try { const data = await api(`/api/channels/${id}/intentions`); if (mine === serial) render(data); }
-    catch (error) { if (mine === serial) root.replaceChildren(el('p', { class: 'banner error', text: `无法读取意图：${error.message}` })); }
-  }
-  return { load, dirty, reset: () => { channel = ''; loaded = null; root.replaceChildren(); } };
 }

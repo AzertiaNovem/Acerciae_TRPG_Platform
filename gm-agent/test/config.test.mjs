@@ -5,6 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { buildConfig, configPath, loadConfigFile } from "../src/config.mjs";
 import { describeModels, routeFor } from "../src/llm/routes.mjs";
+import { parseChannel } from "../src/host-config.mjs";
+import YAML from "yaml";
 
 const file = (data, dir = "/campaign") => ({ file: path.join(dir, "gm-agent.yml"), dir, data });
 
@@ -28,15 +30,9 @@ test("old environment variables are ignored, with a warning naming the file key"
   assert.equal(cfg.warnings.length, 3);
 });
 
-test('co-player participation thresholds are configurable and the check can be disabled', () => {
-  const cfg = buildConfig({}, {}, file({ autonomy: { coplayer_idle_lines: 0, coplayer_idle_minutes: 45 } }));
-  assert.equal(cfg.coplayerIdleLines, 0); assert.equal(cfg.coplayerIdleMinutes, 45);
-  assert.deepEqual(cfg.warnings, []);
-});
-
 test("unknown sections and keys in the file are reported, known ones are not", () => {
-  const cfg = buildConfig({}, {}, file({ table: { coplayers: 3, colour: "red" }, misc: { a: 1 } }));
-  assert.equal(cfg.coplayers, 3);
+  const cfg = buildConfig({}, {}, file({ table: { level: 3, colour: "red" }, misc: { a: 1 } }));
+  assert.equal(cfg.level, 3);
   assert.deepEqual(cfg.warnings.sort(), ['gm-agent.yml: unknown key "table.colour"', 'gm-agent.yml: unknown section "misc"']);
 });
 
@@ -57,23 +53,23 @@ test("named providers and the model of each function: defaults, keys, routes and
   const cfg = buildConfig({}, env, file({
     llm: { provider: "anthropic", model: "claude-opus-5-5", effort: "medium", cache_ttl: "5m" },
     providers: { gw: { provider: "openai_compatible", api_base: "https://gw.test/v1", model: "gpt-x", max_tokens: 4000 }, fast: { provider: "anthropic", model: "claude-haiku-5-5", api_key: "k-fast", effort: "low", cache_ttl: "off" } },
-    models: { coplayers: "gw", memory: { provider: "fast" }, coplayer_phone: { provider: "fast", model: "claude-sonnet-5-5", effort: "high", max_tokens: 800 }, default: { provider: "default", effort: "high" } },
+    models: { readers: "gw", memory: { provider: "fast" }, movement_evidence: { provider: "fast", model: "claude-sonnet-5-5", effort: "high", max_tokens: 800 }, default: { provider: "default", effort: "high" } },
   }));
   assert.deepEqual(cfg.warnings, []);
   assert.deepEqual([cfg.providers.gw.apiKey, cfg.providers.gw.maxTokens, cfg.providers.gw.cacheTtl, cfg.providers.gw.effort], ["k-llm", 4000, "5m", "medium"], "a provider takes the llm settings it does not give; its key from the environment");
   assert.deepEqual([cfg.providers.fast.apiKey, cfg.providers.fast.cacheTtl, cfg.providers.default.apiKey], ["k-fast", "off", "k-llm"], "the llm settings read LLM_API_KEY first, as before");
   // A purpose named directly outranks its function; a function not named runs on models.default; the planner keeps its own section.
-  assert.deepEqual([routeFor(cfg, "coplayer_turn").name, routeFor(cfg, "coplayer_turn").model, routeFor(cfg, "coplayer_phone").model, routeFor(cfg, "coplayer_phone").maxTokens], ["gw", "gpt-x", "claude-sonnet-5-5", 800]);
+  assert.deepEqual([routeFor(cfg, "scene_presence").name, routeFor(cfg, "scene_presence").model, routeFor(cfg, "movement_evidence").model, routeFor(cfg, "movement_evidence").maxTokens], ["gw", "gpt-x", "claude-sonnet-5-5", 800]);
   assert.deepEqual([routeFor(cfg, "compact").name, routeFor(cfg, "compact").effort, routeFor(cfg, "director").name, routeFor(cfg, "director").effort, routeFor(cfg, "planner").effort, routeFor(cfg, "planner").function], ["fast", "low", "default", "high", "high", "planner"]);
-  assert.deepEqual(describeModels(cfg).map((r) => [r.function, r.provider, r.model, r.effort]), [["coplayers", "gw", "gpt-x", "medium"], ["formatting", "anthropic", "claude-opus-5-5", "low"], ["planner", "anthropic", "claude-opus-5-5", "high"], ["memory", "fast", "claude-haiku-5-5", "low"], ["default", "anthropic", "claude-opus-5-5", "high"]]);
+  assert.deepEqual(describeModels(cfg).map((r) => [r.function, r.provider, r.model, r.effort]), [["formatting", "anthropic", "claude-opus-5-5", "low"], ["planner", "anthropic", "claude-opus-5-5", "high"], ["memory", "fast", "claude-haiku-5-5", "low"], ["readers", "gw", "gpt-x", "medium"], ["default", "anthropic", "claude-opus-5-5", "high"]]);
   // models.planner outranks the planner section; without either, the planner runs on the default route.
   const planned = buildConfig({}, env, file({ llm: { provider: "anthropic" }, providers: { fast: { provider: "anthropic", model: "claude-haiku-5-5" } }, models: { planner: "fast" } }));
   assert.deepEqual([routeFor(planned, "planner").name, routeFor(planned, "planner").model], ["fast", "claude-haiku-5-5"]);
   assert.equal(routeFor(buildConfig({}, env, file({ llm: { provider: "anthropic" }, planner: { effort: "medium" } })), "planner").function, null, "a planner section equal to llm is no route of its own");
   // What is refused, each with a word of help.
   const bad = buildConfig({}, env, file({ llm: { provider: "mock" }, providers: { default: { provider: "mock" }, "bad name": { provider: "mock" }, gw: { provider: "openai_compatible" }, odd: { provider: "mock", colour: "red" }, nope: { provider: "nowhere" } },
-    models: { singer: "gw", director: "missing", coplayers: { provider: "odd", effort: "extreme", size: 1 } } }));
-  for (const re of [/"default" is the llm section/, /"bad name" is not a name/, /providers\.gw \(openai_compatible\) needs api_base/, /needs a model/, /unknown key "providers\.odd\.colour"/, /providers\.nope\.provider must be/, /unknown function "singer"/, /models\.director: no provider "missing"/, /models\.coplayers\.effort must be/, /unknown key "models\.coplayers\.size"/]) assert.ok(bad.warnings.some((w) => re.test(w)), String(re));
+    models: { singer: "gw", director: "missing", readers: { provider: "odd", effort: "extreme", size: 1 } } }));
+  for (const re of [/"default" is the llm section/, /"bad name" is not a name/, /providers\.gw \(openai_compatible\) needs api_base/, /needs a model/, /unknown key "providers\.odd\.colour"/, /providers\.nope\.provider must be/, /unknown function "singer"/, /models\.director: no provider "missing"/, /models\.readers\.effort must be/, /unknown key "models\.readers\.size"/]) assert.ok(bad.warnings.some((w) => re.test(w)), String(re));
   assert.equal(buildConfig({}, {}, file({ llm: { provider: "mock" } })).providers.default.name, "default");
 });
 
@@ -104,16 +100,16 @@ test("modes are three-valued: unset leaves the state file alone", () => {
 
 test("the file is found by flag, variable or beside the working directory, and read as YAML", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gm-cfg-"));
-  fs.writeFileSync(path.join(dir, "gm-agent.yml"), "table:\n  coplayers: 4\nllm:\n  provider: mock\n");
+  fs.writeFileSync(path.join(dir, "gm-agent.yml"), "table:\n  level: 4\nllm:\n  provider: mock\n");
   assert.equal(configPath({}, {}, dir), path.join(dir, "gm-agent.yml"));
   assert.equal(configPath({}, {}, "/nowhere", dir), path.join(dir, "gm-agent.yml"), "the client's own directory as a fallback");
   assert.equal(configPath({ config: "x.yml" }, {}, dir), path.resolve("x.yml"));
   assert.equal(configPath({}, { GM_AGENT_CONFIG: "/etc/gm.yml" }, dir), "/etc/gm.yml");
   assert.equal(configPath({}, {}, "/nowhere"), null);
   const loaded = loadConfigFile(path.join(dir, "gm-agent.yml"));
-  assert.equal(buildConfig({}, {}, loaded).coplayers, 4);
-  assert.equal(buildConfig({}, {}, loadConfigFile(null)).coplayers, 2, "no file: defaults");
-  assert.equal(buildConfig({}, {}, loadConfigFile(path.join(dir, "missing.yml"))).coplayers, 2);
+  assert.equal(buildConfig({}, {}, loaded).level, 4);
+  assert.equal(buildConfig({}, {}, loadConfigFile(null)).level, 1, "no file: defaults");
+  assert.equal(buildConfig({}, {}, loadConfigFile(path.join(dir, "missing.yml"))).level, 1);
   fs.writeFileSync(path.join(dir, "bad.yml"), "- a\n- b\n");
   assert.throws(() => loadConfigFile(path.join(dir, "bad.yml")), /YAML mapping/);
 });
@@ -137,7 +133,7 @@ test("the GM's calendar pace: defaults, the calendar section, flags, and 0 for n
   assert.equal(buildConfig({}, {}, file({ calendar: { min_minutes: -5 } })).calendarMinMinutes, 0);
 });
 
-test("the rule system of a new channel and the level of new D&D co-players", () => {
+test("the rule system of a new channel and the level of the D&D characters the Forge makes", () => {
   assert.equal(buildConfig({}, {}, file({})).ruleSystem, "coc7e"); assert.equal(buildConfig({}, {}, file({})).level, 1);
   assert.equal(buildConfig({}, {}, file({ channel: { rule_system: "dnd2024" }, table: { level: 5 } })).ruleSystem, "dnd2024");
   assert.equal(buildConfig({ rules: "dnd2024", level: "30" }, {}, file({})).level, 20, "clamped to 1–20");
@@ -152,4 +148,25 @@ test("PbtA rules and the existing channel.rules configuration remain supported",
     assert.equal(buildConfig({ rules: "dnd2024" }, {}, file({ channel: { [key]: "pbta" } })).ruleSystem, "dnd2024");
   }
   assert.equal(buildConfig({}, {}, file({ channel: { rules: "pbta", rule_system: "dnd2024" } })).ruleSystem, "dnd2024");
+});
+
+// The settings of the AI co-players and what served them (the platform's bots took their place): an older file that
+// still sets them loads as it is, here and in the host, where any warning would stop the channel.
+const RETIRED = {
+  table: { coplayers: 3, coplayer_windows: ["Main Chat"] },
+  writing: { coplayer: "Short and dry." },
+  planner: { impulse_lines: 40 },
+  context: { coplayer_tokens: 20000 },
+  autonomy: { side_interval_ms: 60000, away_side_interval_ms: 0, coplayer_idle_lines: 6, coplayer_idle_minutes: 30 },
+  modes: { casual_ai_texts_per_hour: 4, casual_ai_chain: 2 },
+  timelines: { guard_turns: 2, guard_ms: 60000 },
+  models: { coplayers: "default", coplayer_turn: { provider: "default", effort: "low" }, coplayer_phone: "default", coplayer_memory: "default", coplayer_card: "default", coplayer_repair: "default" },
+};
+
+test("the co-players' settings in an older file load without a warning, and change nothing", () => {
+  assert.deepEqual(buildConfig({}, {}, file(RETIRED)).warnings, []);
+  assert.deepEqual(buildConfig({}, {}, file(RETIRED)), buildConfig({}, {}, file({})), "read as if they were not there");
+  assert.doesNotThrow(() => parseChannel(YAML.stringify(RETIRED)));
+  // Their old environment variables still say they are not read, without pointing to a key that does nothing.
+  assert.deepEqual(buildConfig({}, { AWAY_SIDE_INTERVAL_MS: "0" }, file({})).warnings, ["AWAY_SIDE_INTERVAL_MS is no longer read; its setting is retired"]);
 });

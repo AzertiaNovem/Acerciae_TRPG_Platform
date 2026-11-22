@@ -1,7 +1,7 @@
 // The rule system a channel plays by: Call of Cthulhu 7e (`coc7e`, the default), D&D 2024 (`dnd2024`), or PbtA (`pbta`). A profile
 // carries everything that differs between them in this client: the words the prompts use, the game's framing, the
-// dice commands each role may use, how role cards are written and checked, what a co-player reads of its own sheet,
-// and which characteristics count as striking. The table and `setup` choose one from `channel.rule_system`; the rest
+// dice commands each role may use, how role cards are written and checked, and which characteristics count as
+// striking. The table and `setup` choose one from `channel.rule_system`; the rest
 // of the client reads the profile and never names a system itself.
 import { COC7E } from "./coc7e.mjs";
 import { DND2024 } from "./dnd2024.mjs";

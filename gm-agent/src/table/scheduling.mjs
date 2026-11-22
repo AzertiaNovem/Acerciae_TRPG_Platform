@@ -2,13 +2,10 @@
 import { billableTokens } from "../store.mjs";
 import { recall } from "../context/recall.mjs";
 import { investigatorsFor } from "../context/profiles.mjs";
-import { openWindows } from "../roles/roster.mjs";
 import { MAIN } from "../timelines.mjs";
 import { noteCalendarLine } from "../calendar.mjs";
 import { TRIGGER_KINDS, HOUR } from "./shared.mjs";
 import { pictureOnly } from "../pictureLines.mjs";
-
-import { attentionCandidates } from './attention.mjs';
 
 export function cancelTimer(table, windowId) {
     const pending = table.timers.get(windowId);
@@ -103,7 +100,7 @@ export function onMessage(table, m) {
     if (table.isHuman(m) && !table.isPlannerWindow(m.chat_window_id)) table.noteSession(m);
     // A player's line of play counts toward the calendar's pace (chatter out of character does not).
     if (table.playerSpeech(m) && m.kind !== "ooc" && !table.isPlannerWindow(m.chat_window_id)) noteCalendarLine(table.calendar);
-    // A correction in chat or the planner window takes effect before the next GM/companion turn.
+    // A correction in chat or the planner window takes effect before the GM's next turn.
     let placement;
     if (table.isTrigger(m) && (table.isPlannerWindow(m.chat_window_id) || ((table.scene(m.chat_window_id) || m.chat_window_id === table.mainWindow()?.id) &&
         (m.kind === "ooc" || table.timelines.active().length > 1)))) {
@@ -113,7 +110,7 @@ export function onMessage(table, m) {
       table.onWishLine(m);
       return placement;
     }
-    if (m && m.chat_window_id && m.chat_window_id === table.casual.log) return undefined;   // the GM's own phone log
+    if (m && m.chat_window_id && m.chat_window_id === table.casual.log) return undefined;   // an older version's phone log
     if (m && table.isPhone(m.chat_window_id)) return table.onPhoneLine(m);   // a phone never starts a scene turn
     if (!table.isTrigger(m)) return undefined;
     // Keep the platform's bots this client's to pace while it plays (a call every few minutes at most).
@@ -183,14 +180,6 @@ export function checkInvariants(table) {
     for (const t of table.timelines.active()) for (const id of t.members) counts.set(id, (counts.get(id) ?? 0) + 1);
     if ([...counts.values()].some((n) => n !== 1)) { table.log("invariant: an investigator was in zero or several timelines; repaired"); table.timelines.reconcile(ids); }
     for (const t of table.timelines.active()) if (t.id !== MAIN && !t.windowId) { table.log(`invariant: thread "${t.name}" had no window; merged`); table.timelines.merge(t.id, MAIN, table.lastSeq + 1); }
-    for (const cp of table.roster.coplayers) {
-      const want = table.windowOf(table.timelines.of(cp.characterId));
-      const open = openWindows(cp);
-      if (want && !(open.length === 1 && open[0] === want)) {
-        table.log(`invariant: ${cp.name}'s seat did not match its timeline; repaired`);
-        table.roster.moveSeats([cp], [want], (w) => table.windowSeq.get(w) ?? table.lastSeq);
-      }
-    }
   }
 
 export function startTicker(table) {
@@ -217,27 +206,16 @@ export async function tick(table) {
     if (table.overBudget()) return null;
     const now = table.now();
     const idle = table.cfg.autonomyIdleMinutes * 60000;
-    // Away: nobody at the table. Only co-players-only threads move, every AWAY_SIDE_INTERVAL_MS (0: not at all).
-    const away = now - table.lastHumanAt > idle;
-    if (away && !table.cfg.awaySideIntervalMs) return null;
+    // Away: nobody at the table, so nothing moves on its own.
+    if (now - table.lastHumanAt > idle) return null;
     table.autonomousTurns = table.autonomousTurns.filter((t) => now - t < HOUR);
     if (table.autonomousTurns.length >= table.cfg.autonomyMaxTurnsPerHour) return null;
     const candidates = [];
     for (const w of table.windows) {
       if (w.archived_at || table.timelines.retired(w.id) || table.isTableWindow(w.id) || (table.forks && !table.scene(w.id))) continue;
       const st = table.state(w.id);
-      const scene = table.scene(w.id);
       const humans = table.presentPlayers(w.id).length > 0;
-      const sinceLine = now - Math.max(st.lastLineAt, st.lastTurnAt);
-      // A neglected co-player gets a bounded review even when the shared window has used
-      // its ordinary quiet turns. It still waits for typing, the idle gate and hourly cap.
-      if (!away && (!humans || (st.lastHumanAt && now - st.lastHumanAt <= idle)) && table.cfg.maxActionsPerTurn >= 2 && sinceLine >= table.cfg.autonomyQuietMs && !table.humansTyping(w.id).length && attentionCandidates(table, w.id).length) {
-        candidates.push({ w, mode: "attention", waited: sinceLine, extra: {} });
-        continue;
-      }
-      if (scene && !humans && table.roster.coplayersIn(w.id).length) {
-        if (sinceLine >= (away ? table.cfg.awaySideIntervalMs : table.cfg.autonomySideIntervalMs)) candidates.push({ w, mode: "side", waited: sinceLine, extra: { timeline: scene } });
-      } else if (!away && humans && st.lastHumanAt && now - st.lastHumanAt <= idle && st.quietTurns < table.cfg.autonomyQuietTurns) {
+      if (humans && st.lastHumanAt && now - st.lastHumanAt <= idle && st.quietTurns < table.cfg.autonomyQuietTurns) {
         // Only a window where a human spoke recently moves on; a long-abandoned private window stays as it is. A human
         // writing there now holds it: the story does not move on while they compose their line (their sent line gets
         // its answer as always), and their stopping starts the silence over.

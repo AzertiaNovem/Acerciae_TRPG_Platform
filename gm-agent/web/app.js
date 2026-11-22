@@ -4,12 +4,12 @@
 import { PURPOSES, PHASES, groupPurposes, tokenChart } from './usage.js';
 import { renderWorld } from './world-state.js';
 import { CreateWizard } from './create-wizard.js';
-import { worldbookEditor, intentionsEditor } from './worldbook.js';
+import { worldbookEditor } from './worldbook.js';
 'use strict';
 let worldKey = '', worldBusy = false;
 let connected = false, connecting = false, connection = 0, selected = '', tab = 'overview', busy = false;
 let schema = null, config = null, detail = null, channels = [];
-const FUNCTIONS = { forge: '开局共创', director: '主持', coplayers: '队友', formatting: '排版', planner: '规划', memory: '记忆', readers: '判读', pictures: '插画', cards: '角色卡' };
+const FUNCTIONS = { forge: '开局共创', director: '主持', formatting: '排版', planner: '规划', memory: '记忆', readers: '判读', pictures: '插画', cards: '角色卡' };
 let channelRequest = 0;
 let usageRange = 'today', usageDetailsOpen = false, planKey = '';
 let usageKey = '', usageNode = null;
@@ -59,7 +59,7 @@ const time = iso => (iso ? new Date(iso).toLocaleString('zh-CN', { hour12: false
 const STATES = { starting: ['启动中', 'warn'], running: ['运行中', 'ok'], stopping: ['停止中', 'warn'], stopped: ['已停止', 'off'], failed: ['失败 / 已退出', 'bad'] };
 const RULES = { coc7e: 'CoC 7e', dnd2024: 'D&D 2024', pbta: 'PbtA' };
 const yesNo = v => (v === true ? '开' : v === false ? '关' : '—');
-const unsaved = () => dirty.size > 0 || (config && $('yaml').value !== config.yaml) || books.dirty() || intents.dirty();
+const unsaved = () => dirty.size > 0 || (config && $('yaml').value !== config.yaml) || books.dirty();
 const confirmDiscard = () => !unsaved() || confirm('放弃尚未保存的修改？');
 
 // ---------- login
@@ -139,7 +139,7 @@ async function select(id) {
   if (busy || (id !== selected && !confirmDiscard())) return;
   selected = id; dirty.clear(); logSeq = 0; logLines = []; $('log').replaceChildren(); detail = null; config = null;
   worldKey = ''; $('world-view').replaceChildren();
-  books.reset(); intents.reset();
+  books.reset();
   $('empty').hidden = true; $('create').hidden = true; $('channel').hidden = false;
   $('title').textContent = id; $('subtitle').textContent = '';
   try { await Promise.all([loadConfig(), refreshDetail()]); await refreshChannels(); showTab(tab); notice(''); }
@@ -153,18 +153,16 @@ async function loadConfig() {
   dirty.clear(); renderForm(); renderSavebar();
 }
 
-// The worldbook and the co-players' intentions (worldbook.js): files the host edits, running or not.
+// The worldbook (worldbook.js): a file the host edits, running or not.
 const books = worldbookEditor($('worldbook-view'), { api, notice });
-const intents = intentionsEditor($('intentions-view'), { api, notice });
 
 // ---------- tabs
 for (const button of document.querySelectorAll('[data-tab]')) button.onclick = () => showTab(button.dataset.tab);
 function showTab(name) {
   tab = name;
   for (const b of document.querySelectorAll('[data-tab]')) b.setAttribute('aria-selected', String(b.dataset.tab === name));
-  for (const t of ['overview', 'plan', 'world', 'worldbook', 'intentions', 'settings', 'yaml', 'logs']) $(`tab-${t}`).hidden = t !== name;
+  for (const t of ['overview', 'plan', 'world', 'worldbook', 'settings', 'yaml', 'logs']) $(`tab-${t}`).hidden = t !== name;
   if (name === 'worldbook' && selected) books.load(selected);
-  if (name === 'intentions' && selected) intents.load(selected);
   if (name === 'world') refreshWorld().catch(error => notice(error.message, 'bad'));
   if (name === 'logs') refreshLogs().catch(() => {});
 }
@@ -311,20 +309,6 @@ function renderOverview() {
       // The functions routed to another provider or model than the default (llm/routes.mjs).
       ...(s.models ?? []).filter(m => m.function !== 'default').map(m => kv(`模型 · ${FUNCTIONS[m.function] ?? m.function}`, `${m.model && m.model !== m.provider ? `${m.provider} ${m.model}` : m.provider}${m.effort ? ` · ${m.effort}` : ''}`)),
       c.warning ? h('p', { class: 'warn-text', text: c.warning }) : null));
-    const coplayerLocations = card(`AI 队友所在窗口（${cast.coplayers?.length ?? 0}）`,
-      live.stale ? h('p', { class: 'warn-text', text: `上次记录 · ${time(live.at)}` }) : null,
-      cast.coplayers?.length ? h('ul', { class: 'list coplayer-locations' }, ...cast.coplayers.map(cp => {
-        const windows = cp.windowDetails ?? (cp.windows ?? []).map(name => ({ name, status: 'active' }));
-        const timeline = live.timelines?.find(t => t.handle === `T${cp.timeline}`);
-        return h('li', { 'data-character-id': cp.characterId },
-          h('div', { class: 'coplayer-heading' }, h('strong', { text: cp.name }),
-            cp.timeline != null ? h('span', { class: 'tag', text: `T${cp.timeline}`, title: timeline?.name }) : null),
-          windows.length ? h('ul', { class: 'coplayer-windows', 'aria-label': `${cp.name}的当前窗口` }, ...windows.map(w => h('li', {},
-            h('span', { class: 'coplayer-window-name', text: w.name, title: w.id ? `窗口 ID：${w.id}` : undefined }),
-            w.status !== 'active' ? h('span', { class: 'warn-text small', text: { archived: '窗口已归档', ended: '场景已结束', missing: '窗口暂不可用' }[w.status] ?? '状态未知' }) : null)))
-            : h('p', { class: 'muted', text: '当前不在任何对话窗口' }));
-      })) : h('p', { class: 'muted', text: '暂无 AI 队友' }));
-    coplayerLocations.id = 'coplayer-locations'; cards.push(coplayerLocations);
     if (u) cards.push(usageCard(u));
     cards.push(card('活动',
       kv('状态', a.paused ? '主持已暂停（玩家 /pause）' : a.away ? '玩家离开（共享窗口暂停）' : '玩家在场', a.paused ? 'warn-text' : ''),
@@ -348,7 +332,7 @@ function renderOverview() {
       kv('状态', p.on ? (p.mode === 'full' ? '开（完整规划：即兴）' : '开（只管节奏：模组）') : '关'),
       p.on ? kv('计划', p.version ? `v${p.version} · ${ago(p.updatedAt)}${p.trigger ? `（${p.trigger}）` : ''}` : '尚无（需要更多发言）') : null,
       p.beat ? kv('当前节拍', p.beat) : null, p.version ? kv('判断', p.moveOn ? '可以推进' : '继续当前') : null,
-      p.on ? kv('线索 / 冲动', `${num(p.threads)} / ${p.impulses?.length ? p.impulses.join('、') : '无'}`) : null,
+      p.on ? kv('线索', num(p.threads)) : null,
       p.window ? kv('规划窗口', `「${p.window}」 · 纠正 ${p.corrections} · 愿望 ${p.wishes}${p.inbox ? ` · 未读 ${p.inbox}` : ''}`) : null,
       p.session ? kv('本次游戏', `${num(p.session.lines)} 行玩家发言 · 始于 ${time(p.session.startedAt)}`) : null,
       p.on ? kv('会后总结', p.finalReview ? '开' : '关') : null, p.busy ? kv('', '正在规划…', 'warn-text') : null,
@@ -362,7 +346,7 @@ function renderOverview() {
       cal.on ? kv('日期推进', cal.mayMove ? `可以推进（一次最多 ${cal.maxDays || '不限'} 天）` : `需等待 ${cal.wait}`) : null,
       kv('即兴', im.on ? `开 · 世界设定 ${num(im.world)} 字 · 秘密 ${num(im.secrets)} 字 · ${num(im.truths)} 条隐藏真相` : '关'),
       kv('自主推进', yesNo(s.autonomy)), kv('GM 推进场景', yesNo(s.scenarioAuto)),
-      live.memory ? kv('记忆', `${num(live.memory.lines)} 行 · GM 章节 ${num(live.memory.gmChapters)} · 队友章节 ${num(live.memory.coplayerChapters)}`) : null));
+      live.memory ? kv('记忆', `${num(live.memory.lines)} 行 · GM 章节 ${num(live.memory.gmChapters)}`) : null));
     if (live.bonds?.length) cards.push(card('关系', h('ul', { class: 'list' }, ...live.bonds.map(b => h('li', { text: `${b.a} — ${b.b}：${b.kind}${b.secret ? '（秘密）' : ''}` })))));
     if (live.errors) cards.push(card('无法读取的部分', ...Object.entries(live.errors).map(([k, v]) => kv(k, v, 'error-text'))));
   }

@@ -5,19 +5,16 @@
 // explore on their own (`own_scene`). Anyone not listed stays where they are. `planWhereabouts` turns those facts into
 // operations (move, merge, split, relocate) with fixed, testable rules:
 //
-//   * authority  – a player character moves only because its own player said so in this turn's lines in this window;
-//                  co-players move only after their own lines (followup and side rounds). The GM decides for no one;
-//   * guard      – an unsupported reversal needs two agreeing turns; a fresh verified choice is never deferred;
+//   * authority  – a player character moves only because its own player said so in this turn's lines in this window
+//                  (a platform bot's own line counts for its character). The GM decides for no one;
 //   * places     – "new" at the place you already are is no move; "new" at another thread's place joins that thread;
 //   * the scene  – a thread is never emptied by a split: if everyone in it leaves for one place it simply relocates;
-//                  the main timeline keeps the players (co-players left behind get a side window of their own);
 //   * reunions   – scene forks (cfg.sceneForks): a later arrival joins the earlier party's window; the primary
 //                  timeline can rebind to that window. Without them: reunions always land in the main timeline (the
 //                  Main Chat), where every player already is;
 //   * new scene  – scene forks: simultaneous convergence forks the source with the most distinct human players;
 //   * privacy    – scene forks: the harness pauses departing humans and resumes/adds arriving humans before
-//                  narrating; pauses leave permanent gaps, while co-players keep their seat-based context boundaries.
-//                  Without them nobody is ever added to an existing window (its whole history would open to them):
+//                  narrating; pauses leave permanent gaps. Without them nobody is ever added to an existing window (its whole history would open to them):
 //                  joining a thread whose window lacks a joining player regroups the thread into a fresh window, and a
 //                  player who leaves a thread others stay in stops seeing it (those who stay move to a fresh window);
 //   * caps       – at most TIMELINE_MAX_ACTIVE active threads; a player gets a new window at most once per cooldown
@@ -44,7 +41,8 @@ export function validateWhereabouts(x) {
   return out;
 }
 
-// Per-investigator bookkeeping against flip-flopping, persisted with the state file.
+// Per-investigator bookkeeping of moves, persisted with the state file: when each last changed thread and from where
+// (a correction may restore it), and when each player last got a window of their own (the cooldown).
 export class Guard {
   constructor(data = {}) {
     this.turn = Number(data.turn) || 0;
@@ -54,21 +52,21 @@ export class Guard {
   }
   toJSON() { return { turn: this.turn, by: this.by, spare: this.spare, retries: this.retries }; }
   beginTurn() { return ++this.turn; }
-  rec(id) { return this.by[id] ?? { obs: 0, lastObsTurn: null, changedTurn: null, changedAt: 0, changedSeq: 0, prev: null, pending: null, windowAt: 0 }; }
+  rec(id) { return this.by[id] ?? { changedTurn: null, changedAt: 0, changedSeq: 0, prev: null, windowAt: 0 }; }
   apply(updates) { for (const [id, r] of Object.entries(updates)) this.by[id] = r; }
   commit(changed, { turn, now, seq, prevOf, windowed = [] }) {
-    for (const id of changed) this.by[id] = { ...this.rec(id), obs: 0, lastObsTurn: turn, changedTurn: turn, changedAt: now, changedSeq: seq, prev: prevOf(id), pending: null };
+    for (const id of changed) this.by[id] = { ...this.rec(id), changedTurn: turn, changedAt: now, changedSeq: seq, prev: prevOf(id) };
     for (const id of windowed) this.by[id] = { ...this.rec(id), windowAt: now };
   }
 }
 
 // The facts the GM is shown before it reports: threads with their handles, places and spans, and who may move.
-export function whereaboutsBrief({ timelines, scene, nameOf, windowName, isPc, mayMove = [], capReached = false, forks = false }) {
+export function whereaboutsBrief({ timelines, scene, nameOf, windowName, mayMove = [], capReached = false, forks = false }) {
   const lines = ["## Whereabouts"];
   for (const t of timelines.active()) {
     const here = scene?.timeline?.id === t.id ? " ← this scene" : "";
     const where = t.windowId ? `in window "${windowName(t.windowId)}"` : t.id === MAIN ? (forks ? "in the Main Chat (before the first split)" : "in the Main Chat") : "";
-    const who = t.members.map((id) => `${nameOf(id)} (${isPc(id) ? "player" : "co-player"})`).join(", ") || "(no one)";
+    const who = t.members.map(nameOf).join(", ") || "(no one)";
     lines.push(`- T${t.handle} "${t.name}"${here} ${where}${t.location ? `, at ${t.location}` : ""}${t.id === MAIN ? "" : `, ${t.span} split`}: ${who}`);
   }
   lines.push(`May move this turn: ${mayMove.map(nameOf).join(", ") || "(no one)"}.`);
@@ -79,15 +77,14 @@ export function whereaboutsBrief({ timelines, scene, nameOf, windowName, isPc, m
 
 // reports: validated whereabouts. scene: {timeline, windowId} (timeline null outside any thread's window).
 // scopeIds: who may be reported this round. speakers: player characters whose player posted in this turn's lines here.
-export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers = new Set(), verifiedCompanions = false, decisionSeqs = new Map(), mode, resolve, isPc, userOf = () => null, windowUsers = () => [], guard, turn, now, cfg }) {
+export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers = new Set(), mode, resolve, isPc, userOf = () => null, windowUsers = () => [], guard, turn, now, cfg }) {
   const forks = Boolean(cfg?.sceneForks);
   const ignored = [];
-  const updates = {};
-  const rec = (id) => updates[id] ?? guard.rec(id);
+  const rec = (id) => guard.rec(id);
   const before = new Map();
   for (const t of timelines.active()) for (const id of t.members) before.set(id, t.id);
   const curOf = (id) => before.get(id) ?? MAIN;
-  if (!scene?.timeline || !reports?.length) return observeOnly();
+  if (!scene?.timeline || !reports?.length) return { ops: [], changed: [], ignored, guard: {}, prevOf: curOf };
 
   // Reconciliation records co-presence that has already happened, rather than authorising new travel.
   const override = mode === "manual" || mode === "correction" || mode === "presence";
@@ -119,24 +116,7 @@ export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers 
       }
       if (target.kind === "tl" && target.id === curOf(id)) continue;
       // 2. Authority.
-      if (!override && isPc(id)) {
-        if (!["human", "relay"].includes(mode) || !speakers.has(id)) { ignored.push({ id, why: "a player character moves only when its player says so" }); continue; }
-      } else if (!override && !verifiedCompanions && !["followup", "side"].includes(mode)) { ignored.push({ id, why: "a co-player moves only after its own line" }); continue; }
-      // 3. Guard (players' own moves are exempt).
-      if (!isPc(id) && !override) {
-        const r = rec(id);
-        const key = target.kind === "tl" ? `tl:${target.id}` : target.key;
-        const recent = r.changedTurn !== null && (r.obs < cfg.timelineGuardTurns || now - r.changedAt < cfg.timelineGuardMs);
-        const explicit = Number.isFinite(decisionSeqs.get(id)) && decisionSeqs.get(id) > r.changedSeq;
-        if (recent && !explicit) {
-          const agreed = r.pending && r.pending.key === key && r.pending.turn > r.changedTurn && r.pending.turn < turn;
-          if (!agreed) {
-            updates[id] = { ...r, pending: r.pending?.key === key && r.pending.turn > r.changedTurn ? r.pending : { key, turn } };
-            ignored.push({ id, why: "deferred: it moved a moment ago" });
-            continue;
-          }
-        }
-      }
+      if (!override && (!["human", "relay"].includes(mode) || !speakers.has(id))) { ignored.push({ id, why: "a player character moves only when its player says so" }); continue; }
       decisions.set(id, target);
       if (target.kind === "new") groups.get(target.key).ids.push(id);
     }
@@ -165,16 +145,8 @@ export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers 
       if (!forks || best.ids.every(id => curOf(id) === F.id)) keep(F, best.key);
       continue;
     }
-    if (F.id === MAIN && remaining.length && !pcsIn(remaining) && pcsIn(F.members) && leaverKeys.length === 1 && F.members.filter(isPc).every((id) => decisions.get(id)?.key === leaverKeys[0])) {
-      // (b) The Main Chat goes with its players; the co-players who stayed get a side window where the party was.
-      const stayKey = `new:${placeKey(F.location) || "where the party was"}#stay`;
-      groups.set(stayKey, { key: stayKey, place: F.location || "where the party was", time: F.narrativeTime, span: "short", opening: "", ids: [...remaining] });
-      for (const id of remaining) decisions.set(id, { kind: "new", key: stayKey });
-      keep(F, leaverKeys[0]);
-      continue;
-    }
     if (!forks && F.id !== MAIN && remaining.length && leavers.some(isPc) && F.windowId) {
-      // (d) Without scene forks, a player leaves a thread others stay in: those who stay continue in a fresh window, so
+      // (b) Without scene forks, a player leaves a thread others stay in: those who stay continue in a fresh window, so
       // the leaver does not keep reading a scene their character has left.
       const key = `regroup:${F.id}`;
       if (!groups.has(key)) groups.set(key, { key, place: F.location, time: F.narrativeTime, span: F.span, opening: "", ids: [...remaining], replaces: F.id, stay: true });
@@ -279,7 +251,6 @@ export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers 
   const changed = new Set([...decisions.keys()]);
   for (const m of ops.merges) for (const id of timelines.get(m.from)?.members ?? []) changed.add(id);
   for (const s of ops.splits) for (const id of s.ids) changed.add(id);
-  observe(changed);
   // Splits are applied before merges, so a thread emptied by a departure is merged empty (no false reunion).
   const list = [
     ...[...ops.moves].map(([to, ids]) => ({ op: "move", ids, to })),
@@ -288,15 +259,5 @@ export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers 
     ...ops.relocations.map((r) => ({ op: "relocate", ...r })),
     ...ops.bindings,
   ];
-  return { ops: list, changed: [...changed], ignored, guard: updates, prevOf: curOf };
-
-  function observe(changedIds) {
-    for (const id of scopeIds) {
-      if (changedIds.has(id)) continue;
-      const r = rec(id);
-      if (r.lastObsTurn === turn || (r.changedTurn !== null && turn <= r.changedTurn)) continue;
-      updates[id] = { ...r, obs: r.obs + 1, lastObsTurn: turn };
-    }
-  }
-  function observeOnly() { observe(new Set()); return { ops: [], changed: [], ignored, guard: updates, prevOf: curOf }; }
+  return { ops: list, changed: [...changed], ignored, guard: {}, prevOf: curOf };
 }

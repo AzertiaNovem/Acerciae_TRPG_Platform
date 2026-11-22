@@ -17,6 +17,7 @@ test('GM harness partitions every party, joins existing scenes, and pauses human
   for (const api of [a, b]) await gm.post(`/api/channels/${ch.id}/members`, { user_id: api.user.id, role: 'player' });
   const alice = await a.createCharacter(ch.id, { name: 'Alice', kind: 'pc' });
   const bob = await b.createCharacter(ch.id, { name: 'Bob', kind: 'pc' });
+  // A PC the GM account owns: the GM voices it as one of its NPCs.
   const companion = await gm.createCharacter(ch.id, { name: 'Companion', kind: 'pc' });
   // This harness is the scene-forks one (the Main Chat becomes a lobby on the first split); forks are off by default.
   const cfg = buildConfig({}, {}); cfg.sceneForks = true; cfg.planner.enabled = false; cfg.autonomy = false; cfg.postDelayMs = 0;
@@ -34,18 +35,13 @@ test('GM harness partitions every party, joins existing scenes, and pauses human
   const privateB = await post(bobWindow, 'BOB_PRIVATE_FIRST');
   await assert.rejects(view(a, bobWindow), e => e.status === 403);
   await assert.rejects(view(b, library), e => e.status === 403);
-  // AI-only departure changes its seat, without moving the real player or altering their window.
-  const beforeCp = (await windows()).length;
-  await t.command({ cmd: 'split', who: ['Companion'], place: 'Roof' });
+  // The GM's own character is no investigator: it is in no thread, cannot be split off, and opens no window.
+  assert.equal(t.roster.isNpc(companion.id), true);
+  assert.ok(!t.timelines.active().some(tl => tl.members.includes(companion.id)));
+  const beforeNpc = (await windows()).length;
+  await assert.rejects(t.command({ cmd: 'split', who: ['Companion'], place: 'Roof' }), /no investigator matched/);
   assert.equal(t.windowOf(t.timelines.of(bob.id)), bobWindow);
-  assert.equal((await windows()).length, beforeCp + 1);
-  const rooftop = t.timelines.of(companion.id);
-  const cpGap = await post(bobWindow, 'BOB_WHILE_AI_AWAY');
-  const cp = t.roster.coplayers.find(c => c.characterId === companion.id);
-  assert.ok(cp.seats.some(s => s.windowId === bobWindow && s.toSeq !== null && s.toSeq < cpGap.seq));
-  await t.command({ cmd: 'rejoin', timeline: rooftop.id });
-  assert.equal(t.windowOf(t.timelines.of(companion.id)), bobWindow);
-  assert.ok(cp.seats.at(-1).fromSeq > cpGap.seq);
+  assert.equal((await windows()).length, beforeNpc);
   // The later human arrival joins Bob's existing scene. No new fork or past secrets.
   const beforeJoin = (await windows()).length;
   await t.command({ cmd: 'rejoin', timeline: aliceThread.id });
@@ -55,7 +51,7 @@ test('GM harness partitions every party, joins existing scenes, and pauses human
   assert.ok(!(await view(a, bobWindow)).some(m => m.id === privateB.id));
   const together = await post(bobWindow, 'BOTH_HERE');
   assert.ok((await view(a, bobWindow)).some(m => m.id === together.id));
-  // On a second departure the same ongoing scene remains open for Bob and Companion.
+  // On a second departure the same ongoing scene remains open for Bob.
   await t.command({ cmd: 'split', who: ['Alice'], place: 'Garden' });
   aliceThread = t.timelines.of(alice.id);
   const state = (await windows()).find(w => w.id === bobWindow);

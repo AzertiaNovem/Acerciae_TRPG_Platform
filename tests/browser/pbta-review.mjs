@@ -52,8 +52,6 @@ try {
       world,
       '--secrets',
       secret,
-      '--coplayers',
-      '1',
     );
   const { stdout } = await setup();
   const id = stdout.match(/CHANNEL_ID=([0-9a-f-]{36})/)[1];
@@ -85,14 +83,14 @@ try {
   await page.getByText('World rule draft', { exact: true }).waitFor({ state: 'hidden' });
   await setup();
   assert.equal((await api.pbtaRules(id)).pack.moves[0].name, 'Serve under pressure');
-  assert.ok((await api.characters(id))[0].role_card.pbta.book);
+  assert.deepEqual(await api.characters(id), [], 'the host makes no characters of its own');
   const calls = (await readFile(trace, 'utf8'))
     .trim()
     .split('\n')
     .map((line) => JSON.parse(line));
   assert.deepEqual(
     calls.map((c) => c.purpose),
-    ['pbta_design', 'pbta_card'],
+    ['pbta_design'],
   );
   assert.ok(calls.every((c) => !JSON.stringify(c.messages).includes('PRIVATE_STATION_BLUEPRINT')));
   assert.equal(JSON.parse(calls[0].messages[0].content).public_world, await readFile(world, 'utf8'));

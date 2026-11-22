@@ -1,12 +1,12 @@
 // Creation follows the runtime's mode dependencies. Hidden branches are drafts, never submitted settings.
 export const FEATURES = [
   { key: 'planner.enabled', title: '剧情规划', help: '即兴故事中规划长期线索与人物关系；模组故事中主要把握节奏。规划会增加模型调用。', children: ['planner.wish_window', 'planner.final_review'] },
-  { key: 'autonomy.enabled', title: '自主推进', help: '允许 GM 在短暂冷场时推进，以及让 AI 队友独处的支线继续。玩家长期离开后，共享场景会停下。', children: ['autonomy.max_turns_per_hour', 'autonomy.idle_minutes'] },
+  { key: 'autonomy.enabled', title: '自主推进', help: '允许 GM 在短暂冷场时推进。玩家长期离开后，共享场景会停下。', children: ['autonomy.max_turns_per_hour', 'autonomy.idle_minutes'] },
   { key: 'timelines.scene_forks', title: '私有场景分叉', help: '适合多人分头行动：主聊天成为大厅，故事在各自的场景窗口进行。每位玩家还需分属独立玩家组。', children: ['timelines.max_active'] },
   { key: 'illustrations.enabled', title: '剧情插画', help: '为剧情中的时刻配图，也可让玩家请求回顾插画。需要平台配置图像服务，绘图费用另计。', children: ['illustrations.max_per_hour', 'illustrations.requests_per_hour', 'illustrations.allow_cloud'] },
 ];
-export const BASICS = ['table.language', 'table.coplayers', 'table.level'];
-const PHONE_FIELDS = ['modes.casual_max_delay_minutes', 'modes.casual_ai_texts_per_hour', 'modes.casual_ai_chain', 'calendar.max_days'];
+export const BASICS = ['table.language', 'table.level'];
+const PHONE_FIELDS = ['modes.casual_max_delay_minutes', 'calendar.max_days'];
 const RULES = { coc7e: 'CoC 7e', dnd2024: 'D&D 2024', pbta: 'PbtA' };
 const STEPS = ['频道', '故事模式', '配套功能', '邀请玩家', '确认启动'];
 const playerLabel = p => p.display_name && p.display_name !== p.username ? `${p.display_name}（@${p.username}）` : `@${p.username}`;
@@ -192,7 +192,7 @@ export class CreateWizard {
       ], this.draft.world, v => { this.draft.world = v; }));
       if (this.draft.world === 'file') world.push(this.field('modes.world_file', { required: true, help: '必填。运行 GM 的主机上的文件；相对位置以新频道配置文件所在目录为起点。' }), this.field('modes.secrets_file', { help: '可选。仅 GM 使用的秘密文件，与公开世界分开。' }));
     }
-    if (b.improv) world.push(h('div', { class: 'wizard-note', text: '即兴模式自带私密世界账本：NPC 对每位玩家和 AI 队友的态度分别记录，GM 可维护数值、剧情条件及物品。剧情规划可参考这些状态；AI 队友仍保持即兴发挥。' }));
+    if (b.improv) world.push(h('div', { class: 'wizard-note', text: '即兴模式自带私密世界账本：NPC 对每位玩家角色的态度分别记录，GM 可维护数值、剧情条件及物品。剧情规划可参考这些状态。' }));
     $('c-world').replaceChildren(...world.filter(Boolean));
     $('c-casual').replaceChildren(...(this.draft.story ? [b.playedForge ? h('p', { class: 'wizard-note', text: `此频道已通过共创开局，将沿用既有的日常模式（${b.casual ? '开启' : '关闭'}），接入时不重新准备世界和角色。` }) : this.field('modes.casual', { label: '日常模式：手机、短信与故事日历', help: '可叠加在模组或即兴故事上。选择即兴并开启日常模式后，下一步还可开启日常托管。' }),
       b.casual ? h('p', { class: 'wizard-note', text: this.draft.source === 'new' ? '新频道将使用隔离知识模式。玩家加入后需各自在独立玩家组中，手机内容才能保持私密。' : b.isolated ? '频道已使用隔离知识模式；还需每位玩家各在独立玩家组中，手机才能启用。' : '此频道为公开知识模式：故事日历可用，但私密手机不能启用。请在平台改为隔离模式、让玩家各在独立组中，再返回第一步刷新。' }) : null].filter(Boolean) : []));
@@ -236,7 +236,7 @@ export class CreateWizard {
     if (this.channel()?.hasModule && b.improv) notices.push('频道仍绑定模组：即兴主持会忽略模组线索。');
     $('c-review').replaceChildren(h('div', { class: 'wizard-review' }, ...items), ...notices.map(text => h('p', { class: 'wizard-note', text })));
     const preparing = $('c-prepare').checked;
-    $('c-start-help').textContent = b.playedForge ? '直接恢复已经共创确认的故事与角色；无需重复准备。' : !preparing ? '跳过准备适合沿用已有模式的频道；不会补齐 AI 队友，也不会应用新的世界与日常模式。' : !$('c-start').checked ? '先保存主持任务；手动启动后才会准备频道或进入共创。' : b.forge || b.pendingForge ? '会启动共创准备窗口，等待玩家参与；不会直接替玩家开始正式故事。' : '创建后准备频道并开始监听消息。';
+    $('c-start-help').textContent = b.playedForge ? '直接恢复已经共创确认的故事与角色；无需重复准备。' : !preparing ? '跳过准备适合沿用已有模式的频道；不会应用新的世界与日常模式。' : !$('c-start').checked ? '先保存主持任务；手动启动后才会准备频道或进入共创。' : b.forge || b.pendingForge ? '会启动共创准备窗口，等待玩家参与；不会直接替玩家开始正式故事。' : '创建后准备频道并开始监听消息。';
   }
   redraw() {
     const focused = document.activeElement?.id;

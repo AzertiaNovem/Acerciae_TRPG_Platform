@@ -1,12 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { directTurn } from "../src/director.mjs";
-import { coplayerTurn } from "../src/coplayer.mjs";
-import { coplayerPhoneReply } from "../src/casual.mjs";
 import { DEFAULT_WRITING } from "../src/writing.mjs";
 
 const gm = { language: "简体中文", context: [{ text: "UNRELATED-GM-SECRET and the whole table history", cache: true }], casual: true };
-const player = { language: "简体中文", coplayer: { name: "谢遥" }, log: [] };
 
 test("presentation can split a paragraph and merge adjacent prose without rewriting it", async () => {
   const calls = [];
@@ -42,28 +39,6 @@ test("sentence ranges cannot omit, repeat, reorder or mix speakers and recipient
   } }, gm), /left unplaced|paragraph reference/);
 });
 
-test("co-player prose can be one long message or several short messages", async () => {
-  for (const multiple of [false, true]) {
-    const move = await coplayerTurn({ async complete(r) {
-      if (r.purpose === 'coplayer_turn') return '我推开门。\n\n“怎么还不走？”';
-      return JSON.stringify({ action: 'speak', kind: 'ic', ...(multiple ? { messages: [1, 2] } : { text: [1, 2] }) });
-    } }, player);
-    assert.equal(move.text, '我推开门。\n\n“怎么还不走？”');
-    assert.deepEqual(move.messages, multiple ? ['我推开门。', '“怎么还不走？”'] : undefined);
-  }
-});
-
-test("phone presentation guidance stays out of the creative request", async () => {
-  const calls = [], formatting = 'LAYOUT-ONLY: 保留完整句子。';
-  const llm = { async complete(r) {
-    calls.push(r);
-    return r.purpose !== 'chat_format' ? '好，我知道了。' : JSON.stringify({ reply: 1 });
-  } };
-  await coplayerPhoneReply(llm, { language: 'Chinese', name: '江念', maxDelay: 30, formatting });
-  assert.ok(!calls[0].system.includes(formatting));
-  assert.ok(calls[1].system.includes(formatting));
-});
-
 test("a GM draft becomes ordered messages without sharing context or rewriting prose", async () => {
   const replies = [
     `雨把窗格缝成了两行细线。
@@ -77,13 +52,13 @@ GM only: 把钥匙留在后门。
 
 Opening: 走廊尽头，纸箱还留着一圈湿印。
 
-Table directions: 周见微自己去了走廊，单开短线。短信两分钟后送达。让谢遥先行动。`,
+Table directions: 周见微自己去了走廊，单开短线。短信两分钟后送达。其他玩家先等一等。`,
     JSON.stringify({ actions: [
       { type: "narrate", text: 1 }, { type: "npc", name: "WRONG NAME", text: 2 },
       { type: "whisper", to: "WRONG RECIPIENT", text: 3 },
       { type: "text", from: "WRONG SENDER", to: "WRONG RECIPIENT", text: 4, delay_minutes: 2 },
       { type: "note", text: 5 },
-    ], spotlight: ["谢遥"], whereabouts: [{ who: ["周见微"], thread: "new", place: "走廊", own_scene: true, opening: 6 }] }),
+    ], coplayers_may_act: false, whereabouts: [{ who: ["周见微"], thread: "new", place: "走廊", own_scene: true, opening: 6 }] }),
   ];
   const requests = [];
   const plan = await directTurn({ async complete(r) { requests.push(r); return replies.shift(); } }, gm);
@@ -99,7 +74,7 @@ Table directions: 周见微自己去了走廊，单开短线。短信两分钟�
     { type: "note", text: "把钥匙留在后门。" },
   ]);
   assert.equal(plan.whereabouts[0].opening, "走廊尽头，纸箱还留着一圈湿印。");
-  assert.deepEqual(plan.spotlight, ["谢遥"]);
+  assert.equal(plan.coplayersMayAct, false);
 });
 
 test("a formatter that tries to publish a private paragraph gets repaired without redrafting", async () => {
@@ -111,23 +86,6 @@ test("a formatter that tries to publish a private paragraph gets repaired withou
   } }, gm);
   assert.deepEqual(calls.map(r => r.purpose), ["director", "chat_format", "chat_format"]);
   assert.equal(plan.actions[0].to, "谢遥");
-});
-
-test("co-player prose stays intact and only an explicitly drafted command can roll", async () => {
-  const calls = [];
-  const first = "我把钥匙拍在桌面上。";
-  const second = "“你要我回去，我偏要开这扇门。”";
-  const llm = { async complete(r) {
-    calls.push(r);
-    if (r.purpose === "coplayer_turn") return `${first}\n\n${second}\n\nTable directions: Roll .ra Locksmith.`;
-    return JSON.stringify({ action: "roll", command: ".ra Locksmith", text: [1, 2] });
-  } };
-  const result = await coplayerTurn(llm, player);
-  assert.deepEqual(result, { action: "roll", command: ".ra Locksmith", text: `${first}\n\n${second}` });
-  assert.deepEqual(calls.map(r => r.purpose), ["coplayer_turn", "chat_format"]);
-  await assert.rejects(coplayerTurn({ async complete(r) {
-    return r.purpose === "coplayer_turn" ? first : '{"action":"roll","command":".ra Locksmith","text":1}';
-  } }, player), /operation must be stated/);
 });
 
 test("an autonomous turn that spends its budget drafting does not call the formatter", async () => {

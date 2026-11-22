@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { recall, clipTokens } from "../src/context/recall.mjs";
 import { estimateTokens } from "../src/memory.mjs";
 import { GmContext } from "../src/context/gmContext.mjs";
-import { coplayerTurn } from "../src/coplayer.mjs";
 import { MockLlm } from "../src/llm/mock.mjs";
 import { historyParts } from "../src/llm/parts.mjs";
 
@@ -40,19 +39,6 @@ test("history chunk boundaries survive growth from 50 to 100 lines", () => {
   assert.equal(before[0].cache, true);
   assert.equal(after[0].cache, undefined);
   assert.equal(after[1].cache, true);
-});
-
-test("co-player HP, sanity and inventory changes preserve the cached identity and history", async () => {
-  const llm = new MockLlm();
-  const opts = { language: "English", coplayer: { name: "Harriet" }, card: { derived: { hp: 10, san: 60 }, items: [{ name: "key" }] }, log: [] };
-  await coplayerTurn(llm, opts);
-  opts.card.derived.hp = 5; opts.card.derived.san = 50; opts.card.items = [{ name: "torch" }];
-  await coplayerTurn(llm, opts);
-  const [before, after] = llm.calls.filter(c => c.purpose === "coplayer_turn");
-  assert.equal(before.parts[0][0].text, after.parts[0][0].text);
-  assert.match(after.parts[0].at(-1).text, /HP 5\/\?, SAN 50/);
-  assert.match(after.parts[0].at(-1).text, /carrying: torch/);
-  assert.doesNotMatch(after.parts[0][0].text, /HP|carrying:/);
 });
 
 test("document cache keeps the full version for recall, retries errors, invalidates updates and prunes deletions", async () => {

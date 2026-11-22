@@ -2,8 +2,9 @@
 // built-in node:sqlite. The JSON state file stays the source of truth for the table (roster, timelines, guard); this
 // holds what grows with a campaign:
 //   lines    – a local copy of the chat as the GM account reads it, so a long history is fetched once;
-//   chapters – compacted history: `scope` is "gm" (the GM's memory of a window) or "coplayer:<character id>" (what
-//              that co-player remembers, built only from lines it witnessed); level 0 summarises lines, level 1+ merges
+//   chapters – compacted history: `scope` is "gm" (the GM's memory of a window; older versions also kept
+//              "coplayer:<character id>", what an AI co-player remembered, which `bots handoff` reads); level 0
+//              summarises lines, level 1+ merges
 //              chapters;
 //   usage    – one row per model call (input, cache reads and writes, output tokens);
 //   kv       – small values;

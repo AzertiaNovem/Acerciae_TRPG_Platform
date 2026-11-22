@@ -46,10 +46,11 @@ test('budget is checked before every attempt, including subsequent repair calls'
   const llm=budgeted({complete:async()=>{calls++;used+=10;return 'ok';}},store,{dailyTokenBudget:10});
   assert.equal(await llm.complete({purpose:'forge_compile'}),'ok');await assert.rejects(llm.complete({purpose:'forge_review'}),/预算/);assert.equal(calls,1);
 });
-test('handed-off PC is removed from roster, legacy marked NPC stays',()=>{
-  const roster=new Roster({coplayers:[{characterId:'c',seats:[]},{characterId:'legacy',seats:[]}]});
-  roster.reconcile([{id:'c',kind:'pc',user_id:'player'},{id:'legacy',kind:'npc',speaking_style:'[co-player]'}],[],{castBy:'gm'});
-  assert.equal(roster.isCoplayer('c'),false);assert.equal(roster.isCoplayer('legacy'),true);
+test('a PC handed to a player leaves the GM\'s cast; a PC the GM owns and an older marked co-player are its NPCs',()=>{
+  const roster=new Roster({npcs:[{characterId:'c',name:'C',brief:''}],coplayers:[{characterId:'c',seats:[]}]});
+  roster.reconcile([{id:'c',kind:'pc',user_id:'player'},{id:'legacy',kind:'npc',speaking_style:'[co-player] gruff'},{id:'own',kind:'pc',user_id:'gm'}],{castBy:'gm'});
+  assert.equal(roster.isNpc('c'),false);assert.equal(roster.isNpc('legacy'),true);assert.equal(roster.isNpc('own'),true);
+  assert.deepEqual(Object.keys(roster.toJSON()),['npcs'],'an older state\'s co-players are not carried on');
 });
 test('application resumes lost create response using same receipt and hands over only after cards',async()=>{
   const s=setup();s.rule='coc7e';s.candidate={world:'world',characters:[{key:'C1',kind:'player',owner_user_id:'a',name:'Alice',persona:'bio',speaking_style:'style',appearance_prompt:'appearance',role_card:{basic:{player:'A'}}}]};
@@ -96,14 +97,17 @@ test('empty Forge waits; all arrivals can use one invitation, including after a 
   assert.deepEqual(deliveries.at(-1).seats,['a','b','late']);assert.ok(deliveries.at(-1).doc.hypertext.body.some(n=>n.label==='加入共创'));
 });
 
-test('private initial state maps C keys to real IDs exactly once and cannot assign NPC feelings to a co-player',async()=>{
+test('private initial state maps C keys to real IDs exactly once and gives feelings only to NPCs',async()=>{
   const {importSeed,createSeed}=await import('../src/forge/seed.mjs');
   const s=setup();s.characterIds={C1:'npc-id',C2:'pc-id'};
   s.worldStateSeed={definitions:[{id:'trust',label:'Trust',description:'NPC trust toward one person',scope:'relation',type:'number',initial:0,min:0,max:100,changeRule:'Changes after kept promises',thresholds:[]}],values:[{metric:'trust',subject:'C1',target:'C2',value:20}]};
   const characters=[{id:'npc-id',kind:'npc'},{id:'pc-id',kind:'pc'}];const first=importSeed({},s,characters);assert.deepEqual(importSeed(first,s,characters),first);
   assert.ok(Object.values(first.worldState.values).some(x=>x.subject==='npc-id'&&x.target==='pc-id'&&x.value===20));
-  const wrong={...s,candidate:{world:'World',characters:[{key:'C1',kind:'coplayer'},{key:'C2',kind:'player'}]}};
+  const wrong={...s,candidate:{world:'World',characters:[{key:'C1',kind:'player'},{key:'C2',kind:'player'}]}};
   await assert.rejects(createSeed({complete:async()=>JSON.stringify(s.worldStateSeed)},wrong),/NPC/);
+  // A stored draft from before may still name an AI co-player: it is cast as an NPC now.
+  const old={...s,candidate:{world:'World',characters:[{key:'C1',kind:'coplayer'},{key:'C2',kind:'player'}]}};
+  assert.deepEqual((await createSeed({complete:async()=>JSON.stringify(s.worldStateSeed)},old)).values.map(v=>[v.subject,v.target,v.value]),[['C1','C2',20]]);
   assert.equal(JSON.stringify(publicDossier(s)).includes('worldStateSeed'),false);
 });
 

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { advanceCalendar, calendarPace, calendarState, changedBy, dateLabel, describeCalendar, eraYears, fitEra, noteCalendarLine, parseIso, renderCalendar } from "../src/calendar.mjs";
 import { distinctiveTraits, impression } from "../src/context/traits.mjs";
 import { investigatorProfile } from "../src/context/profiles.mjs";
-import { applyBond, bondsFor, bondsState, renderBonds, renderBondsFor, resolveBonds } from "../src/bonds.mjs";
+import { applyBond, bondsState, renderBonds, resolveBonds } from "../src/bonds.mjs";
 
 test("calendar: dates are YYYY-MM-DD with their weekday, across months and leap years; it never runs backwards", () => {
   assert.equal(dateLabel("1924-02-28"), "1924-02-28 (Thursday)");
@@ -90,7 +90,7 @@ test("traits: only the extremes, in words, the most extreme first; luck and numb
   assert.doesNotMatch(profile, /\b(88|90|95)\b/, "no numbers");
 });
 
-test("bonds: unordered pairs, updated in place, ended; the GM reads all, a co-player its own and the public ones it knows", () => {
+test("bonds: unordered pairs, updated in place, ended; the GM reads them all", () => {
   const bonds = bondsState(null);
   assert.equal(applyBond(bonds, { a: "alice", b: "harriet", kind: "Lives with", note: "a flat above the shop" }), "added");
   assert.equal(applyBond(bonds, { a: "harriet", b: "alice", kind: "lives with" }), null, "the same pair either way round");
@@ -103,11 +103,6 @@ test("bonds: unordered pairs, updated in place, ended; the GM reads all, a co-pl
   const nameOf = (id) => names[id];
   const gm = renderBonds(bonds, nameOf);
   assert.match(gm, /Alice — Harriet: lives with \(a flat above the shop\) \[secret\]/); assert.match(gm, /Mr\. Grimsby — Ezra: family/);
-  const known = new Set(["alice", "harriet", "grimsby"]);
-  assert.deepEqual(bondsFor(bonds, "harriet", known).map((b) => b.kind), ["lives with", "rivals", "lovers"], "her own (secret or not) and the public one she knows of");
-  assert.deepEqual(bondsFor(bonds, "harriet", new Set(["alice", "harriet"])).map((b) => b.kind), ["lives with", "lovers"], "not between people she has not met");
-  assert.match(renderBondsFor(bonds, "harriet", known, nameOf), /^WHO IS WHO TO WHOM[\s\S]*Mr\. Grimsby — Harriet \(you\): lovers/);
-  assert.doesNotMatch(renderBondsFor(bonds, "harriet", known, nameOf), /\[secret\]|Ezra/);
   assert.equal(applyBond(bonds, { a: "alice", b: "grimsby", end: true }), "ended");
   assert.equal(bonds.length, 3);
   const resolved = resolveBonds([{ a: "Alice", b: "Nobody", kind: "friends" }, { a: "Alice", b: "Harriet", kind: "friends" }, { a: "Alice", b: "Harriet" }], (n) => ({ Alice: "alice", Harriet: "harriet" })[n]);

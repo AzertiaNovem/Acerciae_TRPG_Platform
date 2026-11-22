@@ -1,23 +1,5 @@
-// What a co-player may read of the chat: only the lines its own character could have witnessed. Besides this log, a
-// co-player gets its own card and its companions' profiles (profiles.mjs), never documents, reminders, board, script
-// knowledge, highlights or other platform AI tips.
-//
-// The client signs in as the GM, and the GM's API view includes every line. So the filter is applied here,
-// the same way the platform filters for a player (backend knowledge/Visibility):
-//   * only windows the co-player sat in, and only lines posted while it sat there (its seats);
-//   * `window` lines, plus `whisper` lines addressed to the co-player's own character;
-//   * never `gm_only` lines (GM notes, hidden roll results) and never whispers to anyone else.
-
+// How a chat line reads in a prompt: "#seq Speaker (tags): text", one line per message.
 import { pictureText } from "../pictureLines.mjs";
-
-export function visibleToCoplayer(coplayer, message) {
-  if (!message) return false;
-  const present = coplayer.seats.some((s) => s.windowId === message.chat_window_id && message.seq >= s.fromSeq && (s.toSeq === null || message.seq <= s.toSeq));
-  if (!present) return false;
-  if (message.visibility === "window") return true;
-  if (message.visibility === "whisper") return (message.whisper_to ?? []).includes(coplayer.characterId);
-  return false;
-}
 
 // `gm` is the GM's title in this rule system (rules/*.mjs): the label this client gives the GM account's lines.
 export function speakerOf(m, gm = "GM") {
@@ -26,7 +8,8 @@ export function speakerOf(m, gm = "GM") {
   return m.author_name || "someone";
 }
 
-// `timeline` names the timeline the line comes from (the GM sees it; see timelines.mjs).
+// `markVisibility` shows GM-only lines and whispers as such (the GM's view); `timeline` names the timeline the line
+// comes from (the GM sees it; see timelines.mjs).
 // An interactive message (kind hypertext, docs/HYPERTEXT.md) reads as its plain-text fallback (`content`), never its
 // card (`m.hypertext`: buttons, state, a script); a line one produced is marked so, with the reader who acted when that
 // is someone else than its author (a card's reply, posted as the card's sender).
@@ -42,12 +25,4 @@ export function renderLine(m, { markVisibility = false, timeline = "", gm = "GM"
   if (markVisibility && m.visibility === "whisper") vis = ` [whisper to ${(m.whisper_to_names ?? m.whisper_to ?? []).join(", ")}]`;
   const tl = timeline ? ` [timeline: ${timeline}]` : "";
   return `#${m.seq} ${who}${tag}${vis}${tl}: ${String(text).replace(/\s+/g, " ").trim()}`;
-}
-
-// The co-player's whole context: its own lines and everyone else's, oldest first, limited to the newest `limit`.
-export function coplayerLog(coplayer, messages, limit = 60) {
-  return messages
-    .filter((m) => visibleToCoplayer(coplayer, m))
-    .sort((a, b) => a.seq - b.seq)
-    .slice(-limit);
 }

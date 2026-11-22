@@ -1,19 +1,19 @@
 // Which model answers which call. Every model call names its purpose (the usage list shows them: director,
-// coplayer_turn, planner, compact…). The purposes fall into functions, and `models` (a channel's setting) says for
+// chat_format, planner, compact…). The purposes fall into functions, and `models` (a channel's setting) says for
 // each function which provider (a named endpoint with its key, from `providers` in the shared configuration) and which
 // model answer it. A purpose named directly outranks its function; a function not named runs on `models.default`,
 // else on the `llm` settings (the provider called "default"). The planner's own `planner.provider/model/effort`
 // settings still name its route when `models.planner` does not.
 export const MODEL_FUNCTIONS = {
   director: ["director"],
-  coplayers: ["coplayer_turn", "coplayer_phone"],
   formatting: ["chat_format", "forge_format"],
   forge: ["forge_interview", "forge_compile", "forge_review", "forge_secrets", "forge_seed", "forge_playtest"],
   planner: ["planner"],
-  memory: ["compact", "coplayer_memory"],
+  memory: ["compact"],
   readers: ["scene_presence", "movement_evidence", "placement_correction", "scene_handoff"],
   pictures: ["scenario_illustration", "event_illustration", "plot_search", "plot_illustration"],
-  cards: ["coplayer_card", "npc_card", "coplayer_repair", "coplayer_points", "coplayer_build", "pbta_design", "pbta_card"],
+  // coplayer_points and coplayer_build keep the names they had when they served the co-players' cards.
+  cards: ["npc_card", "coplayer_points", "coplayer_build", "pbta_design", "pbta_card"],
 };
 export const FUNCTION_NAMES = Object.keys(MODEL_FUNCTIONS);
 export const PURPOSES = Object.values(MODEL_FUNCTIONS).flat();

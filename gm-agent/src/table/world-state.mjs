@@ -46,7 +46,7 @@ const context = (table, windowId) => ({
   canResolve: event => [event.subject, event.target].filter(Boolean).every(id => {
     if (!table.characters.some(c => c.id === id)) return false;
 
-    if (table.isPc(id) || table.roster.isCoplayer(id)) return table.scene(windowId)?.members.includes(id);
+    if (table.isPc(id)) return table.scene(windowId)?.members.includes(id);
     return true;
   }),
 });
@@ -74,7 +74,7 @@ function bodyFor(table, a) {
   if (a.type === 'note') return { kind: 'narration', visibility: 'gm_only', content: a.text };
   if (a.type === 'npc') {
     const c = table.roster.npcByName(a.name);
-    if (!c || table.roster.isCoplayer(c.characterId) || table.isPc(c.characterId)) throw Error('State changes need an already established NPC');
+    if (!c || table.isPc(c.characterId)) throw Error('State changes need an already established NPC');
     return { kind: 'ic', visibility: 'window', character_id: c.characterId, content: a.text };
   }
   if (a.type === 'whisper') {

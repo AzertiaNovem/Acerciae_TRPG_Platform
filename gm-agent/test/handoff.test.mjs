@@ -50,6 +50,15 @@ test("a character of this account's goes to a bot: invited, owner, seats and its
   assert.ok(text.indexOf("I met Alice") < text.indexOf("The key was in the clock"), "oldest first");
 });
 
+test("an older state file without seats: the windows it lists are where the character sits", async () => {
+  const api = platform();
+  const state = { coplayers: [{ characterId: "c-harriet", name: "Harriet Vance", persona: "Collects old maps.", windows: ["w-attic"] }] };
+  const done = await handoffToBot(api, { channelId: "ch", characterName: "Harriet Vance", botName: "Wren", state });
+  assert.equal(done.windows, 1);
+  assert.deepEqual(api.calls.filter((c) => c[0] === "seat"), [["seat", "w-attic", { user_id: "u-wren", character_id: "c-harriet" }]]);
+  assert.match(api.calls.find((c) => c[0] === "PUT")[2].text, /Collects old maps/);
+});
+
 test("only this account's player characters, only enabled bots, one character per bot", async () => {
   const api = platform();
   await assert.rejects(handoffToBot(api, { channelId: "ch", characterName: "Alice Hale", botName: "Wren" }), /not one of this account's characters/);

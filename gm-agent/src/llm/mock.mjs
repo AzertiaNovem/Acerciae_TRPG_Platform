@@ -9,7 +9,7 @@ const field = (text, label) => (String(text).match(new RegExp(`^${label}:\\s*(.+
 
 // Keep the offline fixtures expressed as game actions. Emit their prose as a draft and carry the
 // remaining fixture decisions in a mock-only direction, so the real paragraph binding still runs.
-function draftFor(purpose, plan) {
+function draftFor(plan) {
   const paragraphs = [];
   const part = (text, label = "") => {
     if (!String(text ?? "").trim()) return undefined;
@@ -17,21 +17,14 @@ function draftFor(purpose, plan) {
     const ids = rows.map(row => paragraphs.push(label ? `${label}: ${row}` : row));
     return ids.length === 1 ? ids[0] : ids;
   };
-  if (purpose === "director") {
-    const label = a => ({
-      npc: `NPC ${a.name}`, new_npc: `New NPC ${a.name}`, whisper: `Whisper to ${a.to}`,
-      note: "GM only", text: `Phone from ${a.from} to ${a.to}`,
-    })[a.type];
-    const withOpening = a => a.opening ? { ...a, opening: part(a.opening, "Opening") } : a;
-    const sourced = new Set(["narrate", "npc", "new_npc", "whisper", "note", "text", "request_roll", "ask", "dice", "rejoin"]);
-    plan = { ...plan, actions: plan.actions.map(a => sourced.has(a.type) ? { ...a, text: part(a.text, label(a)) } : withOpening(a)) };
-    if (plan.whereabouts) plan.whereabouts = plan.whereabouts.map(withOpening);
-  } else if (purpose === "coplayer_phone") {
-    plan = { ...plan, reply: part(plan.reply) ?? null };
-  } else {
-    plan = { ...plan, text: part(plan.text, plan.action === "text" ? `Phone to ${plan.to}` : plan.kind === "ooc" ? "Out of character" : "") };
-    if (plan.defer) plan.defer = { ...plan.defer, question: part(plan.defer.question, "Question for later") };
-  }
+  const label = a => ({
+    npc: `NPC ${a.name}`, new_npc: `New NPC ${a.name}`, whisper: `Whisper to ${a.to}`,
+    note: "GM only", text: `Phone from ${a.from} to ${a.to}`,
+  })[a.type];
+  const withOpening = a => a.opening ? { ...a, opening: part(a.opening, "Opening") } : a;
+  const sourced = new Set(["narrate", "npc", "new_npc", "whisper", "note", "text", "request_roll", "ask", "dice"]);
+  plan = { ...plan, actions: plan.actions.map(a => sourced.has(a.type) ? { ...a, text: part(a.text, label(a)) } : withOpening(a)) };
+  if (plan.whereabouts) plan.whereabouts = plan.whereabouts.map(withOpening);
   paragraphs.push(`Table directions: ${JSON.stringify(plan)}`);
   return paragraphs.join("\n\n");
 }
@@ -61,9 +54,7 @@ export class MockLlm {
         return JSON.stringify({name:existing?.name || NAMES[index] || "Mock player "+index,
           persona:"[mock] A member of the crew.",speaking_style:"[mock] Direct",role_card:{pbta:{book:books[0].id,stats:{[stats[0].id]:1},resources:{},conditions:{}}}});
       }
-      case "coplayer_card": return JSON.stringify(this.card(user, "coplayer"));
       case "npc_card": return JSON.stringify(this.card(user, "npc"));
-      case "coplayer_repair": return JSON.stringify(this.card(user, "coplayer"));
       case "coplayer_points": return JSON.stringify(this.points(user));
       case "placement_correction": return JSON.stringify(this.placementCorrection(JSON.parse(messages[0].content)));
       case "movement_evidence": return JSON.stringify(this.movements(JSON.parse(messages[0].content)));
@@ -74,12 +65,10 @@ export class MockLlm {
       case "event_illustration": return JSON.stringify({ ...this.scenarioMoment(user), moment: this.scenarioMoment(user).moment.replace("[mock moment]", "[mock event]") });
       case "plot_search": return JSON.stringify(this.plotChoose(user));
       case "plot_illustration": return JSON.stringify(this.plotMoment(user));
-      case "director": return draftFor(purpose, this.director(user));
-      case "coplayer_turn": return draftFor(purpose, this.coplayer(user, system));
-      case "coplayer_phone": return draftFor(purpose, { reply: `[mock ${field(user, "YOU ARE")}] On my way.`, delay_minutes: 5 });
+      case "director": return draftFor(this.director(user));
       case "chat_format": return JSON.parse(messages[0].content).findLast(p => p.kind === "directions")?.text ?? "{}";
       case "planner": return JSON.stringify(this.planner(user));
-      case "compact": case "coplayer_memory": return JSON.stringify({ summary: `[mock ${purpose}] ${field(user, "LINES") || field(user, "CHAPTERS") || "(nothing)"}`.slice(0, 400) });
+      case "compact": return JSON.stringify({ summary: `[mock ${purpose}] ${field(user, "LINES") || field(user, "CHAPTERS") || "(nothing)"}`.slice(0, 400) });
       default: return "{}";
     }
   }
@@ -132,7 +121,7 @@ export class MockLlm {
         name, persona: `[mock] ${name} is quick, wry and loyal to the party.`, speaking_style: "plain, quick, short sentences",
         appearance_prompt: "[mock] Slender elf in a dark leather jerkin, braided black hair, a hooded cloak, daggers at the belt.",
         role_card: {
-          basic: { player: kind === "npc" ? "NPC" : "AI co-player", occupation: "Rogue", age: String(24 + i * 3), sex: i % 2 ? "male" : "female", residence: "the harbour quarter", birthplace: "the hill villages" },
+          basic: { player: kind === "npc" ? "NPC" : "GM", occupation: "Rogue", age: String(24 + i * 3), sex: i % 2 ? "male" : "female", residence: "the harbour quarter", birthplace: "the hill villages" },
           background: { personal_description: "[mock] slender, quick hands", ideology: "[mock] freedom over law", significant_people: "[mock] a sister in the thieves' guild", meaningful_locations: "[mock] the old mill", treasured_possessions: "[mock] a lockpick set", traits: "[mock] reckless, loyal", injuries: "None", phobias: "None", arcane: "None", encounters: "None" },
           items: [{ name: "Leather armour", note: "AC 11 + DEX", qty: 1 }, { name: "Dagger", note: "", qty: 2 }, { name: "Thieves' tools", note: "", qty: 1 }],
           wealth: { cash: "15 gp", assets: "a room above the tavern", spending_level: "modest" },
@@ -149,7 +138,7 @@ export class MockLlm {
       appearance_prompt: "[mock] Adult investigator in a tidy 1920s wool coat, short dark hair, ink-stained fingers, round spectacles.",
       role_card: {
         ...(career ? { career: { name: career, choices: [], specialties: [] } } : {}),
-        basic: { player: 'AI co-player', occupation: CAREERS[i % CAREERS.length], age: String(28 + i * 3), sex: i % 2 ? "male" : "female", residence: "Arkham", birthplace: "Boston" },
+        basic: { player: 'GM', occupation: CAREERS[i % CAREERS.length], age: String(28 + i * 3), sex: i % 2 ? "male" : "female", residence: "Arkham", birthplace: "Boston" },
         characteristics: { STR: n(45), CON: n(50), SIZ: n(55), DEX: n(60), APP: n(50), INT: n(65), POW: n(55), EDU: n(70), LUK: n(50) },
         skills: { "Spot Hidden": 60, "Library Use": 55, Psychology: 45, Persuade: 40, "Fighting (Brawl)": 35, Dodge: 40 },
         background: { personal_description: "[mock] tidy coat, ink-stained fingers", ideology: "[mock] the truth matters", traits: "[mock] stubborn", significant_people: '[mock] family', meaningful_locations: '[mock] home', treasured_possessions: '[mock] notebook', injuries: 'None', phobias: 'None', arcane: 'None', encounters: 'None' },
@@ -238,7 +227,7 @@ export class MockLlm {
   planner(user) {
     const step = (user.match(/^STEP: (\w+)/gm) ?? []).at(-1)?.slice(6) ?? "draft";
     if (step === "critique") return { boring: [], implausible: [], contradictions: [], stale: [], merge: [], beat_done: null, must_fix: [] };
-    const pace = /pace only|Do not invent plots/.test(user) || !/Co-players you may give an impulse/.test(user);
+    const pace = /pace only|Do not invent plots/.test(user);
     const beat = { title: "[mock beat] The present trouble", purpose: "let the investigators commit to a course", exit: "someone acts on what they learned" };
     // The first date when none is set; a final review moves the calendar on two days and acts off-screen.
     const routine = { routine: "[mock routine] The herring season: the boats go out before dawn and the fish market is loud every morning.", upcoming: [{ when: "next Saturday", what: "[mock] the Harbour Fair on the quay" }] };
@@ -247,27 +236,15 @@ export class MockLlm {
     // The players' words in the planner window: "never", "not" or "no" make a correction, anything else a wish.
     const wordsAt = user.indexOf("## The players' words to you");
     const words = (wordsAt < 0 ? "" : user.slice(user.indexOf("\n", wordsAt) + 1).split("\n\n")[0]).split("\n").map((l) => l.replace(/^- [^:]+: /, "").trim()).filter(Boolean);
-    const table = /"table_notes"/.test(user) ? { table_notes: words.map((w) => ({ id: "new", kind: /\b(never|not|no)\b/i.test(w) ? "correction" : "wish", text: `[mock note] ${w}`, about: (w.match(/\b(Harriet Vance|Harriet|Alice Hale|Alice)\b/) ?? []).slice(0, 1).map((n) => (n.startsWith("Harriet") ? "Harriet Vance" : "Alice Hale")) })), reply: words.length ? `[mock reply] Noted ${words.length} line(s): the story will follow.` : "" } : {};
+    const table = /"table_notes"/.test(user) ? { table_notes: words.map((w) => ({ id: "new", kind: /\b(never|not|no)\b/i.test(w) ? "correction" : "wish", text: `[mock note] ${w}`, about: (w.match(/\b(Alice Hale|Alice)\b/) ?? []).slice(0, 1).map(() => "Alice Hale") })), reply: words.length ? `[mock reply] Noted ${words.length} line(s): the story will follow.` : "" } : {};
     const between = final ? { advance_days: 2, time: "morning", why: "[mock] the town sleeps on it", ...(pace ? {} : { offscreen: [{ text: "[mock offscreen] The Guild doubled the night watch at the docks.", secret: true }] }), opening: "[mock opening] A knock at the door at dawn.", recap: "[mock recap] They asked around the harbour." } : undefined;
     if (pace) return { beat, verdict: { move_on: false, why: "the scene is still fresh" }, played: "[mock] as planned", changed: step === "revise" ? "[mock] nothing" : "", calendar, ...table, ...(between ? { between } : {}) };
-    const who = (user.match(/^## Co-players you may give an impulse\n([\s\S]*?)(?:\n\n|$)/m)?.[1] ?? "").split("\n").map((l) => l.replace(/^- /, "").trim()).filter(Boolean);
     return {
       throughline: "[mock] a town that hides what the sea brings in",
       threads: [{ id: "P1", title: "[mock] The night boats", status: "live", stakes: "who profits", hooks: ["a sailor talks"], twist: "[mock twist] the Guild lands cargo at the lighthouse", ripe_when: "the investigators reach the docks at night", weave_with: null }],
       beat, next: [{ what: "[mock] a stranger offers a boat ride", when: "after the docks" }],
       verdict: { move_on: false, why: "the scene is still fresh" },
-      impulses: who.slice(0, 1).map((w) => ({ who: w, text: `[mock impulse] You keep thinking about the docks at night; you want to see them for yourself.` })),
       played: "[mock] as planned", changed: step === "revise" ? "[mock] nothing" : "", calendar, ...table, ...(between ? { between } : {}),
     };
-  }
-
-  coplayer(user, system = "") {
-    const me = field(user, "YOU ARE");
-    const last = field(user, "NEWEST LINE");
-    if (!last) return { action: "pass" };
-    // "Harriet, text Tomas Leclerc: …" makes Harriet text (casual mode).
-    const text = [...user.matchAll(/^#\d+ [^:"]+: (\S+), text ([^:]+): (.+)$/gm)].at(-1);
-    if (text && me.startsWith(text[1]) && /Phone to <name>/.test(system)) return { action: "text", to: text[2].trim(), text: text[3].trim() };
-    return { action: "speak", kind: "ic", text: `[mock ${me}] I stay close and keep my eyes open.` };
   }
 }

@@ -1,7 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { allocateDndBuild, cardSummaryDnd, castNoteDnd, checkDnd, classSlots, deriveDnd, findNamed, mod, normalizeDnd, proficiencyBonus, rulesSummaryDnd, scores, skillIndex } from "../src/roles/dndcard.mjs";
-import { rulesProfile } from "../src/rules/index.mjs";
+import { allocateDndBuild, castNoteDnd, checkDnd, classSlots, deriveDnd, findNamed, mod, normalizeDnd, proficiencyBonus, rulesSummaryDnd, scores, skillIndex } from "../src/roles/dndcard.mjs";
 import { DND_RULES as rules } from "./fixtures/dndRules.mjs";
 import { MockLlm } from "../src/llm/mock.mjs";
 
@@ -53,7 +52,7 @@ test("checkDnd mirrors the platform's point-buy rules, code for code", () => {
   assert.deepEqual(codes({ ...ROGUE, species: "Dwarf", skills: ROGUE.skills }), ["skills"], "no species skill: Survival is one too many");
 });
 
-test("the rules summary, the repair round and the co-player's sheet", async () => {
+test("the rules summary, the repair round and the GM's cast note", async () => {
   const summary = rulesSummaryDnd(rules, true, 2);
   assert.match(summary, /^DND BUILD RULES/m); assert.match(summary, /LEVEL: 2\./); assert.match(summary, /Rogue \(d8; saves DEX\/INT; 4 skills from Acrobatics/); assert.match(summary, /Bard \(d8; saves DEX\/CHA; 3 skills from any; full caster\)/);
   assert.match(summary, /Elf \(speed 30; \+1 skill from Insight, Perception, Survival\)/); assert.match(summary, /Criminal \(abilities DEX\/CON\/INT; skills Sleight of Hand, Stealth\)/); assert.match(summary, /8:0 9:1 10:2 11:3 12:4 13:5 14:7 15:9/); assert.match(summary, /POINT-BUY IS ON/);
@@ -63,13 +62,5 @@ test("the rules summary, the repair round and the co-player's sheet", async () =
   assert.equal(llm.calls[0].purpose, "coplayer_build"); assert.match(llm.calls[0].messages[0].content, /VIOLATIONS: \[.*"budget".*"skills"/);
   assert.deepEqual(checkDnd(fixed.dnd, rules).violations, []); assert.equal(fixed.dnd.level, 3); assert.equal(fixed.dnd.hp_max, 24, "recomputed for the repaired scores");
   const card = { basic: { age: "24", sex: "female", birthplace: "the hills", residence: "the harbour" }, background: { ideology: "freedom" }, items: [{ name: "Dagger" }], dnd: normalizeDnd({ ...ROGUE, ac: 14 }, { rules, level: 3 }) };
-  const sheet = cardSummaryDnd(card, { HP: 11, "Temp HP": 3 });
-  assert.match(sheet, /^level 3 Elf Rogue, Criminal background; age 24, female, from the hills, lives in the harbour\n/);
-  assert.match(sheet, /abilities: STR 8 \(-1\), DEX 17 \(\+3\), CON 15 \(\+2\), INT 12 \(\+1\), WIS 13 \(\+1\), CHA 10 \(\+0\); proficiency bonus \+2/);
-  assert.match(sheet, /HP 11\/24 \(\+3 temp\), AC 14, speed 30, initiative \+3, hit dice 3d8/); assert.match(sheet, /saving throws: DEX \+5, INT \+3/);
-  assert.match(sheet, /Stealth \+7 \(expertise\)/); assert.match(sheet, /Perception \+3/); assert.match(sheet, /background: ideology: freedom/); assert.match(sheet, /carrying: Dagger/);
-  assert.match(cardSummaryDnd({ dnd: normalizeDnd({ class: "Wizard", species: "Human", background: "Sage", base: { STR: 8, DEX: 14, CON: 13, INT: 15, WIS: 12, CHA: 10 }, increases: { INT: 2, CON: 1 } }, { rules, level: 3 }) }, { "Slot 1": 2 }), /spellcasting: INT, save DC 13, attack \+5; slots level 1: 2\/4, level 2: 2\/2/);
   assert.equal(castNoteDnd(card), "level 3 Elf Rogue (Criminal)"); assert.equal(castNoteDnd({ basic: {} }), "");
-  assert.equal(cardSummaryDnd(null), "(not available)");
-  assert.equal(rulesProfile("dnd2024").cardSummary, cardSummaryDnd);
 });

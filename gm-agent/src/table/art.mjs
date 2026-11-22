@@ -123,7 +123,7 @@ export async function drawEvent(table, { windowId, event, from, upTo, turn, scen
     const lines = table.history.lines(windowId, { after: from, upTo }).filter(drawable).slice(-EVENT_MAX_LINES);
     if (!lines.length) return;
     const scene = table.scene(windowId);
-    const cast = table.characters.filter((c) => table.isPc(c.id) || table.roster.isCoplayer(c.id) || table.roster.isNpc(c.id)).map((c) => c.name);
+    const cast = table.characters.filter((c) => table.isPc(c.id) || table.roster.isNpc(c.id)).map((c) => c.name);
     const title = scenario?.id ? ((await table.api.scenes(table.channelId).catch(() => [])) ?? []).find((x) => x.id === scenario.id)?.title ?? "" : "";
     const moment = await pickEventMoment(table.llm, { language: table.language, event, scenario: title, place: scene?.location, time: scene?.narrativeTime, era: table.channel.era ?? "",
       cast, lines: scenarioLines(lines, (id) => table.nameOf(id)), drawn: table.drawnIn(scenario), wardrobe: await wardrobe(table, cast, lines) });
@@ -169,7 +169,7 @@ export async function endingScenario(table, scenes) {
 export async function illustrateScenario(table, ending) {
     const main = table.mainWindow();
     if (!table.illustrationsOn() || !main || !ending) return;
-    const cast = table.characters.filter((c) => table.isPc(c.id) || table.roster.isCoplayer(c.id) || table.roster.isNpc(c.id)).map((c) => c.name);
+    const cast = table.characters.filter((c) => table.isPc(c.id) || table.roster.isNpc(c.id)).map((c) => c.name);
     for (const thread of ending.threads) {
       if (!thread.lines.length) continue;
       const moment = await pickScenarioMoment(table.llm, { language: table.language, title: ending.title, place: thread.place, time: thread.time, era: table.channel.era ?? "",
@@ -257,13 +257,13 @@ const SCENE_PAGES = 10;     // pages of 200 lines read back from the platform fo
 
 export async function drawPastPlot(table, m, request) {
     const user = m.author_id;
-    // Every window of play, other players' and co-players' scenes too (a picture of someone else's scene is fine at a
-    // casual table); never a table window (the planner window, phones, the phone log).
+    // Every window of play, other players' scenes too (a picture of someone else's scene is fine at a
+    // casual table); never a table window (the planner window, phones).
     const windows = table.windows.filter((w) => !table.isTableWindow(w.id));
     if (!windows.length) return "notFound";
     const nameOf = (id) => table.nameOf(id);
     const mine = table.characters.filter((c) => c.user_id === user && table.isPc(c.id)).map((c) => c.name);
-    const cast = table.characters.filter((c) => table.isPc(c.id) || table.roster.isCoplayer(c.id) || table.roster.isNpc(c.id)).map((c) => c.name);
+    const cast = table.characters.filter((c) => table.isPc(c.id) || table.roster.isNpc(c.id)).map((c) => c.name);
     const entries = await storyIndex(table, windows, nameOf);
     if (!entries.length) return "notFound";
     // By meaning: the model reads the index and names the entries that hold the moment, best first.

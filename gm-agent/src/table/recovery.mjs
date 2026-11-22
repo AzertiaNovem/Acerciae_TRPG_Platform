@@ -16,7 +16,6 @@ export function noteLine(table, m) {
     if (table.isHuman(m)) {
       st.lastHumanAt = Math.max(st.lastHumanAt, at);
       st.quietTurns = 0;
-      st.coplayersActed = new Set();       // every human line gives each co-player one more go
       if (m.character_id) {
         // A player back after being away (AUTONOMY_IDLE_MINUTES) is welcomed back by the next turn.
         const prev = table.lastLineBy.get(m.character_id);
@@ -24,7 +23,6 @@ export function noteLine(table, m) {
         table.lastLineBy.set(m.character_id, Math.max(prev ?? 0, at));
       }
       table.lastHumanAt = Math.max(table.lastHumanAt, at);
-      if (Object.keys(table.casual.chain).length) table.casual.chain = {};   // AI characters may text on again
       if (m.character_id && m.visibility === "window" && SPEAKER_KINDS.has(m.kind) && table.isPc(m.character_id)) {
         if (!table.speakers.has(m.chat_window_id)) table.speakers.set(m.chat_window_id, []);
         table.speakers.get(m.chat_window_id).push({ id: m.character_id, seq: m.seq, content: m.content });
@@ -38,7 +36,6 @@ export function noteLine(table, m) {
 
 export function reload(table, state) {
     table.queue = table.queue.then(async () => {
-      table.roster.coplayers = new table.roster.constructor(state).coplayers;
       table.roster.npcs = state.npcs ?? table.roster.npcs;
       table.timelines = new Timelines(state.timelines ?? [], { now: table.now });
       const guard = new Guard(state.guard ?? {});
@@ -60,7 +57,7 @@ export function onEvent(table, ev) {
       if (Number.isSafeInteger(ev.character.inventory_version) && Array.isArray(ev.character.role_card?.items)) rememberInventory(table, [{ id: ev.character.id, name: ev.character.name, version: ev.character.inventory_version, items: ev.character.role_card.items }]);
       table.cards.delete(ev.character.id); table.outfitCache.delete(ev.character.id);
       table.characters = table.characters.map(c => c.id === ev.character.id ? { ...c, ...ev.character } : c);
-      table.roster.reconcile(table.characters, table.mainWindow() ? [table.mainWindow().id] : [], { castBy: table.me?.id });
+      table.roster.reconcile(table.characters, { castBy: table.me?.id });
     }
     if (ev.type === "window.changed") { table.memberCache = null; table.refresh().catch((e) => table.log(`refresh: ${e.message}`)); }
     if (ev.type === "server.settings" && ev.settings?.features) table.illustrationSwitches.server = ev.settings.features.illustrations !== false;
@@ -122,10 +119,9 @@ export function onRecalled(table, m) {
 
 export function slices(table) {
     return {
-      placement: stable({ timelines: table.timelines.toJSON(), seats: Object.fromEntries(table.roster.coplayers.map((c) => [c.characterId, c.seats])) }),
+      placement: stable({ timelines: table.timelines.toJSON() }),
       calendar: stable({ date: table.calendar.date, time: table.calendar.time, log: table.calendar.log, routine: table.calendar.routine }),
       bonds: stable(table.bonds),
-      attention: stable(Object.fromEntries(table.roster.coplayers.map(c => [c.characterId, c.attention ?? null]))),
       truths: stable(table.improv.truths ?? []),
       world: stable(table.worldState),
       pending: stable(table.casual.pending ?? []),
@@ -194,17 +190,12 @@ export async function rollback(table, m, undo, copies = []) {
           catch (e) { if (e.status === 409 && e.code !== 'inventory_request_expired') { delete table.worldState.recallPending; table.persist(table); kept.push('inventory changed by a later edit'); } else throw e; }
         } else kept.push('world state changed by a later turn');
       }
-      if (cp.after.attention !== cp.before.attention && now.attention === cp.after.attention) {
-        const before = JSON.parse(cp.before.attention);
-        for (const c of table.roster.coplayers) { if (before[c.characterId]) c.attention = before[c.characterId]; else delete c.attention; }
-      }
       let placed = true;
       if (cp.after.placement !== cp.before.placement) {
         placed = now.placement === cp.after.placement;
         if (placed) {
           const before = JSON.parse(cp.before.placement), after = JSON.parse(cp.after.placement);
           table.timelines = new Timelines(before.timelines, { now: table.now });
-          for (const c of table.roster.coplayers) if (before.seats[c.characterId]) c.seats = before.seats[c.characterId];
           for (const id of movedBetween(before.timelines, after.timelines)) { if (cp.state.guard[id]) table.guard.by[id] = cp.state.guard[id]; else delete table.guard.by[id]; }
           restored.add("where everyone is");
         } else kept.push("a move that later turns built on");

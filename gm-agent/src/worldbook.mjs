@@ -2,9 +2,9 @@
 //   bible   – always in use: what everyone in the story knows (the world setting of earlier versions);
 //   hidden  – the GM's always-present hidden layer (the secrets file of earlier versions);
 //   entries – places, groups, people, customs, history: each read only when it is needed. An entry is in play in a
-//             window when its title or one of its keys came up in that window's recent lines (or, for a co-player,
-//             in what it witnessed), or when the GM opened it with the worldbook_read tool. A secret entry is the
-//             GM's alone: the GM, the real NPCs and the planner read it, never a co-player or a stand-in.
+//             window when its title or one of its keys came up in that window's recent lines (for the platform's
+//             bots, in the lines everyone could read), or when the GM opened it with the worldbook_read tool. A secret
+//             entry is the GM's alone: the GM, the real NPCs and the planner read it, never the bots.
 // Nothing of it is posted in the chat. It lives in `<channel>.worldbook.json` in the state directory, edited in the
 // host's Web UI (operator-files.mjs); the table keeps the bible and the hidden layer in its state as well, so every
 // older reader of the world setting keeps working.
@@ -12,6 +12,7 @@ import { WORLD_MAX, SECRETS_MAX } from "./improv.mjs";
 import { estimateTokens } from "./memory.mjs";
 
 export const ENTRIES_MAX = 300, TITLE_MAX = 120, BODY_MAX = 6000, KEYS_MAX = 24, KEY_MAX = 80;
+// coplayer_tokens: the budget of the bots' notes (the name it had when it served the co-players' prompts).
 export const WORLDBOOK_DEFAULTS = Object.freeze({ gm_tokens: 3000, coplayer_tokens: 1200, recent_lines: 30 });
 
 const text = (v, max) => String(v ?? "").replace(/\r\n?/g, "\n").trim().slice(0, max);
@@ -104,7 +105,7 @@ function entryMatchers(e) {
 }
 
 // The entries in play. `texts` are what the reader has in front of it, newest first (recent lines, the place, a
-// co-player's intention…); `requested` are entry ids opened on purpose. Requested entries come first, then the ones
+// text thread…); `requested` are entry ids opened on purpose. Requested entries come first, then the ones
 // mentioned most recently, as long as they fit `budget` tokens. They are returned in the book's own order, so the
 // section reads the same while the set does not change (the prompt cache holds).
 export function entriesInPlay(book, { texts = [], requested = [], secret = false, budget = WORLDBOOK_DEFAULTS.gm_tokens } = {}) {

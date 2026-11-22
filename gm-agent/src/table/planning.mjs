@@ -17,12 +17,6 @@ export function plannerVerdict(table) {
     return { on: true, moveOn: Boolean(arc?.verdict?.moveOn && !arc.beat?.closed), beat: arc?.beat?.title ?? "", why: arc?.verdict?.why ?? "", next: arc?.next?.[0]?.what ?? "" };
   }
 
-export function impulseFor(table, coplayerId) {
-    if (table.plannerMode() !== "full") return null;
-    const i = table.planner.impulses.find((x) => x.coplayerId === coplayerId);
-    return i && table.lastSeq <= i.expiresSeq ? i : null;
-  }
-
 export function noteStall(table, windowId, ctx) {
     const scene = table.scene(windowId);
     const sig = stallSignature({ scenarioId: table.scenario?.id, place: placeKey(scene?.location), worldVersion: ctx?.world?.version, worldChange: ctx?.world?.recent_changes?.[0]?.created_at ?? ctx?.world?.recent_changes?.[0]?.version, truths: table.improv.truths.length, threads: table.timelines.active().length });
@@ -97,8 +91,8 @@ export function runPlanner(table, reason, { session = null } = {}) {
       ].filter(Boolean).join("\n");
       const mode = table.plannerMode();
       const out = await planStory(table.plannerLlm, {
-        language: table.language, profile: table.profile, mode, toolkit: table.withWorldbookTool(null, plannerWorldTools(table)), canContinue: () => !table.overBudget() && !table.generation.signal.aborted, contextText: ctx.text, prev: p.arc, since: sinceText, coplayers: table.roster.coplayers, secrets: [table.improv.secrets, ...table.improv.truths.map((t) => t.text)],
-        nextId: p.nextThreadId, lastSeq: table.lastSeq, trigger: reason, now: table.now(), impulseLines: table.cfg.planner?.impulseLines ?? 60, log: table.log,
+        language: table.language, profile: table.profile, mode, toolkit: table.withWorldbookTool(null, plannerWorldTools(table)), canContinue: () => !table.overBudget() && !table.generation.signal.aborted, contextText: ctx.text, prev: p.arc, since: sinceText,
+        nextId: p.nextThreadId, lastSeq: table.lastSeq, trigger: reason, now: table.now(), log: table.log,
         final: session ? { maxDays: table.cfg.planner?.finalReviewMaxDays ?? 30 } : null, calendar: table.calendarOn(),
         table: Boolean(p.window), wishes: p.window ? renderInbox(inbox, p.table) : "",
       });
@@ -117,7 +111,7 @@ export async function adoptPlan(table) {
     const pend = p.pending;
     if (!pend || table.generation.signal.aborted) return;
     p.pending = null;
-    p.arc = pend.arc; p.impulses = pend.impulses ?? []; p.nextThreadId = pend.nextId ?? p.nextThreadId;
+    p.arc = pend.arc; p.nextThreadId = pend.nextId ?? p.nextThreadId;
     p.lastRunSeq = table.lastSeq; p.scenarioId = table.scenario?.id ?? null; p.stall = { turns: 0, sig: null };
     table.store.addPlan({ version: pend.arc.version, at: pend.at ?? table.now(), trigger: pend.trigger ?? pend.arc.trigger, record: pend.record ?? {} });
     if (table.calendarOn() && pend.arc.calendar?.start && !table.calendar.date) {
@@ -135,7 +129,7 @@ export async function adoptPlan(table) {
     const main = table.mainWindow();
     if (p.notedVersion < pend.arc.version) {
       p.notedVersion = pend.arc.version; table.save();
-      if (main) await table.post(main.id, { content: `${renderPlanNote(pend.arc, p.impulses)}${bonds && !pend.between ? ` Relationships: ${bonds} change(s).` : ""}`, kind: "narration", visibility: "gm_only" }, { count: false });
+      if (main) await table.post(main.id, { content: `${renderPlanNote(pend.arc)}${bonds && !pend.between ? ` Relationships: ${bonds} change(s).` : ""}`, kind: "narration", visibility: "gm_only" }, { count: false });
     }
     if (pend.between) await table.applyBetween(pend, bonds);
     if (table.calendarOn()) table.applyRoutine(pend.arc.calendar);

@@ -1,12 +1,12 @@
-// The story's calendar: what date it is in the fiction, so the GM, the planner and the co-players share one sense of
+// The story's calendar: what date it is in the fiction, so the GM, the planner and the platform's bots share one sense of
 // time (weekdays, seasons, "three days ago"). A date is always YYYY-MM-DD (a world with its own calendar numbers its
 // years and months the same way), shown with its weekday: "1923-10-02 (Tuesday)".
 //
 // The first date is the story planner's to choose, from the era, the World setting and the plots, with a time of day
 // that fits; a year outside the channel's era is moved into it. With it, the planner sets the `routine`: what everyday
 // life is busy with on that date, from the world's own calendar (the World setting may describe one: a school year, a
-// fishing season, holidays), and the routine events coming up. The routine is common knowledge: the GM and every
-// co-player read it.
+// fishing season, holidays), and the routine events coming up. The routine is common knowledge: the GM reads it, and
+// so do the platform's bots (their notes, table/bots.mjs).
 //
 // Afterwards the GM moves the date on as time passes in play (the `date` action, or `advance_days` on a scenario
 // change), and the final review after a session moves it on between sessions. It never runs backwards. Each timeline

@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 // acerciae-gm: an AI GM (Game master) for an Acerciae channel.
-//   setup   sign in, create or attach to a channel the account is GM of, and create the co-players (role cards by the LLM)
-//   run     play: the GM and real NPCs answer the table, then the co-players act; side timelines and quiet windows
-//           move on their own clock
+//   setup   sign in, and create or attach to a channel the account is GM of (PbtA: have its rule pack designed)
+//   run     play: the GM and real NPCs answer the table, then the platform's bots seated there take their turn; quiet
+//           windows move on their own clock
 //   split   send investigators off to a place of their own (a window with the GM); rejoin brings a thread back
 //   advance open the next scenario now
 //   status  show the channel, the cast, the timelines and how each role is fed (read-only)
 //   date    casual games: move the story's calendar on (or to a later date); bond records or ends a relationship
 import { operatorPath, readOperatorFile } from "./operator-files.mjs";
 import { forgeMode, startForge } from "./forge/runtime.mjs";
-import { awaitingReview, fingerprint, preparePack, prepareActor } from "./pbta.mjs";
+import { awaitingReview, fingerprint, preparePack } from "./pbta.mjs";
 import fs from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import path from "node:path";
@@ -20,9 +20,7 @@ import { createModels } from "./llm/index.mjs";
 import { describeModels, providerLabel, routeFor } from "./llm/routes.mjs";
 import { withProgress } from "./llm/progress.mjs";
 import { Realtime } from "./realtime.mjs";
-import { Roster, openSeat, openWindows } from "./roles/roster.mjs";
-import { generateCoplayer, saveCharacter } from "./roles/cardgen.mjs";
-import { completeExistingCharacter } from "./roles/complete.mjs";
+import { Roster } from "./roles/roster.mjs";
 import { SECRETS_MAX, WORLD_MAX, readSetting } from "./improv.mjs";
 import { channelListAdvice, chooseChannel, keptChannels, noChannelAdvice } from "./channels.mjs";
 import { metered } from "./llm/parts.mjs";
@@ -84,12 +82,6 @@ export async function resolveChannel(api, cfg, { create }) {
   let invite = null;
   try { invite = await api.createInvite(serverId); } catch { /* not a maintainer, or the server is closed */ }
   return { channel: await api.channel(ch.id), created: true, invite };
-}
-
-function seatWindows(cfg, windows) {
-  const main = windows.find((w) => w.kind === "main") ?? windows[0];
-  if (!cfg.coplayerWindows.length) return main ? [main.id] : [];
-  return windows.filter((w) => cfg.coplayerWindows.some((x) => x === w.id || x.toLowerCase() === w.name.toLowerCase())).map((w) => w.id);
 }
 
 async function setup(cfg) {
@@ -165,29 +157,15 @@ async function prepareChannel(cfg, api, { channel, created, invite }, automatic 
     // Point buy is the channel's own option (its GM's); servers before that had a server feature.
     const pointsMode = Boolean(channel?.point_buy ?? settings?.features?.coc7_points);
     const profile = rulesProfile(ruleSystemOf(channel));
-    let rules = await profile.fetchRules(api, channel.id);
-    log(`rules: ${profile.id}${pointsMode ? ", point buy on" : ""}${profile.id === "dnd2024" ? `; new co-players at level ${cfg.level}` : ""}`);
-    const windows = await api.windows(channel.id);
-    const seats = seatWindows(cfg, windows);
+    log(`rules: ${profile.id}${pointsMode ? ", point buy on" : ""}`);
     delete state.version;
-    // Co-players are GM-cast PCs (owned by this account): any the GM already made are adopted, and only the
-    // missing ones are generated.
-    const me = api.user ?? (await api.me());
-    const known = new Set((state.coplayers ?? []).map((c) => c.characterId));
-    const characters = await api.characters(channel.id);
-    const roster = new Roster(state).reconcile(characters, seats, { castBy: me.id });
     if (automatic && state.pbtaSetup?.ready && !awaitingReview(review.status)) {
       const wantsDesign = review.eligible && review.status === "none" && cfg.worldFile;
-      const savedCards = new Set(characters.filter(c => c.role_card?.pbta?.book).map(c => c.id));
-      if (!wantsDesign && (!cfg.coplayersSpecified || roster.coplayers.length >= cfg.coplayers) &&
-          roster.coplayers.every(c => savedCards.has(c.characterId))) return true;
+      if (!wantsDesign) return true;
     }
-    // Improvisation mode: the world setting the co-players are written into (and, later, the table plays in).
+    // Improvisation mode: the world setting the table plays in.
     const improv = improvChange(cfg, state.improv);
-    let coplayers = cfg.coplayers;
-    const world = ((improv?.on ?? state.improv?.on) && (improv?.world ?? state.improv?.world)) || "";
-    for (const c of roster.coplayers) if (!known.has(c.characterId)) log(`using ${c.name}, a PC this account already owns, as a co-player`);
-    // While `run` keeps the channel it is the only writer; it picks new co-players up by their owner.
+    // While `run` keeps the channel it is the only writer.
     const running = Boolean(lockHolder(cfg.stateDir, channel.id));
     if (improv && running) appendInbox(cfg.stateDir, channel.id, { cmd: "world", ...improv });
     else if (improv) state.improv = { ...(state.improv ?? {}), ...improv };
@@ -199,68 +177,19 @@ async function prepareChannel(cfg, api, { channel, created, invite }, automatic 
     if (improv) log(`improvisation mode ${improv.on ? `on (world ${String(improv.world ?? state.improv?.world ?? "").length} characters)` : "off"}${running ? "; handed to the running table" : "; the world setting is posted in the Main Chat when run starts"}`);
 
     if (pbta) {
-      if (automatic && !cfg.coplayersSpecified) {
-        // A resumed preparation keeps the original seat count. On an established table adopt its actual cast.
-        coplayers = review.eligible && !state.coplayers ? cfg.coplayers : roster.coplayers.length;
-        if (state.pbtaSetup?.ready === false) coplayers = state.pbtaSetup.coplayers;
-      }
-      state.pbtaSetup = { coplayers, ready: false };
-      if (!running) saveState(cfg.stateDir, { ...state, ...roster.toJSON() });
-      // The design leaves spare playbooks for the human players: it is told the table's size.
-      const players = (await api.channelMembers(channel.id).catch(() => [])).filter((m) => m.role === "player").length;
-      const draft = await reviewBeforePlay(api, llm, channel.id, rules,
-        improv?.world ?? state.improv?.world ?? "", language, review, automatic, { coplayers, players });
+      state.pbtaSetup = { ready: false };
+      if (!running) saveState(cfg.stateDir, state);
+      // The design leaves spare playbooks for the human players: it is told how many there are.
+      const players = (await api.channelMembers(channel.id).catch(() => [])).filter((m) => m.role === "player" && !m.is_bot).length;
+      const draft = await reviewBeforePlay(api, llm, channel.id, await profile.fetchRules(api, channel.id),
+        improv?.world ?? state.improv?.world ?? "", language, review, automatic, { players });
       if (awaitingReview(draft.status)) return false;
-      // The GM may have edited the official rules and the cast while the host was waiting.
-      if (draft.revision !== rules.revision) rules = await api.pbtaRules(channel.id);
-      if (automatic) roster.reconcile(await api.characters(channel.id), seats, { castBy: me.id });
+      state.pbtaSetup.ready = true;
     }
-    // A PbtA co-player whose card cannot be built (the model's reply unusable twice, a timeout) is tried once more
-    // from scratch, then left for later: the table starts without it and the next start tries again (pbtaSetup stays
-    // not ready), instead of the whole host exiting.
-    let incomplete = false;
-    const actorOrLater = async (what, args) => {
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        try { return await prepareActor(api, llm, channel.id, args); }
-        catch (e) { log(`${what}: no card yet (${String(e.message).replace(/\s+/g, " ").slice(0, 200)})${attempt === 1 ? "; trying once more" : "; left for the next start"}`); }
-      }
-      incomplete = true;
-      return null;
-    };
-    for (const existing of roster.coplayers) {
-      if(pbta) {
-        const current=(await api.characterSpace(channel.id,existing.characterId)).character;
-        const takenBooks=(await api.characters(channel.id)).filter((c)=>c.id!==current.id).map((c)=>c.role_card?.pbta?.book).filter(Boolean);
-        await actorOrLater(`co-player ${current.name ?? existing.name}`, {rules,language,world,existing:current,takenBooks});
-        continue;
-      }
-      await completeExistingCharacter(api, llm, channel.id, existing.characterId, { rules, language, era: channel.era, pointsMode, world, profile, level: cfg.level, log });
-    }
-
-    const missing = coplayers - roster.coplayers.length;
-    if (missing < 0) log(`the channel already has ${roster.coplayers.length} co-players (asked for ${coplayers}); keeping them`);
-    for (let i = 0; i < missing; i++) {
-      log(`preparing co-player ${roster.coplayers.length + 1}/${coplayers} with ${modelOf(cfg, "coplayer_card")}`);
-      const characters = await api.characters(channel.id);
-      const takenNames = characters.map((c) => c.name);
-      const partyNotes = characters.map((c) => `- ${c.name}${roster.isCoplayer(c.id) ? " (co-player)" : c.kind === "pc" ? " (player character)" : " (NPC)"}`).join("\n");
-      const takenBooks = characters.map((c) => c.role_card?.pbta?.book).filter(Boolean);
-      const args = { language, era: channel.era, rules, pointsMode, takenNames, takenBooks, partyNotes, index: roster.coplayers.length, total: coplayers, world, profile, level: cfg.level, log };
-      let saved;
-      if(pbta) {
-        const actor=await actorOrLater(`co-player ${roster.coplayers.length + 1}/${coplayers}`, args);
-        if (!actor) continue;
-        saved={id:actor.id,name:actor.name,persona:actor.bio,speakingStyle:actor.speaking_style};
-      } else saved=await saveCharacter(api,channel.id,await generateCoplayer(llm,args),{kind:"coplayer",rules,llm,language,pointsMode,profile,level:cfg.level});
-      roster.coplayers.push({ characterId: saved.id, name: saved.name, persona: saved.persona, speakingStyle: saved.speakingStyle, seats: seats.map((w) => openSeat(w)) });
-      if (!running) saveState(cfg.stateDir, { ...loadState(cfg.stateDir, channel.id), ...state, ...roster.toJSON() });
-      log(`co-player ${roster.coplayers.length}/${coplayers}: ${saved.name} (${profile.castNote(saved.card) || saved.card?.basic?.occupation || profile.vocab.pc})`);
-    }
-    if (pbta) state.pbtaSetup.ready = !incomplete;
-    if (!running) saveState(cfg.stateDir, { ...loadState(cfg.stateDir, channel.id), ...state, ...roster.toJSON() });
+    if (!running) saveState(cfg.stateDir, { ...loadState(cfg.stateDir, channel.id), ...state });
     if (automatic) return true;
     const file = running ? "(kept by the running table)" : `${cfg.stateDir}/${channel.id}.json`;
-    console.log(`\nchannel: ${channel.name}${created ? " (created)" : ""}\n  CHANNEL_ID=${channel.id}\n  server: ${channel.server_id}${invite ? `\n  invite code for players: ${invite.code}` : ""}\n  state: ${file}\n  co-players: ${roster.coplayers.map((c) => c.name).join(", ") || "(none)"}\n  models: ${modelsLine(cfg)}${cfg.llm.provider === "mock" ? " (mock: placeholder text, for testing only)" : ""}\n\n${created ? "Invite players to the server with the code and add them to the channel in the web app, then: " : "Make sure the players are channel members, then: "}CHANNEL_ID=${channel.id} npm start`);
+    console.log(`\nchannel: ${channel.name}${created ? " (created)" : ""}\n  CHANNEL_ID=${channel.id}\n  server: ${channel.server_id}${invite ? `\n  invite code for players: ${invite.code}` : ""}\n  state: ${file}\n  models: ${modelsLine(cfg)}${cfg.llm.provider === "mock" ? " (mock: placeholder text, for testing only)" : ""}\n\n${created ? "Invite players to the server with the code and add them to the channel in the web app, then: " : "Make sure the players are channel members, then: "}CHANNEL_ID=${channel.id} npm start`);
     return true;
   } finally { store.close(); }
 }
@@ -340,7 +269,7 @@ export async function run(cfg, { managed = false, onLock = () => {} } = {}) {
   const inbox = inboxPath(cfg.stateDir, channel.id);
   fs.watchFile(inbox, { interval: 1000 }, take);
   take();
-  log(`keeping "${channel.name}" in ${table.language}; co-players: ${roster.coplayers.map((c) => c.name).join(", ") || "(none)"}; NPCs: ${roster.npcs.length}; models: ${modelsLine(cfg)}; autonomy: ${cfg.autonomy ? `on (side every ${cfg.autonomySideIntervalMs / 1000}s, quiet after ${cfg.autonomyQuietMs / 1000}s, idle after ${cfg.autonomyIdleMinutes} min)` : "off"}; planner: ${cfg.planner.enabled ? "on" : "off"}; timelines: ${cfg.timelineAuto ? "proactive" : "model-led"}; scenarios: ${cfg.scenarioAuto ? `GM-driven (≥ ${cfg.scenarioMinMinutes} min, ≥ ${cfg.scenarioMinLines} lines)` : "manual"}`);
+  log(`keeping "${channel.name}" in ${table.language}; NPCs: ${roster.npcs.length}; models: ${modelsLine(cfg)}; autonomy: ${cfg.autonomy ? `on (quiet after ${cfg.autonomyQuietMs / 1000}s, idle after ${cfg.autonomyIdleMinutes} min)` : "off"}; planner: ${cfg.planner.enabled ? "on" : "off"}; timelines: ${cfg.timelineAuto ? "proactive" : "model-led"}; scenarios: ${cfg.scenarioAuto ? `GM-driven (≥ ${cfg.scenarioMinMinutes} min, ≥ ${cfg.scenarioMinLines} lines)` : "manual"}`);
   if (cfg.kickoff) {
     const main = table.primaryWindowId();
     if (main) table.schedule(main, { kickoff: true, delay: 0 });
@@ -408,10 +337,10 @@ function world(cfg) {
 
 const list = (v) => String(v ?? "").split(",").map((x) => x.trim()).filter(Boolean);
 
-// `split --who "Alice Hale,Harriet Vance" --place "Old Harbour" [--span long] [--time …] [--opening …]`
-// (`--coplayers` and `--name` are accepted as older spellings of --who and --place.)
+// `split --who "Alice Hale,Bob Price" --place "Old Harbour" [--span long] [--time …] [--opening …]`
+// (`--name` is accepted as an older spelling of --place.)
 function split(cfg, args) {
-  const who = list(args.who ?? args.coplayers);
+  const who = list(args.who);
   const place = args.place ?? args.name;
   if (!place || !who.length) throw new Error("split needs --who <names, comma-separated> and --place <where they go>");
   return manual(cfg, { cmd: "split", who, place, span: args.span, time: args.time ?? "", opening: args.opening ?? "" }, `split ${who.join(", ")} → ${place}`);
@@ -438,8 +367,6 @@ async function status(cfg) {
   if (table.splitWarning) console.log(`warning: ${table.splitWarning}`);
   console.log("GM and real NPCs share the GM's context: all chat, the GM board, reminders, script knowledge, documents, highlights.");
   console.log(`real NPCs: ${roster.npcs.map((n) => n.name).join(", ") || "(none)"}`);
-  console.log("co-players see only the chat lines their character witnessed, during their seats:");
-  for (const c of roster.coplayers) console.log(`  ${c.name} — now in ${openWindows(c).map(wname).join(", ") || "(nowhere)"}; ${c.seats.length} seat(s) so far`);
   console.log("timelines:");
   for (const t of timelines.list) console.log(`  T${t.handle} ${t.name} [${t.status}${t.mergedInto ? ` → ${timelines.get(t.mergedInto)?.name}` : ""}${t.status === "active" && t.id !== "main" ? `, ${t.span}${t.opened ? "" : ", not opened yet"}` : ""}]${t.windowId ? ` in "${wname(t.windowId)}"` : ""}: ${t.members.map(cname).join(", ") || "(no one)"}${t.narrativeTime ? `; ${t.narrativeTime}` : ""}${t.location ? ` @ ${t.location}` : ""}`);
   if (table.owedArrivals.length) console.log(`opening turns waiting for run: ${table.owedArrivals.map((a) => wname(a.windowId)).join(", ")}`);
@@ -449,10 +376,10 @@ async function status(cfg) {
   console.log(`model usage, last 7 days: ${usage(Date.now() - 7 * 86400000)}${cfg.dailyTokenBudget ? `; daily budget for autonomous turns: ${cfg.dailyTokenBudget}` : ""}`);
   console.log("model usage today by type / phase / model:");
   printUsageSummary(table.store.usageByPurpose(day.getTime()));
-  const chapters = table.store.db.prepare("SELECT scope LIKE 'coplayer:%' AS cp, count(*) AS n FROM chapters GROUP BY 1").all();
-  console.log(`memory: ${table.store.db.prepare("SELECT count(*) AS n FROM lines").get().n} chat lines kept locally; ${chapters.find((x) => !x.cp)?.n ?? 0} GM chapter(s), ${chapters.find((x) => x.cp)?.n ?? 0} co-player memory chapter(s); context budgets ${cfg.gmContextTokens} tokens (GM), ${cfg.coplayerContextTokens} (each co-player); prompt cache ${cfg.llm.cacheTtl}`);
+  const gmChapters = table.store.db.prepare("SELECT count(*) AS n FROM chapters WHERE scope = 'gm'").get().n;
+  console.log(`memory: ${table.store.db.prepare("SELECT count(*) AS n FROM lines").get().n} chat lines kept locally; ${gmChapters} GM chapter(s); context budget ${cfg.gmContextTokens} tokens (GM); prompt cache ${cfg.llm.cacheTtl}`);
   const ca = table.casual;
-  console.log(`casual mode: ${ca.on ? (table.splitWarning ? `on, but not active here (${table.splitWarning})` : `on — ${Object.keys(ca.phones).length} phone(s), ${ca.pending.length} text(s) on their way (replies within ${cfg.casualMaxDelayMinutes} min); texts between AI characters in ${ca.log ? `"${wname(ca.log)}"` : "the phone log (opened by run)"}, at most ${cfg.casualAiTextsPerHour} answered an hour, ${cfg.casualAiChain} in a row`) : "off (a solemn game: no phones)"}`);
+  console.log(`casual mode: ${ca.on ? (table.splitWarning ? `on, but not active here (${table.splitWarning})` : `on — ${Object.keys(ca.phones).length} phone(s), ${ca.pending.length} text(s) on their way (replies within ${cfg.casualMaxDelayMinutes} min)`) : "off (a solemn game: no phones)"}`);
   const pace = table.calendarPaceCfg(), held = calendarPace(table.calendar, { minMinutes: pace.minMinutes, minLines: pace.minLines });
   const paceText = pace.minMinutes || pace.minLines || pace.maxDays ? `; GM pace: the date moves on${pace.maxDays ? ` at most ${pace.maxDays} day(s) at once` : ""}${pace.minMinutes || pace.minLines ? `, ${pace.minMinutes} min and ${pace.minLines} player lines after it last moved (${held.ok ? "may move now" : `waits ${held.wait}`})` : ""}` : "; GM pace: no limit";
   console.log(`calendar: ${table.calendarOn() ? `${describeCalendar(table.calendar) || "no date yet (the story planner chooses the first one)"}${table.calendar.log.length ? `; last change by ${changedBy(table.calendar.log.at(-1).by)}` : ""}${table.calendar.routine ? `; routine: ${table.calendar.routine.text}` : ""}${paceText}` : "off (a solemn game keeps no date; casual mode has one)"}`);
@@ -460,7 +387,7 @@ async function status(cfg) {
   console.log(`relationships: ${table.bonds.length ? table.bonds.map((b) => `${nameOf(b.a)} — ${nameOf(b.b)}: ${b.kind}${b.secret ? " (secret)" : ""}`).join("; ") : "(none recorded)"}`);
   const pl = table.planner, arc = pl.arc;
   const plMode = !pl.on ? "off" : table.improv.on ? "full plotting" : "pace only: module-led campaign";
-  console.log(`story planner: ${pl.on ? `on (${plMode})${arc ? ` — plan v${arc.version}, ${Math.round((Date.now() - Date.parse(arc.updatedAt)) / 60000)} min ago (${arc.trigger}); beat "${arc.beat.title}", verdict: ${arc.verdict?.moveOn ? "move on" : "continue"}; ${arc.threads.length} thread(s)${pl.impulses.length ? `; impulses: ${pl.impulses.map((i) => i.name).join(", ")}` : ""}` : " — no plan yet (needs 10 lines, or `plan now`)"}; automatic after ${cfg.planner.intervalMs / 60000} min and ${cfg.planner.minLines} lines, cooldown ${cfg.planner.cooldownMs / 60000} min, ≤ ${cfg.planner.maxRunsPerHour}/h; model ${modelOf(cfg, "planner")}` : "off"}`);
+  console.log(`story planner: ${pl.on ? `on (${plMode})${arc ? ` — plan v${arc.version}, ${Math.round((Date.now() - Date.parse(arc.updatedAt)) / 60000)} min ago (${arc.trigger}); beat "${arc.beat.title}", verdict: ${arc.verdict?.moveOn ? "move on" : "continue"}; ${arc.threads.length} thread(s)` : " — no plan yet (needs 10 lines, or `plan now`)"}; automatic after ${cfg.planner.intervalMs / 60000} min and ${cfg.planner.minLines} lines, cooldown ${cfg.planner.cooldownMs / 60000} min, ≤ ${cfg.planner.maxRunsPerHour}/h; model ${modelOf(cfg, "planner")}` : "off"}`);
   console.log(`models: ${modelsLine(cfg)}`);
   const im = table.improv;
   const notes = pl.table;
@@ -468,7 +395,7 @@ async function status(cfg) {
   const ses = pl.session;
   console.log(`final review: ${cfg.planner.finalReview && pl.on ? `on — after a session of ≥ ${cfg.planner.finalReviewMinLines} player lines, once nobody has written for ${cfg.autonomyIdleMinutes} min (or when run stops); moves the calendar up to ${cfg.planner.finalReviewMaxDays} days` : "off"}${ses ? `; session in progress: ${ses.lines} player line(s) since ${new Date(ses.startedAt).toISOString().slice(0, 16).replace("T", " ")}` : ""}${pl.between ? "; the next session opens from the last review" : ""}`);
   console.log(`improvisation: ${im.on ? `on — world bible ${im.world.length} characters, hidden ${im.secrets.length} characters, ${table.worldbook().entries.length} worldbook entr${table.worldbook().entries.length === 1 ? "y" : "ies"} (${operatorPath(cfg.stateDir, table.channelId, "worldbook")}), ${im.truths.length} hidden truth(s) decided in play; the module's script knowledge and hints are ignored` : "off"}`);
-  console.log(`autonomy: ${cfg.autonomy ? `on — side timelines every ${cfg.autonomySideIntervalMs / 1000}s; a shared window moves after ${cfg.autonomyQuietMs / 1000}s of silence, up to ${cfg.autonomyQuietTurns} times; pauses after ${cfg.autonomyIdleMinutes} min without a human line; at most ${cfg.autonomyMaxTurnsPerHour} autonomous turns an hour` : "off"}`);
+  console.log(`autonomy: ${cfg.autonomy ? `on — a shared window moves after ${cfg.autonomyQuietMs / 1000}s of silence, up to ${cfg.autonomyQuietTurns} times; pauses after ${cfg.autonomyIdleMinutes} min without a human line; at most ${cfg.autonomyMaxTurnsPerHour} autonomous turns an hour` : "off"}`);
   console.log(`timelines: ${cfg.timelineAuto ? `proactive (at most ${cfg.timelineMaxActive} at once, ${cfg.timelineMaxArrivalsPerHour} arrivals an hour)` : "model-led (TIMELINE_AUTO=false)"}, ${cfg.sceneForks ? "scene forks on (after a split the main story leaves the Main Chat, a lobby)" : "the main story stays in the Main Chat"}; scenarios: ${cfg.scenarioAuto ? `GM-driven from the Main Chat after ${cfg.scenarioMinMinutes} min and ${cfg.scenarioMinLines} lines; never during a short split` : "manual only"}`);
 }
 
@@ -480,7 +407,6 @@ async function plan(cfg, args) {
     const { renderStoryPlan } = await import("./planner.mjs");
     if (!table.planner.arc) { console.log("no story plan yet"); return; }
     console.log(renderStoryPlan(table.planner.arc, 100000));
-    if (table.planner.impulses.length) console.log(`\nimpulses: ${table.planner.impulses.map((i) => `${i.name}: "${i.text}"`).join("\n          ")}`);
     if (args.full) { const rec = table.store.latestPlan(); if (rec) console.log(`\n--- v${rec.version} (${rec.trigger}) in full ---\n${JSON.stringify(rec.record, null, 2)}`); }
     return;
   }
@@ -532,8 +458,9 @@ async function usage(cfg, args) {
   } finally { store.close(); }
 }
 
-// `bots handoff --character NAME --bot NAME`: one of this account's characters (a former AI co-player) goes to one of
-// the server's platform bots, with what it remembered of the campaign as the bot's briefing (src/handoff.mjs).
+// `bots handoff --character NAME --bot NAME`: one of this account's characters (a PC the GM voices, or an AI co-player
+// of an older version) goes to one of the server's platform bots, with what it remembered of the campaign as the bot's
+// briefing (src/handoff.mjs).
 async function bots(cfg, args) {
   if (args._[1] !== "handoff" || typeof args.character !== "string" || typeof args.bot !== "string")
     throw new Error('usage: acerciae-gm bots handoff --character "NAME" --bot "BOT NAME" [--channel ID]');
@@ -564,7 +491,7 @@ export async function main() {
   const command = args._[0] ?? "run";
   const commands = { setup, run, status, usage, split, rejoin, advance, world, casual, plan, date, bond, bots };
   if (!commands[command]) {
-    console.error(`usage: acerciae-gm <setup|run|status|usage|split|rejoin|advance|world|casual|plan|date|bond|bots handoff> [--coplayers N] [--channel ID] [--kickoff] …  (see README.md)`);
+    console.error(`usage: acerciae-gm <setup|run|status|usage|split|rejoin|advance|world|casual|plan|date|bond|bots handoff> [--channel ID] [--kickoff] …  (see README.md)`);
     process.exit(2);
   }
   await commands[command](cfg, args);

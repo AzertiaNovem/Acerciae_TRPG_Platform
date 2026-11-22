@@ -3,7 +3,7 @@
 // does: now and then, in the background and with its own model, it rereads the campaign, keeps a plan of twists and
 // plots (inventing and weaving them when the campaign is improvised), reviews its own draft, and tells the GM when the
 // current event has run its course. The GM is advised, not commanded: it steers toward the plan and deviates when the
-// players surprise it. Co-players get at most one private impulse each, an in-character urge that never names a secret.
+// players surprise it.
 //
 // Nothing here runs on the turn queue: planStory() is a Memory.run("planner") job beside the turns, and its result is
 // adopted at the next turn boundary. The compact plan lives in the state file (key `planner`); every version's full
@@ -21,7 +21,7 @@ import { adaptPrompt } from "./rules/index.mjs";
 
 const clip = (s, n) => { const t = String(s ?? "").replace(/\s+/g, " ").trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
 const STATUSES = new Set(["seed", "live", "ripe", "resolved", "dropped"]);
-const MAX_THREADS = 8, MAX_NEXT = 3, MAX_HOOKS = 3, MAX_NOTES = 5, IMPULSE_MAX = 240;
+const MAX_THREADS = 8, MAX_NEXT = 3, MAX_HOOKS = 3, MAX_NOTES = 5;
 
 export function plannerState(s) {
   const x = s && typeof s === "object" ? s : {};
@@ -29,7 +29,6 @@ export function plannerState(s) {
     paused: x.paused === true, pauseSeq: Number(x.pauseSeq) || 0,
     on: x.on === undefined ? true : Boolean(x.on),
     arc: x.arc && typeof x.arc === "object" ? x.arc : null,
-    impulses: Array.isArray(x.impulses) ? x.impulses.filter((i) => i && i.coplayerId && i.text) : [],
     nextThreadId: Number.isInteger(x.nextThreadId) && x.nextThreadId > 0 ? x.nextThreadId : 1,
     lastRunAt: Number(x.lastRunAt) || 0,
     lastRunSeq: Number(x.lastRunSeq) || 0,
@@ -124,21 +123,6 @@ export function leaksSecret(text, secrets) {
   return false;
 }
 
-const META = /\b(plan(ner|ned|s)?|keeper|game ?master|\bGM\b|player|prompt|instruction|secret)\b|计划|守秘人|玩家|剧本|提示词/i;
-
-// At most one impulse per co-player, by name; nothing that quotes a secret or talks about the game itself.
-export function validateImpulses(list, { coplayers = [], secrets = [], version = 0, lastSeq = 0, lifetime = 60 } = {}) {
-  const out = [];
-  for (const i of Array.isArray(list) ? list : []) {
-    const cp = coplayers.find((c) => String(c.name).trim().toLowerCase() === String(i?.who ?? "").trim().toLowerCase());
-    const text = clip(i?.text, IMPULSE_MAX);
-    if (!cp || !text || out.some((o) => o.coplayerId === cp.characterId)) continue;
-    if (leaksSecret(text, secrets) || META.test(text)) continue;
-    out.push({ coplayerId: cp.characterId, name: cp.name, text, version, expiresSeq: lastSeq + lifetime });
-  }
-  return out;
-}
-
 // The critique never fails validation: a reply that is not an object counts as "no faults found".
 export function validateCritique(x) {
   const arr = (v) => (Array.isArray(v) ? v.map((s) => clip(s, 300)).filter(Boolean).slice(0, 8) : []);
@@ -182,7 +166,7 @@ export function validateStoryPlan(x, { mode = "full", prev = null, nextId = 1, s
     played: clip(x.played, 400), review: { critique: clip(prev?.pendingCritique ?? x.critique, 600), changed: clip(x.changed, 400) },
     calendar: { start: clip(x.calendar?.start, 80), time: clip(x.calendar?.time, 80), advice: clip(x.calendar?.advice, 200), routine: clip(x.calendar?.routine, 400), upcoming: (Array.isArray(x.calendar?.upcoming) ? x.calendar.upcoming : []).map((u) => ({ when: clip(u?.when, 80), what: clip(u?.what, 200) })).filter((u) => u.what).slice(0, 3) },
   };
-  return { arc, nextId: id, rawImpulses: Array.isArray(x.impulses) ? x.impulses : [], rawBonds: mode === "full" && Array.isArray(x.bonds) ? x.bonds.slice(0, 12) : [] };
+  return { arc, nextId: id, rawBonds: mode === "full" && Array.isArray(x.bonds) ? x.bonds.slice(0, 12) : [] };
 }
 
 // The final review's `between`: how far the calendar moves (a missing value counts as one day: the world moves on
@@ -242,21 +226,17 @@ export function renderStoryPlan(arc, budget = 1500) {
 }
 
 // The GM-only note posted once per version.
-export function renderPlanNote(arc, impulses = []) {
+export function renderPlanNote(arc) {
   const open = (arc.threads ?? []).filter((t) => !["resolved", "dropped"].includes(t.status));
   const bits = [
     `Story plan v${arc.version} (${arc.trigger}) — beat "${arc.beat.title}"${arc.beat.exit ? `: exit when ${arc.beat.exit}` : ""}. Verdict: ${arc.verdict?.moveOn ? `MOVE ON — ${arc.verdict.why}` : "continue"}.`,
     arc.next?.[0] ? `Next: ${arc.next[0].what}.` : "",
     open.length ? `Threads: ${open.map((t) => `${t.id} ${t.status}`).join(", ")}.` : "",
-    impulses.length ? `Impulse for ${impulses.map((i) => i.name).join(", ")}.` : "",
     arc.review?.changed ? `Changed: ${arc.review.changed}` : "",
     "Full plan: `plan show`.",
   ].filter(Boolean).join(" ");
   return clip(bits, 900);
 }
-
-// The one line a co-player reads: its own urge, quoted.
-export const renderImpulse = (impulse) => (impulse ? `SOMETHING ON YOUR MIND (your own thought, no one else's; pursue it when it fits, in your own way, without announcing it): "${impulse.text}"` : "");
 
 // `calendar`: a casual game, whose story keeps a date (calendar.mjs); a solemn game has none.
 // `table`: the planner window is open, so the reply carries table notes and an answer to the players (wishes.mjs).
@@ -264,13 +244,12 @@ export function plannerSystem(language, { mode = "full", final = false, calendar
   const common = `You are the story planner of a long tabletop roleplaying campaign played in chat. You are not the GM and you never speak in the chat: the GM reads your plan and decides; you advise. You read the whole campaign slowly, while the GM plays step by step. Your job is the global view: where the story is going, what should happen next, and above all when the current event has run its course, so that nobody stretches a trivial scene over many turns. Prefer closing events over stretching them. Write in ${language}.`;
   const full = `
 The campaign is improvised: there is no module. Be bold. Invent original plots, weave several into one situation, raise the stakes, pay off what was planted. Every invention must fit the World setting and every Hidden truth and The world now; record each as a secret twist the GM reveals through play, never a fact stated to the players. Keep thread ids across versions; resolve or drop what has gone stale rather than letting it linger.
-An impulse is one co-player's own urge, written to that character in the second person, in character ("you want to see the warehouse tonight; the watchman's lie bothers you"). It never reveals a hidden truth or a twist, never mentions a plan, the GM, the game or other players as players, and never tells the character what will happen.
-Keep the Relationships current in "bonds": every relationship the profiles or the chat state between characters at the table (who lives together, family, lovers, friends, colleagues, rivals) that is not listed yet, and developments established through play with recurring NPCs. Propose opportunities for co-players to develop relationships; do not record an unplayed proposal as an established bond. You may invent consistent off-screen relationships among NPCs in this improvised campaign. A bond with a player character only when its profile or the chat already states it: never decide what a player character feels. Mark a bond secret when the investigators do not know it.`;
+Keep the Relationships current in "bonds": every relationship the profiles or the chat state between characters at the table (who lives together, family, lovers, friends, colleagues, rivals) that is not listed yet, and developments established through play with recurring NPCs. Propose opportunities for relationships to develop; do not record an unplayed proposal as an established bond. You may invent consistent off-screen relationships among NPCs in this improvised campaign. A bond with a player character only when its profile or the chat already states it: never decide what a player character feels. Mark a bond secret when the investigators do not know it.`;
 const CALENDAR_RULE = `
 Time (a casual game: the story keeps a calendar): the Calendar section is the story's date, always YYYY-MM-DD. If no date is set yet, choosing the first one is your job: put it in calendar.start (YYYY-MM-DD, a year within the campaign's era) and its time of day in calendar.time, fitting the era, the World setting (when its calendar says the story usually opens) and the plots you plan. Let events breathe: say in calendar.advice when the calendar should move on next and how far (a night's sleep, a week of research, a journey).
 Routine: everyday life follows a calendar too (a school year, a working week, a fishing or harvest season, holidays, festivals); the World setting may describe it. In calendar.routine say what everyday life is busy with on the current date (the date you set in calendar.start, or the one a final review moves to), and in calendar.upcoming the routine events of the next weeks. Take them from the world's calendar and the era, and invent fitting ones where it says nothing. The routine is common knowledge that everyone in the story shares: never a secret, a twist or a plan. Use it: tie plots to it, and let the investigators' days fill with it between events.`;
 const TABLE_RULE = `
-The players can write to you in a window of their own (The players' words to you), out of character. A wish is where they would like the story to go: weave it into the plan, unless it would break the World setting, a Hidden truth or another player's fun; then say so kindly in reply. A correction is something the story got wrong against their setting, stated or implicit: a character acting against their nature, a fact of the world contradicted, a tone they do not want. Record it as a standing correction for the GM and the co-players, fix the plan to match it, and never repeat the mistake. Keep "table_notes" current: one note per standing wish or correction, in your own clear words, with the characters it is about; keep ids, change a note when the players refine it, drop it when it is fulfilled or withdrawn. When the players wrote to you, answer them in "reply": what you will steer toward and what you corrected, in a sentence or two; never a twist, a secret, a hidden truth or what will happen.`;
+The players can write to you in a window of their own (The players' words to you), out of character. A wish is where they would like the story to go: weave it into the plan, unless it would break the World setting, a Hidden truth or another player's fun; then say so kindly in reply. A correction is something the story got wrong against their setting, stated or implicit: a character acting against their nature, a fact of the world contradicted, a tone they do not want. Record it as a standing correction for the GM and the platform's bots, fix the plan to match it, and never repeat the mistake. Keep "table_notes" current: one note per standing wish or correction, in your own clear words, with the characters it is about; keep ids, change a note when the players refine it, drop it when it is fulfilled or withdrawn. When the players wrote to you, answer them in "reply": what you will steer toward and what you corrected, in a sentence or two; never a twist, a secret, a hidden truth or what will happen.`;
 const FINAL_RULE = (mode, calendar) => `
 FINAL REVIEW: the players have just left the table; this session is over. Review the whole session and prepare the next one. Be more proactive than in a plan made during play: nobody is waiting, and the world moves on between sessions.${calendar ? " Decide how much time passes before the next session in between.advance_days (usually one day or more; longer when the story has a natural pause; 0 only when the next session must pick up the very same moment, such as mid-fight or mid-conversation) and the time of day it resumes." : ""}${mode === "pace" ? ` The module has the plots: record no off-screen developments${calendar ? ", only what time passes" : ""}.` : " Record what the world did meanwhile in between.offscreen: people acting on their own plans, consequences of what the investigators did, threads ripening; each one a fact about the world now, secret when the investigators would not know it yet."} Distinguish completed actions from intentions per person and scene, including the time or meal. A proposed montage or an elapsed interval does not complete a player action. Do not repeat a completed event or record a plan as an off-screen fact. Say how the next session should open (between.opening) and sum up this session for the GM (between.recap).`;
   const pace = `
@@ -291,7 +270,6 @@ const DRAFT_SCHEMA = (mode, final = false, calendar = false, table = false) => {
  "beat": {"title": "the current event", "purpose": "...", "exit": "what must happen for this event to be done"},
  "next": [{"what": "the next twist", "when": "..."}],
  "verdict": {"move_on": false, "why": "..."},
- "impulses": [{"who": "<co-player name>", "text": "their own urge, in character, second person"}],
  "bonds": [{"a": "<character name>", "b": "<character name>", "kind": "lives with | married | lovers | friends | family | colleagues | rivals | ...", "note": "which way, since when", "secret": false, "end": false}],
  "played": "how the previous plan played out", "changed": "what you changed and why"}`;
   return `${base.slice(0, -1)}${extra}}`;
@@ -299,7 +277,7 @@ const DRAFT_SCHEMA = (mode, final = false, calendar = false, table = false) => {
 
 const FINAL_CRITIQUE = ` This is the final review of a session: also check that "between" moves the story on (time passes, the world acts off-screen, as the game allows) without contradicting anything, and that the opening hands the players a situation, not a summary.`;
 const CRITIQUE = `STEP: critique
-You are now a second GM, a harsh script editor who did not write the draft above. Read it against everything you were given and find at least three concrete faults, or say explicitly that there are none and why. Look for: what is boring or repetitive; what is implausible, or contradicts the World setting, the Hidden truths or The world now; which threads are stale (untouched for long) and should be resolved, dropped or merged; where two plots can be joined into one situation; whether the current beat has run its course (its exit met, or the players plainly done with it) and the verdict is honest; whether an impulse reveals a secret or talks about the game; whether the draft adds unnecessary named NPCs, crowds the active cast or neglects existing player/co-player relationships. For an unnecessary newcomer, suggest an existing NPC who plausibly fits, or leave the minor role unnamed. Check that reunions follow through on past promises and consequences, without inventing reciprocal feelings, forced appearances or rewritten identities. Reply with only this JSON:
+You are now a second GM, a harsh script editor who did not write the draft above. Read it against everything you were given and find at least three concrete faults, or say explicitly that there are none and why. Look for: what is boring or repetitive; what is implausible, or contradicts the World setting, the Hidden truths or The world now; which threads are stale (untouched for long) and should be resolved, dropped or merged; where two plots can be joined into one situation; whether the current beat has run its course (its exit met, or the players plainly done with it) and the verdict is honest; whether the draft adds unnecessary named NPCs, crowds the active cast or neglects the player characters' existing relationships. For an unnecessary newcomer, suggest an existing NPC who plausibly fits, or leave the minor role unnamed. Check that reunions follow through on past promises and consequences, without inventing reciprocal feelings, forced appearances or rewritten identities. Reply with only this JSON:
 {"boring": ["..."], "implausible": ["..."], "contradictions": ["..."], "stale": ["..."], "merge": ["..."], "beat_done": true | false | null, "must_fix": ["the changes the revision must make"]}`;
 
 // The planning job: draft, critique, revise, as one growing conversation (the big context is cached once and read
@@ -309,14 +287,13 @@ You are now a second GM, a harsh script editor who did not write the draft above
 // `table`: the planner window is open; `wishes` the players' new words and the standing notes (wishes.mjs renderInbox).
 // `profile` is the rules profile: its words (the game, the player characters) replace the CoC ones in the planner's
 // prompts (adaptPrompt).
-export async function planStory(llm, { language, mode, contextText, prev, since, coplayers, secrets, nextId, lastSeq, trigger, now, impulseLines, final = null, calendar = false, table = false, wishes = "", profile = null, toolkit = null, canContinue, log = () => {} }) {
+export async function planStory(llm, { language, mode, contextText, prev, since, nextId, lastSeq, trigger, now, final = null, calendar = false, table = false, wishes = "", profile = null, toolkit = null, canContinue, log = () => {} }) {
   const adapt = (t) => adaptPrompt(profile, t);
   const system = adapt(plannerSystem(language, { mode, final: Boolean(final), calendar, table }));
   const briefing = [
     `## Previous story plan${prev ? ` (v${prev.version}, ${prev.trigger})` : ""}\n${prev ? renderStoryPlan(prev, 4000).split("\n").slice(1).join("\n") : "(none yet: this is the first plan)"}`,
     `## Since the last plan\n${since || "(nothing recorded)"}`,
     wishes,
-    mode === "full" ? `## Co-players you may give an impulse\n${coplayers.map((c) => `- ${c.name}`).join("\n") || "(none)"}` : "",
   ].filter(Boolean).join("\n\n");
   const draftAsk = adapt(`STEP: draft\n${final ? "This is the FINAL REVIEW of the session that just ended. Write the story plan for the next session" : `Write the story plan now${trigger ? ` (why you were asked: ${trigger})` : ""}`}. Reply with only this JSON:\n${DRAFT_SCHEMA(mode, Boolean(final), calendar, table)}`);
   const critiqueAsk = adapt(final ? CRITIQUE.replace("Reply with only this JSON:", `${FINAL_CRITIQUE.trim()} Reply with only this JSON:`) : CRITIQUE);
@@ -324,16 +301,15 @@ export async function planStory(llm, { language, mode, contextText, prev, since,
   const draftJson = await completeJson(llm, { system, user: [...context, { text: draftAsk }], purpose: "planner", toolkit, canContinue, phase: final ? "final_draft" : "draft" }, (x) => { if (!x || typeof x !== "object") throw new Error("expected an object"); return x; });
   const draftText = JSON.stringify(draftJson);
   const critique = await completeJson(llm, { system, messages: [{ role: "user", content: [...context, { text: draftAsk }] }, { role: "assistant", content: draftText }, { role: "user", content: [{ text: critiqueAsk, cache: true }] }], purpose: "planner", toolkit, canContinue, phase: final ? "final_critique" : "critique" }, validateCritique);
-  const reviseAsk = adapt(`STEP: revise\nRevise the draft: fix every must_fix, keep thread ids and titles unless a fault names them, change the beat only if beat_done is true or the GM closed it, keep impulses in character and free of secrets. Replace unnecessary proposed newcomers with suitable existing NPCs and follow through on their relationships; do not merge or rewrite already established people. Let peripheral subplots rest. Fill "changed" with what you changed and why${critique.must_fix.length ? "" : " (nothing, if the critique found no fault)"}. Reply with only the same JSON shape as the draft.`);
+  const reviseAsk = adapt(`STEP: revise\nRevise the draft: fix every must_fix, keep thread ids and titles unless a fault names them, change the beat only if beat_done is true or the GM closed it. Replace unnecessary proposed newcomers with suitable existing NPCs and follow through on their relationships; do not merge or rewrite already established people. Let peripheral subplots rest. Fill "changed" with what you changed and why${critique.must_fix.length ? "" : " (nothing, if the critique found no fault)"}. Reply with only the same JSON shape as the draft.`);
   const finalJson = await completeJson(llm, { system, messages: [{ role: "user", content: [...context, { text: draftAsk }] }, { role: "assistant", content: draftText }, { role: "user", content: [{ text: critiqueAsk, cache: true }] }, { role: "assistant", content: JSON.stringify(critique) }, { role: "user", content: reviseAsk }], purpose: "planner", toolkit, canContinue, phase: final ? "final_revise" : "revise" }, (x) => { if (!x || typeof x !== "object") throw new Error("expected an object"); return x; });
   const summary = [...critique.must_fix, ...critique.boring, ...critique.contradictions, ...critique.stale].slice(0, 6).join("; ");
-  const { arc, nextId: next, rawImpulses, rawBonds } = validateStoryPlan({ ...finalJson, critique: summary }, { mode, prev, nextId, seq: lastSeq, trigger, now });
+  const { arc, nextId: next, rawBonds } = validateStoryPlan({ ...finalJson, critique: summary }, { mode, prev, nextId, seq: lastSeq, trigger, now });
   if (!calendar) arc.calendar = null;   // a solemn game keeps no date
   if (critique.beat_done === true && finalJson.beat?.title === prev?.beat?.title) arc.verdict = { ...arc.verdict, moveOn: true, why: arc.verdict.why || "the review judged this event done" };
-  const impulses = mode === "full" ? validateImpulses(rawImpulses, { coplayers, secrets, version: arc.version, lastSeq, lifetime: impulseLines }) : [];
   const between = final ? validateBetween(finalJson.between ?? draftJson.between, { mode, maxDays: final.maxDays }) : null;
-  log(`planner: v${arc.version} (${trigger}) — beat "${arc.beat.title}", ${arc.verdict.moveOn ? "move on" : "continue"}, ${arc.threads.length} thread(s), ${impulses.length} impulse(s)${between ? `, ${between.advanceDays} day(s) pass` : ""}`);
+  log(`planner: v${arc.version} (${trigger}) — beat "${arc.beat.title}", ${arc.verdict.moveOn ? "move on" : "continue"}, ${arc.threads.length} thread(s)${between ? `, ${between.advanceDays} day(s) pass` : ""}`);
   const tableNotes = table && Array.isArray(finalJson.table_notes) ? finalJson.table_notes.slice(0, 20) : [];
   const reply = table ? String(finalJson.reply ?? "").trim() : "";
-  return { arc, impulses, bonds: rawBonds, between, tableNotes, reply, nextId: next, record: { draft: draftJson, critique, final: finalJson } };
+  return { arc, bonds: rawBonds, between, tableNotes, reply, nextId: next, record: { draft: draftJson, critique, final: finalJson } };
 }

@@ -1,19 +1,18 @@
-// The table loop. A line from a real person starts a turn (after a short quiet period): first the GM and the real
-// NPCs act with the GM's context, then the co-players seated in that window act, each with only its own chat log,
-// and the GM answers their moves at once in a follow-up round. Lines this client posts never start a turn by
-// themselves, so it cannot talk to itself without bound.
+// The table loop. A line from a player starts a turn (after a short quiet period): the GM and the real NPCs act with
+// the GM's context; then, when the GM lets the players act, the platform's bots seated in that window are asked for
+// their turn (table/bots.mjs), and their lines are answered like any player's. Lines this client posts never start a
+// turn by themselves, so it cannot talk to itself without bound.
 //
 // Proactive timelines (TIMELINE_AUTO): each GM round may report where investigators are (whereabouts.mjs). The
 // table then splits them into threads of their own — a window for the place, with the players who went and the GM —
 // and reunites them in the Main Chat when they are together again. Every new or changed scene gets an arrival turn
 // at once. A player who keeps writing in the old window is answered in their own scene (relay).
 //
-// The table does not always wait for a human. On its own clock (tick) it also runs:
-//   side   – a co-players-only window bound to a side timeline: its thread moves on, turn after turn;
-//   quiet  – a window with human players that has been silent for a while: the scene moves on a little without
-//            deciding anything for a player character, at most AUTONOMY_QUIET_TURNS times until a human posts again.
-//            A human writing in the window (the platform's typing flag) holds its quiet turns: the story does not
-//            move on while they compose their line, and their stopping starts the silence over.
+// The table does not always wait for a human. On its own clock (tick) it also runs quiet turns: a window with human
+// players that has been silent for a while moves on a little without deciding anything for a player character, at
+// most AUTONOMY_QUIET_TURNS times until a human posts again. A human writing in the window (the platform's typing
+// flag) holds its quiet turns: the story does not move on while they compose their line, and their stopping starts
+// the silence over.
 // Autonomy pauses when no human has posted in the channel for AUTONOMY_IDLE_MINUTES, and is capped per hour.
 //
 // The GM may also open the next scenario (campaign-wide), only from the Main Chat, never while a short split is
@@ -47,7 +46,6 @@ import { rulesProfile, ruleSystemOf } from "./rules/index.mjs";
 const TYPING_STALE_MS = 10 * 60000;
 
 import * as book from "./table/worldbook.mjs";
-import { intentionOf } from "./table/intentions.mjs";
 import * as context from "./table/context.mjs";
 import * as recovery from "./table/recovery.mjs";
 import * as scheduling from "./table/scheduling.mjs";
@@ -56,12 +54,10 @@ import * as actions from "./table/actions.mjs";
 import * as art from "./table/art.mjs";
 import * as planning from "./table/planning.mjs";
 import * as social from "./table/social.mjs";
-import * as coplayers from "./table/coplayers.mjs";
 import * as bots from "./table/bots.mjs";
-import { attentionCandidates, attentionBrief, attentionChoice, noteAttention } from "./table/attention.mjs";
 import * as world from './table/world-state.mjs';
 import { worldState as normalizeWorldState } from './world-state/state.mjs';
-import { languageName, MOVE_MODES, norm, names } from "./table/shared.mjs";
+import { languageName, MOVE_MODES, names } from "./table/shared.mjs";
 export { languageName } from "./table/shared.mjs";
 
 export class Table {
@@ -83,7 +79,7 @@ export class Table {
     this.now = now;
     this.startedAt = now();
     this.random = random;
-    this.operatorDir = operatorDir;   // the state directory: the worldbook and intentions files the host's Web UI edits
+    this.operatorDir = operatorDir;   // the state directory: the worldbook file the host's Web UI edits
 
     this.timelines = timelines ?? new Timelines([], { now });
     this.guard = guard ?? new Guard();
@@ -103,7 +99,7 @@ export class Table {
     this.log = log;
     this.sleep = sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
     this.history = new History({ api, store: this.store, channelId, pageSize: cfg.contextLines, backfill: cfg.historyBackfillLines ?? 1000, log });
-    this.memory = new Memory({ store: this.store, llm: this.llm, gmBudget: cfg.gmContextTokens ?? 60000, coplayerBudget: cfg.coplayerContextTokens ?? 24000, log });
+    this.memory = new Memory({ store: this.store, llm: this.llm, gmBudget: cfg.gmContextTokens ?? 60000, log });
     this.gm = new GmContext(api, channelId, { history: this.history, memory: this.memory, budget: cfg.gmContextTokens ?? 60000, recallTokens: cfg.recallTokens ?? 1200, log });
     this.botMessageIds = new Set();
 
@@ -207,14 +203,15 @@ export class Table {
     return this;
   }
 
-  // On `run`: legacy unbound threads are folded back into the main timeline; an interrupted split is finished; threads
-  // whose first scene was never played, and arrivals owed by a CLI command, get their arrival turn.
+  // On `run`: legacy unbound threads, and threads nobody is in any more (one only AI co-players of an older version
+  // held), are folded back into the main timeline; an interrupted split is finished; threads whose first scene was
+  // never played, and arrivals owed by a CLI command, get their arrival turn.
   async heal() {
     let changed = false;
     for (const t of this.timelines.active()) {
-      if (t.id === MAIN || t.windowId) continue;
+      if (t.id === MAIN || (t.windowId && t.members.length)) continue;
       this.timelines.merge(t.id, MAIN, this.lastSeq + 1);
-      this.log(`timeline "${t.name}" had no window of its own; folded into the main story`);
+      this.log(t.windowId ? `timeline "${t.name}" has nobody in it; folded into the main story` : `timeline "${t.name}" had no window of its own; folded into the main story`);
       changed = true;
     }
     if (this.journal?.phase === "A") {
@@ -239,7 +236,6 @@ export class Table {
     if (!this.forks && main.windowId && !this.timelines.active().some(t => t.id !== MAIN && t.members.length)) {
       this.timelines.bind(MAIN, null);
       this.log("scene forks are off: the main story is played in the Main Chat again");
-      this.checkInvariants();                                  // its co-players' seats follow it
       changed = true;
     }
     // Upgrade an existing split table before another narration can expose the primary scene.
@@ -267,8 +263,7 @@ export class Table {
     this.characters = characters;
     this.forgeWindows = new Set(windows.filter(w => w.purpose === "forge").map(w => w.id));
     this.windows = windows.filter(w => w.purpose !== "forge");
-    const main = this.mainWindow();
-    this.roster.reconcile(this.characters, main ? [main.id] : [], { castBy: this.me?.id });
+    this.roster.reconcile(this.characters, { castBy: this.me?.id });
     this.timelines.reconcile(investigatorsFor(this.characters, this.roster).map((c) => c.id));
     this.lastRefreshAt = this.now();
     if (!this.ready) return;
@@ -282,7 +277,8 @@ export class Table {
   mainWindow(...args) { return context.mainWindow(this, ...args); }
   windowName(...args) { return context.windowName(this, ...args); }
   nameOf(...args) { return context.nameOf(this, ...args); }
-  // A player character, played by a real person (a GM-cast PC is a co-player).
+  // A player character: someone else plays it (a person, or one of the platform's bots); a PC the GM account owns is
+  // voiced by the GM like a real NPC.
   isPc(...args) { return context.isPc(this, ...args); }
   userOf(...args) { return context.userOf(this, ...args); }
   // After the first split even the primary story has a private window; Main Chat becomes the lobby.
@@ -326,8 +322,6 @@ export class Table {
 
   // How the GM reads a line: visibility and the timeline it comes from (see gmContext.mjs).
   renderForGm(...args) { return context.renderForGm(this, ...args); }
-  // How a co-player reads a line (its own view, no visibility marks).
-  renderForCoplayer(...args) { return context.renderForCoplayer(this, ...args); }
 
   // D&D: a window's Initiative order from the platform, kept until the next initiative.changed event.
   initiativeOf(...args) { return context.initiativeOf(this, ...args); }
@@ -412,8 +406,8 @@ export class Table {
     const st = this.state(windowId);
     st.lastTurnAt = this.now();
     if (mode === "quiet") st.quietTurns++;
-    if (mode === "quiet" || mode === "side" || mode === "attention" || (mode === "arrival" && extra.autonomous)) this.autonomousTurns.push(this.now());
-    // Players' lines are taken only by the turns that can act on them; an arrival, quiet or side turn running first
+    if (mode === "quiet" || (mode === "arrival" && extra.autonomous)) this.autonomousTurns.push(this.now());
+    // Players' lines are taken only by the turns that can act on them; an arrival or quiet turn running first
     // leaves them for the human turn that follows.
     const takesLines = mode === "human" || mode === "relay";
     const batch = takesLines ? this.speakers.get(windowId) ?? [] : [];
@@ -422,7 +416,7 @@ export class Table {
     if (checkpoint) checkpoint.batch = batch.map((l) => ({ ...l }));
     // Its only line was recalled before it was answered: nothing to answer.
     if (mode === "human" && !kickoff && !batch.length && !extra.arrival && this.recallEmptied.delete(windowId)) return;
-    const autonomous = mode === "quiet" || mode === "side" || mode === "attention" || (mode === "arrival" && Boolean(extra.autonomous));
+    const autonomous = mode === "quiet" || (mode === "arrival" && Boolean(extra.autonomous));
     let scene = this.scene(windowId);
     const sceneThread = scene;
     if (this.forks && extra.arrival?.newcomer && scene) {
@@ -459,14 +453,12 @@ export class Table {
         }
       }
     }
-    // Public conversation remains public; it does not wake the GM or any scene's co-players.
+    // Public conversation remains public; it does not wake the GM.
     if (lobby) return;
     const speakerIds = new Set(batch.map((l) => l.id));
     const visitorsIn = scene ? [...speakerIds].filter((id) => !scene.members.includes(id)) : [];
 
     let budget = this.cfg.maxActionsPerTurn;
-    let reviewed = null, reviewDecision = null;
-    const reviewInvite = () => reviewed && reviewDecision?.decision !== "rest" && this.scene(windowId)?.members.includes(reviewed.id);
     const timeline = this.timelines.ofWindow(windowId);
     // The first turn a player starts after a final review opens the new session from what it prepared (once).
     let between = windowId === this.primaryWindowId() && (["human", "relay"].includes(mode) || kickoff) ? this.betweenNote() : null;
@@ -490,30 +482,25 @@ export class Table {
             this.speakers.set(home, [...(this.speakers.get(home) ?? []), l]);
             this.schedule(home, { mode: "relay", delay: 0, relay: { speaker: this.nameOf(l.id), window: this.windowName(windowId), text: l.content } });
           }
-          return { actions: [], coplayersMayAct: false, spotlight: [], whereabouts: [] };
+          return { actions: [], coplayersMayAct: false, whereabouts: [] };
         }
       }
       scene = this.scene(windowId);
-      if (roundMode === mode && ["human", "relay", "quiet", "side", "attention"].includes(mode) && budget >= 2 && (!autonomous || !this.overBudget())) reviewed = attentionCandidates(this, windowId)[0] ?? null;
-      if (roundMode === "attention" && !reviewed) return { actions: [], coplayersMayAct: false, spotlight: [], whereabouts: [] };
       let worldDraft = await world.beginWorldDraft(this, windowId);
       const ctx = await this.buildGm(windowId, { storyPlan: this.storyPlanSection() });
       lastCtx = ctx;
       // Compaction runs beside the turn: this round's prompt is already built.
       this.memory.maintainGm(windowId, ctx.lines(windowId), ctx.render, { windowName: this.windowName(windowId) });
       const scope = new Set([...(scene?.members ?? []), ...visitorsIn]);
-      const mayMove = [...scope].filter(id => this.isPc(id) ? ["human", "relay"].includes(roundMode) && speakerIds.has(id) : MOVE_MODES.has(roundMode));
+      const mayMove = [...scope].filter(id => ["human", "relay"].includes(roundMode) && speakerIds.has(id));
       const whereabouts = this.cfg.timelineAuto && scene
-        ? whereaboutsBrief({ timelines: this.timelines, scene: { timeline: scene }, nameOf: (id) => this.nameOf(id), windowName: (id) => this.windowName(id), isPc: (id) => this.isPc(id), mayMove, capReached: this.timelines.active().length >= this.cfg.timelineMaxActive, forks: this.forks })
+        ? whereaboutsBrief({ timelines: this.timelines, scene: { timeline: scene }, nameOf: (id) => this.nameOf(id), windowName: (id) => this.windowName(id), mayMove, capReached: this.timelines.active().length >= this.cfg.timelineMaxActive, forks: this.forks })
         : "";
       const verdict = await this.scenarioVerdict(windowId, roundMode, mode);
       const scenario = this.cfg.scenarioAuto ? `Scenario change: ${verdict.ok ? (verdict.planner ? "possible this turn (the story planner judges the current event has run its course)." : "possible this turn, if the story as a whole has moved on.") : `not this turn (${verdict.reason}).`}` : "";
       const local = this.pbta ? ctx.lines(windowId).slice(-32) : [];
-      const intents = local.filter(line => {
-        if (roundExtra.rulingReady || line.kind !== "ic") return false;
-        if (this.isPc(line.character_id)) return roundMode === "human" && batch.some(l => l.seq === line.seq);
-        return roundMode === "followup";
-      });
+      // The declarations the GM may act on: a player's in-character lines that this turn answers.
+      const intents = local.filter(line => !roundExtra.rulingReady && line.kind === "ic" && this.isPc(line.character_id) && roundMode === "human" && batch.some(l => l.seq === line.seq));
       const pbta = this.pbta && {
         ...this.pbta,
         characters: this.characters.map(c => ({ id: c.id, name: c.name, sheet: c.role_card?.pbta })),
@@ -524,21 +511,20 @@ export class Table {
       // A public handoff or seat correction just posted by the table must not replace the player's question.
       const newest = roundMode === "human" && ctx.newest && !this.isHuman(ctx.newest)
         ? ctx.lines(windowId).findLast(m => this.isTrigger(m)) ?? ctx.newest : ctx.newest;
-      const request = { language: this.language, profile: this.profile, context: ctx.parts, pbta, newest, mode: roundMode, kickoff: roundMode === "kickoff", timeline, whereabouts, scenario, auto: this.cfg.timelineAuto, forks: this.forks, illustrate: this.illustrationsOn() && (this.cfg.illustrations?.maxPerHour ?? 0) > 0, improv: this.improv.on, casual: this.casualOn(), planner: this.plannerVerdict(), between, calendar: this.calendarOn(), ...roundExtra, attentionNote: roundMode === mode ? attentionBrief(reviewed) : '' };
+      const request = { language: this.language, profile: this.profile, context: ctx.parts, pbta, newest, mode: roundMode, kickoff: roundMode === "kickoff", timeline, whereabouts, scenario, auto: this.cfg.timelineAuto, forks: this.forks, illustrate: this.illustrationsOn() && (this.cfg.illustrations?.maxPerHour ?? 0) > 0, improv: this.improv.on, casual: this.casualOn(), planner: this.plannerVerdict(), between, calendar: this.calendarOn(), ...roundExtra };
       request.canFormat = () => !(autonomous && this.overBudget());
       request.writing = this.cfg.writing?.gm;
       request.formatting = this.cfg.writing?.formatting;
       request.toolkit = this.withWorldbookTool(windowId, worldDraft?.toolkit);
       request.worldToolRules = worldDraft ? [world.WORLD_TOOL_RULES, this.worldbookToolRule()].filter(Boolean).join('\n') : '';
-      if (!request.canFormat()) return { actions: [], coplayersMayAct: false, spotlight: [], whereabouts: [] };
+      if (!request.canFormat()) return { actions: [], coplayersMayAct: false, whereabouts: [] };
       let plan = await directTurn(this.llm, request);
       const moves = MOVE_MODES.has(roundMode) && !(roundMode === "followup" && (mode === "arrival" || mode === "kickoff"));
       let placements;
-      const newActorLine = batch.length || this.history.lines(windowId, { after: checkpoint?.startSeq ?? this.lastSeq }).some(m => m.kind === "ic" && this.roster.isCoplayer(m.character_id));
-      if (this.cfg.timelineAuto && scene && moves && (plan.whereabouts.length || newActorLine) && (!autonomous || !this.overBudget())) {
+      if (this.cfg.timelineAuto && scene && moves && (plan.whereabouts.length || batch.length) && (!autonomous || !this.overBudget())) {
         const checked = await this.checkDestinations(windowId, plan.whereabouts, scope, batch, roundMode);
         placements = planWhereabouts({
-          timelines: this.timelines, scene: { timeline: scene, windowId }, reports: checked.reports, scopeIds: scope, speakers: speakerIds, verifiedCompanions: true, decisionSeqs: checked.decisionSeqs, mode: roundMode,
+          timelines: this.timelines, scene: { timeline: scene, windowId }, reports: checked.reports, scopeIds: scope, speakers: speakerIds, mode: roundMode,
           resolve: n => this.investigatorByName(n), isPc: id => this.isPc(id), userOf: id => this.userOf(id), windowUsers: w => this.windowUsers(w),
           guard: this.guard, turn: turnNo, now: this.now(), cfg: this.cfg,
         });
@@ -552,22 +538,18 @@ export class Table {
         }
       }
       this.generation.signal.throwIfAborted();
-      // Resolve the current mechanical decision before spending a turn on an unrelated opportunity.
-      if (roundMode === mode && reviewed && plan.actions.some(a => ["request_roll", "move", "ask"].includes(a.type))) reviewed = null;
-      if (roundMode === mode && reviewed) reviewDecision = plan.attentionReview;
       if (this.forks && placements?.ops.some(o => ["split", "move", "merge", "fork_main"].includes(o.op))) {
         const out = await this.applyPlan(placements, { windowId, mode: roundMode, turn: turnNo, autonomous });
         placements = null;
         if (out?.moved.length) {
-          if (reviewed && !this.scene(windowId)?.members.includes(reviewed.id)) noteAttention(this, reviewed, reviewDecision);
           if (out.here) here = out.here;
           // Discard prose written for the old audience. Each new scene gets its own opening/context.
           if (this.scene(windowId) && !here) this.schedule(windowId, { mode: "followup", delay: 0 });
-          return { actions: [], coplayersMayAct: false, spotlight: [], whereabouts: [] };
+          return { actions: [], coplayersMayAct: false, whereabouts: [] };
         }
       }
       if (between) { between = null; this.planner.between = null; this.save(); }
-      this.log(`turn ${this.turns} (${roundMode}): ${plan.actions.length} GM action(s), co-players ${plan.coplayersMayAct ? "may act" : "wait"}${plan.whereabouts.length ? `, ${plan.whereabouts.length} whereabouts` : ""}`);
+      this.log(`turn ${this.turns} (${roundMode}): ${plan.actions.length} GM action(s), players ${plan.coplayersMayAct ? "may act" : "wait"}${plan.whereabouts.length ? `, ${plan.whereabouts.length} whereabouts` : ""}`);
       const evidenceThrough = this.lastSeq;
       // A small event ends before a scenario change in the same turn, whatever the order the GM listed them in.
       const change = plan.actions.findIndex((x) => x.type === "advance_scenario" || x.type === "enter_scenario");
@@ -576,8 +558,7 @@ export class Table {
       await world.commitWorldGroup(this, windowId, worldGroups?.get(-1));
       for (const [actionIndex, action] of plan.actions.entries()) {
         this.generation.signal.throwIfAborted();
-        const reserve = roundMode === mode && reviewInvite() ? Math.min(2, this.cfg.maxActionsPerTurn - 1) : 0;
-        if (budget <= reserve) break;
+        if (budget <= 0) break;
         if (this.pbta && action.type === "move" && !intents.some(m => m.id === action.source_id && m.character_id === action.character_id)) continue;
         const newNpc = action.type === "new_npc" && !this.roster.npcByName(action.name);
         budget -= await world.runWorldAction(this, windowId, worldGroups?.get(actionIndex), action, () => this.act(windowId, action, ctx, { mode: roundMode, parent: mode, scope, evidenceThrough }));
@@ -598,13 +579,10 @@ export class Table {
         for (const i of placements.ignored) this.log(`whereabouts: ${this.nameOf(i.id)}: movement proposal not applied (${i.why})`);
         const out = await this.applyPlan(placements, { windowId, mode: roundMode, turn: turnNo, autonomous });
         if (out?.here) here = out.here;
-      } else if (this.cfg.timelineAuto && scene) {
-        this.guard.apply(planWhereabouts({ timelines: this.timelines, scene: { timeline: scene }, reports: [], scopeIds: scope, guard: this.guard, turn: turnNo, now: this.now(), cfg: this.cfg }).guard);
       }
       // Published arrivals may establish a reunion even if the director omitted whereabouts or a movement
-      // proposal was rejected. Reconcile before choosing co-players so their next turn reads the real cast.
+      // proposal was rejected. Reconcile so the next round reads the real cast.
       if (this.cfg.timelineAuto && moves) await this.reconcilePresence(windowId, turnNo);
-      if (roundMode === mode && reviewed && (reviewDecision?.decision === "rest" || !this.scene(windowId)?.members.includes(reviewed.id))) noteAttention(this, reviewed, reviewDecision);
       return plan;
     };
     // Players back after being away are welcomed back in this turn.
@@ -621,34 +599,6 @@ export class Table {
     if (plan.coplayersMayAct && (kickoff || batch.some((l) => !l.bot)) && this.botsIn(windowId).length) {
       await this.syncBotBrief();
       await this.callBots(windowId);
-    }
-    const side = mode === "side" || (mode === "arrival" && !this.presentPlayers(windowId).length);
-    if (!plan.coplayersMayAct && !side && !reviewInvite()) return;
-    // Pace: in a quiet turn a co-player acts only if it has not since the last human line, so slow humans are not
-    // drowned out by the AI side of the table.
-    const st2 = this.state(windowId);
-    const lastSpoke = new Map(this.history.lines(windowId).filter(m => m.character_id && m.kind === "ic").map(m => [m.character_id, m.seq]));
-    // A small turn budget must not give the first roster entry every available slot.
-    const seated = this.roster.coplayersIn(windowId).filter(c =>
-      (mode !== "attention" || (reviewInvite() && c.characterId === reviewed.id)) &&
-      (plan.coplayersMayAct || side || (reviewInvite() && c.characterId === reviewed.id)) &&
-      !(reviewed?.id === c.characterId && reviewDecision?.decision === "rest") &&
-      (reviewInvite() && c.characterId === reviewed.id || mode !== "quiet" || !st2.coplayersActed?.has(c.characterId)))
-      .sort((a, b) => (lastSpoke.get(a.characterId) ?? 0) - (lastSpoke.get(b.characterId) ?? 0));
-    const first = seated.filter(c => reviewed?.id === c.characterId || plan.spotlight.some(n => norm(n) === norm(c.name)))
-      .sort((a, b) => Number(b.characterId === reviewed?.id) - Number(a.characterId === reviewed?.id));
-    let acted = 0;
-    for (const c of [...first, ...seated.filter((x) => !first.includes(x))]) {
-      if (budget <= 0 || (reviewed && acted > 0 && budget <= 1) || (autonomous && this.overBudget())) break;
-      const n = await this.coplayerAct(windowId, c, first.includes(c), { side, maxMessages: Math.max(1, budget - (reviewed ? 1 : 0)), attentionNote: attentionChoice(c.characterId === reviewed?.id ? reviewed : null) });
-      if (c.characterId === reviewed?.id) noteAttention(this, reviewed, reviewDecision);
-      if (n) (st2.coplayersActed ??= new Set()).add(c.characterId);
-      acted += n; budget -= n;
-    }
-    // Co-players are players too: their choices get the GM's answer now, not at the next human line.
-    if (acted > 0 && budget > 0 && (!autonomous || !this.overBudget())) {
-      await round("followup", {});
-      if (here) { const arrival = here; here = null; await round("arrival", { arrival }); }
     }
   }
 
@@ -690,8 +640,8 @@ export class Table {
   // (answers to humans still run). Logged once a day.
   overBudget(...args) { return scheduling.overBudget(this, ...args); }
 
-  // After every change: each co-player has one open seat, in its timeline's window; every investigator is in one
-  // active timeline; every active thread other than the main one has a window. Violations are logged and repaired.
+  // After every change: every investigator is in one active timeline, and every active thread other than the main one
+  // has a window. Violations are logged and repaired.
   checkInvariants(...args) { return scheduling.checkInvariants(this, ...args); }
 
   // ---- the GM's moves. Returns how many lines were posted.
@@ -722,7 +672,7 @@ export class Table {
     // A person who typed and stopped is present and thinking: the window's silence starts over.
     if (was && this.humanCharacter(characterId)) this.state(was.windowId).lastTypingAt = this.now();
   }
-  // A player character of a real person: not one this account casts (a co-player), not an NPC.
+  // A player character of a real person: not one the GM voices, not an NPC.
   humanCharacter(id) { const user = this.userOf(id); return !!user && user !== this.me?.id && this.isPc(id); }
   // The human players writing in a window right now, by character name. A flag the platform never lowered (a lost
   // event) counts for TYPING_STALE_MS at most.
@@ -834,7 +784,6 @@ export class Table {
   plannerMode(...args) { return planning.plannerMode(this, ...args); }
   storyPlanSection(...args) { return planning.storyPlanSection(this, ...args); }
   plannerVerdict(...args) { return planning.plannerVerdict(this, ...args); }
-  impulseFor(...args) { return planning.impulseFor(this, ...args); }
 
   // After a turn: the same scenario, place, world record, truths and threads as last time means the story stood still.
   noteStall(...args) { return planning.noteStall(this, ...args); }
@@ -900,7 +849,7 @@ export class Table {
 
   setCasual(...args) { return social.setCasual(this, ...args); }
 
-  // ---- the table's own windows: the planner window (wishes.mjs), the phones and the GM's phone log (casual.mjs)
+  // ---- the table's own windows: the planner window (wishes.mjs) and the phones (casual.mjs)
   isPlannerWindow(...args) { return social.isPlannerWindow(this, ...args); }
   // Windows that are no scene: no turn is played there and autonomy never moves them.
   isTableWindow(...args) { return social.isTableWindow(this, ...args); }
@@ -910,9 +859,6 @@ export class Table {
 
   // The planner window: every player of the channel in it (a newcomer is added), the GM reading.
   ensurePlannerWindow(...args) { return social.ensurePlannerWindow(this, ...args); }
-
-  // Casual mode: the GM's phone log, a window with only the GM in it, for texts no player is part of.
-  ensurePhoneLog(...args) { return social.ensurePhoneLog(this, ...args); }
 
   // A line in the planner window: kept for the planner's next run, whatever triggers it (no run of its own).
   onWishLine(...args) { return social.onWishLine(this, ...args); }
@@ -929,19 +875,11 @@ export class Table {
   // Player to player: the message appears at once in the recipient's phone, as the sender's character.
   relayText(...args) { return social.relayText(this, ...args); }
 
-  // An NPC or a co-player reads a text and answers, after a believable delay, or leaves it unanswered.
+  // An NPC reads a text and answers through the GM, after a believable delay, or leaves it unanswered.
   phoneTurn(...args) { return social.phoneTurn(this, ...args); }
 
   // The GM's text action: a real NPC texts a player character, now or after a delay.
   sendText(...args) { return social.sendText(this, ...args); }
-
-  // A text no player character is part of (co-player or NPC to co-player or NPC): it goes to the phone log.
-  aiText(...args) { return social.aiText(this, ...args); }
-  // A text delivered to an AI character in the phone log: it answers, unless the two have gone back and forth
-  // CASUAL_AI_CHAIN times since a person last wrote, the hourly cap is reached, or everyone is away.
-  answerAiText(...args) { return social.answerAiText(this, ...args); }
-  // A phone turn on the turn queue without a window timer (the phone log carries several conversations at once).
-  enqueuePhone(...args) { return social.enqueuePhone(this, ...args); }
 
   queueText(...args) { return social.queueText(this, ...args); }
 
@@ -954,7 +892,7 @@ export class Table {
   declare(...args) { return social.declare(this, ...args); }
 
   // ---- improvisation mode
-  // The posted world setting is left out of every chat context: the GM and the co-players get it as a section of its own.
+  // The posted world setting is left out of every chat context: the GM gets it as a section of its own.
   hiddenLines(...args) { return social.hiddenLines(this, ...args); }
 
   // `world` command (and `setup` while `run` is up): turns the mode on or off and replaces the setting texts.
@@ -970,18 +908,11 @@ export class Table {
   publicLore(...args) { return book.publicLore(this, ...args); }
   withWorldbookTool(...args) { return book.withWorldbookTool(this, ...args); }
   worldbookToolRule(...args) { return book.worldbookToolRule(this, ...args); }
-  intentionOf(...args) { return intentionOf(this, ...args); }
 
   // Posts the world setting in the Main Chat for the human players, once per version of the text.
 
-  // ---- older, model-led timelines (TIMELINE_AUTO=false)
-  coplayersNamed(...args) { return windows.coplayersNamed(this, ...args); }
-
-  legacySplit(...args) { return windows.legacySplit(this, ...args); }
-
-  legacyRejoin(...args) { return windows.legacyRejoin(this, ...args); }
-
-  // Time, place, span and notes of a timeline. (With TIMELINE_AUTO, membership changes only through whereabouts.)
+  // Time, place, span and notes of a timeline (membership changes only through whereabouts and the CLI's split and
+  // rejoin).
   updateTimeline(...args) { return windows.updateTimeline(this, ...args); }
 
   // ---- autonomy
@@ -994,24 +925,12 @@ export class Table {
   createNpc(...args) { return actions.createNpc(this, ...args); }
 
   characterByName(...args) { return actions.characterByName(this, ...args); }
-  // Investigators only (player characters and co-players): exact name first, then a unique first name.
+  // Investigators only (player characters): exact name first, then a unique first name.
   investigatorByName(...args) { return actions.investigatorByName(this, ...args); }
 
   // A character's role card, and the sheet values the dice keep (`attrs`: live HP, slots), cached until the
   // platform says the character changed.
   card(...args) { return actions.card(this, ...args); }
-
-  // A co-player's move, from its own witnessed chat (every window it sat in, during its seats) and its companions'
-  // profiles. Nothing from the GM's side. Lines a player wrote while their character was in another scene are not
-  // something this co-player witnessed, even in a window it sits in.
-  coplayerAct(...args) { return coplayers.coplayerAct(this, ...args); }
-
-  // Who a co-player knows: every investigator, and the real NPCs it has seen speak in its own scenes (newest last).
-  knownTo(...args) { return coplayers.knownTo(this, ...args); }
-  // What anyone would notice about the NPCs a co-player has met: gender, age, striking traits; never the GM's brief.
-  metBy(...args) { return coplayers.metBy(this, ...args); }
-  // The calendar moved on since this co-player last spoke: it lived through that time too.
-  timePassedFor(...args) { return coplayers.timePassedFor(this, ...args); }
 
   // `count: false` marks bookkeeping lines (pointers, notes) that do not use up the turn's action budget.
   post(...args) { return actions.post(this, ...args); }

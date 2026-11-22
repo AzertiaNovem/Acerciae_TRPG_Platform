@@ -4,7 +4,6 @@
 
 writing:                      # optional per-channel guidance; each blank uses its original built-in text
   gm: ""                      # GM narration, NPC dialogue and NPC phone replies; YAML | supports multiple lines
-  coplayer: ""                # co-player scene actions and dialogue
   formatting: ""              # second request only: short/long bubbles, paragraph grouping or sentence splitting
 
 account:
@@ -21,14 +20,12 @@ channel:                      # only used by `setup --create`; otherwise the cli
   rule_system: coc7e          # coc7e | dnd2024 | pbta; new channels only (channel.rules is also accepted)
 
 table:
-  coplayers: 2                # AI co-players alongside the players (0–8)
-  level: 1                   # D&D: level of new co-players; existing characters keep theirs
-  coplayer_windows: []        # window names or ids the co-players start in (default: the Main Chat)
+  level: 1                   # D&D: level of the characters the Forge makes; existing characters keep theirs
   language: ""                # GM language; empty follows the server's
   kickoff: false              # open the session without waiting for a player
   verbose: false
 
-llm:                          # the GM's, NPCs' and co-players' model
+llm:                          # the GM's and NPCs' model
   provider: anthropic         # anthropic | openai_compatible (Responses API) | mock
   api_base: ""                # openai_compatible: e.g. https://api.openai.com/v1
   model: claude-opus-5-5
@@ -51,7 +48,6 @@ planner:                      # the story planner: a slower model above the GM t
   cooldown_minutes: 10        # least gap between two runs, any trigger
   stall_turns: 6              # turns in the same place with no world change, truth, move or scenario change
   max_runs_per_hour: 4
-  impulse_lines: 60           # how many lines a co-player's impulse lives
   plan_tokens: 1500           # budget of the GM's "Story plan" section
   wish_window: true           # a window "To the story planner" with every player in it: wishes and corrections, out of character
   final_review: true          # one review when a session of human play ends (no player line for autonomy.idle_minutes,
@@ -71,15 +67,14 @@ providers: {}                 # remove {} to configure more endpoints, each with
 
 models: {}                    # remove {} to configure which function runs on which provider and model; a function left out runs on `default`
   # director: { provider: default, model: claude-opus-5-5, effort: high }   # the GM's turns
-  # coplayers: { provider: fast }                                           # coplayer_turn, coplayer_phone
   # planner: fast                                                           # a provider's name alone is enough
-  # memory: fast                                                            # compact, coplayer_memory
+  # memory: fast                                                            # compact
   # forge: { provider: default, model: "" }                                  # pre-game co-design, review and playtests
   # formatting: fast                                                       # chat_format: drafts are arranged for chat on a separate call
   # readers: { provider: fast, effort: low }                                # scene_presence, movement_evidence, placement_correction, scene_handoff
   # pictures: fast                                                          # scenario_illustration, event_illustration, plot_search, plot_illustration
-  # cards: default                                                          # coplayer_card, npc_card, coplayer_repair, coplayer_points, coplayer_build, pbta_design, pbta_card
-  # coplayer_phone: { provider: fast, model: claude-haiku-5-5 }             # one purpose, over its function
+  # cards: default                                                          # npc_card, coplayer_points, coplayer_build, pbta_design, pbta_card
+  # scene_handoff: { provider: fast, effort: low }                          # one purpose, over its function
   # default: { effort: medium }                                             # every function not named
 
 pacing:
@@ -89,7 +84,6 @@ pacing:
 
 context:
   gm_tokens: 60000            # the GM's context budget; older history is compacted into chapters
-  coplayer_tokens: 24000      # each co-player's
   recall_tokens: 1200         # local relevant excerpts per turn; capped at 5% of the role budget, 0 disables
   page_lines: 100             # lines fetched per page when syncing the local copy of the chat
   backfill_lines: 1000        # how far back the first sync goes
@@ -98,22 +92,16 @@ context:
 autonomy:
   enabled: true
   tick_ms: 30000
-  side_interval_ms: 90000     # a co-players-only thread moves this often
   quiet_ms: 180000            # a silent shared window moves after this
-  coplayer_idle_lines: 12     # public play without this co-player: review their place and personal opportunity (0: off)
-  coplayer_idle_minutes: 20   # also review after this much silence with scene activity; minimum gap between reviews
   quiet_turns: 2              # ... at most this many times
   max_turns_per_hour: 20
-  idle_minutes: 30            # "away" once nobody has posted for this long: shared windows wait
-  away_side_interval_ms: 21600000   # while away, co-players-only threads move this rarely (0: never)
+  idle_minutes: 30            # "away" once nobody has posted for this long: every window waits
 
 timelines:
   auto: true                  # proactive splitting and reunions
   scene_forks: false          # true: after the first split the main story moves to a private fork and the Main Chat
                               # becomes a lobby the GM never narrates in (several players). false: the main story stays
-                              # in the Main Chat with the players; co-players and departing players get windows
-  guard_turns: 2
-  guard_ms: 180000
+                              # in the Main Chat with the players; departing players get windows
   max_active: 4
   pc_cooldown_ms: 300000
   max_arrivals_per_hour: 12
@@ -125,7 +113,7 @@ scenarios:
 
 worldbook:                    # improvisation: the bible always, entries only when needed (edited in the Web UI's 世界书)
   gm_tokens: 3000             # the most entries in play a GM prompt carries
-  coplayer_tokens: 1200       # ... and a co-player prompt (public entries only)
+  coplayer_tokens: 1200       # ... and the notes for the platform's bots (public entries only)
   recent_lines: 30            # a window's latest lines searched for entries' titles and keys; how long an opened entry stays
 
 calendar:                     # casual games: how fast the GM may move the story's date (0 = no limit)
@@ -147,6 +135,4 @@ modes:                        # set with `setup`, `world`, `casual`; then kept i
   world_file: ""              # the world setting (plain text or Markdown), relative to this file
   secrets_file: ""            # the GM's hidden layer
   casual:                     # true: casual mode (a phone per player character; needs an isolated channel)
-  casual_max_delay_minutes: 240
-  casual_ai_texts_per_hour: 12   # texts between co-players and NPCs answered at most this many an hour
-  casual_ai_chain: 4              # an exchange between two AI characters rests after this many texts until a person writes
+  casual_max_delay_minutes: 240   # the longest an NPC takes to answer a text

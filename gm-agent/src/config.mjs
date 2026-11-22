@@ -70,22 +70,20 @@ const SETTINGS = [
   ["api", "ACERCIAE_API_BASE", null], ["username", null, "account.username"], ["password", "GM_PASSWORD", null], ["display-name", null, "account.display_name"],
   ["register", null, "account.register"], ["create", null, "channel.create"], ["rules", null, "channel.rule_system"], ["server", null, "channel.server_id"], ["channel", "CHANNEL_ID", null],
   ["server-name", null, "channel.server_name"], ["channel-name", null, "channel.channel_name"], ["era", null, "channel.era"],
-  ["level", null, "table.level"], ["coplayers", null, "table.coplayers"], ["coplayer-windows", null, "table.coplayer_windows"], ["language", null, "table.language"], ["kickoff", null, "table.kickoff"], ["verbose", null, "table.verbose"],
-  ["gm-writing", null, "writing.gm"], ["coplayer-writing", null, "writing.coplayer"], ["formatting-writing", null, "writing.formatting"],
+  ["level", null, "table.level"], ["language", null, "table.language"], ["kickoff", null, "table.kickoff"], ["verbose", null, "table.verbose"],
+  ["gm-writing", null, "writing.gm"], ["formatting-writing", null, "writing.formatting"],
   ["llm-provider", null, "llm.provider"], ["llm-api-base", null, "llm.api_base"], ["llm-api-key", "LLM_API_KEY", null], ["llm-model", null, "llm.model"], ["llm-effort", null, "llm.effort"],
   ["llm-max-tokens", null, "llm.max_tokens"], ["llm-fallbacks", null, "llm.fallbacks"], ["llm-timeout-ms", null, "llm.timeout_ms"], ["llm-stream", null, "llm.stream"], ["llm-trace", null, "llm.trace"], ["llm-cache-ttl", null, "llm.cache_ttl"],
   ["planner", null, "planner.enabled"], ["planner-provider", null, "planner.provider"], ["planner-api-base", null, "planner.api_base"], ["planner-api-key", "PLANNER_API_KEY", null], ["planner-model", null, "planner.model"], ["planner-effort", null, "planner.effort"],
   ["planner-interval-minutes", null, "planner.interval_minutes"], ["planner-min-lines", null, "planner.min_lines"], ["planner-cooldown-minutes", null, "planner.cooldown_minutes"], ["planner-stall-turns", null, "planner.stall_turns"],
-  ["planner-max-runs-per-hour", null, "planner.max_runs_per_hour"], ["planner-impulse-lines", null, "planner.impulse_lines"], ["planner-plan-tokens", null, "planner.plan_tokens"],
+  ["planner-max-runs-per-hour", null, "planner.max_runs_per_hour"], ["planner-plan-tokens", null, "planner.plan_tokens"],
   ["planner-window", null, "planner.wish_window"],
-  ["casual-ai-texts-per-hour", null, "modes.casual_ai_texts_per_hour"], ["casual-ai-chain", null, "modes.casual_ai_chain"],
   ["final-review", null, "planner.final_review"], ["final-review-min-lines", null, "planner.final_review_min_lines"], ["final-review-max-days", null, "planner.final_review_max_days"],
   ["debounce-ms", null, "pacing.debounce_ms"], ["post-delay-ms", null, "pacing.post_delay_ms"], ["max-actions", null, "pacing.max_actions_per_turn"],
-  ["context-recall-tokens", null, "context.recall_tokens"], ["gm-context-tokens", null, "context.gm_tokens"], ["coplayer-context-tokens", null, "context.coplayer_tokens"], ["context-lines", null, "context.page_lines"], ["history-backfill-lines", null, "context.backfill_lines"], ["llm-daily-token-budget", null, "context.daily_token_budget"],
-  ["autonomy", null, "autonomy.enabled"], ["autonomy-tick-ms", null, "autonomy.tick_ms"], ["autonomy-side-interval-ms", null, "autonomy.side_interval_ms"], ["autonomy-quiet-ms", null, "autonomy.quiet_ms"], ["autonomy-quiet-turns", null, "autonomy.quiet_turns"],
-  ["autonomy-max-turns-per-hour", null, "autonomy.max_turns_per_hour"], ["autonomy-idle-minutes", null, "autonomy.idle_minutes"], ["away-side-interval-ms", null, "autonomy.away_side_interval_ms"],
-  ["coplayer-idle-lines", null, "autonomy.coplayer_idle_lines"], ["coplayer-idle-minutes", null, "autonomy.coplayer_idle_minutes"],
-  ["timeline-auto", null, "timelines.auto"], ["scene-forks", null, "timelines.scene_forks"], ["timeline-guard-turns", null, "timelines.guard_turns"], ["timeline-guard-ms", null, "timelines.guard_ms"], ["timeline-max-active", null, "timelines.max_active"], ["timeline-pc-cooldown-ms", null, "timelines.pc_cooldown_ms"], ["timeline-max-arrivals-per-hour", null, "timelines.max_arrivals_per_hour"],
+  ["context-recall-tokens", null, "context.recall_tokens"], ["gm-context-tokens", null, "context.gm_tokens"], ["context-lines", null, "context.page_lines"], ["history-backfill-lines", null, "context.backfill_lines"], ["llm-daily-token-budget", null, "context.daily_token_budget"],
+  ["autonomy", null, "autonomy.enabled"], ["autonomy-tick-ms", null, "autonomy.tick_ms"], ["autonomy-quiet-ms", null, "autonomy.quiet_ms"], ["autonomy-quiet-turns", null, "autonomy.quiet_turns"],
+  ["autonomy-max-turns-per-hour", null, "autonomy.max_turns_per_hour"], ["autonomy-idle-minutes", null, "autonomy.idle_minutes"],
+  ["timeline-auto", null, "timelines.auto"], ["scene-forks", null, "timelines.scene_forks"], ["timeline-max-active", null, "timelines.max_active"], ["timeline-pc-cooldown-ms", null, "timelines.pc_cooldown_ms"], ["timeline-max-arrivals-per-hour", null, "timelines.max_arrivals_per_hour"],
   ["scenario-auto", null, "scenarios.auto"], ["scenario-min-minutes", null, "scenarios.min_minutes"], ["scenario-min-lines", null, "scenarios.min_lines"],
   ["calendar-min-minutes", null, "calendar.min_minutes"], ["calendar-min-lines", null, "calendar.min_lines"], ["calendar-max-days", null, "calendar.max_days"],
   ["improv", null, "modes.improv"], ["world", null, "modes.world_file"], ["secrets", null, "modes.secrets_file"], ["casual", null, "modes.casual"], ["casual-max-delay-minutes", null, "modes.casual_max_delay_minutes"],
@@ -105,6 +103,14 @@ const LEGACY_ENV = {
   TIMELINE_PC_COOLDOWN_MS: "timelines.pc_cooldown_ms", TIMELINE_MAX_ARRIVALS_PER_HOUR: "timelines.max_arrivals_per_hour", SCENARIO_AUTO: "scenarios.auto", SCENARIO_MIN_MINUTES: "scenarios.min_minutes",
   SCENARIO_MIN_LINES: "scenarios.min_lines", IMPROV: "modes.improv", WORLD_FILE: "modes.world_file", SECRETS_FILE: "modes.secrets_file", CASUAL: "modes.casual", CASUAL_MAX_DELAY_MINUTES: "modes.casual_max_delay_minutes",
 };
+// Settings of features this client no longer has (its own AI co-players and what served them, whose place the
+// platform's bots took: docs/BOTS.md). Older files may still set them: they are read without a warning, and ignored.
+const RETIRED_KEYS = ["autonomy.coplayer_idle_lines", "autonomy.coplayer_idle_minutes", "planner.impulse_lines",
+  "modes.casual_ai_texts_per_hour", "modes.casual_ai_chain", "autonomy.side_interval_ms", "autonomy.away_side_interval_ms",
+  "table.coplayers", "table.coplayer_windows", "context.coplayer_tokens", "timelines.guard_turns", "timelines.guard_ms",
+  "writing.coplayer"];
+// Model functions and purposes of those features (`models.<name>`), likewise.
+const RETIRED_MODELS = ["coplayers", "coplayer_turn", "coplayer_memory", "coplayer_phone", "coplayer_card", "coplayer_repair"];
 const SECTIONS = ["forge", "worldbook", "account", "channel", "table", "writing", "llm", "planner", "models", "providers", "pacing", "context", "autonomy", "timelines", "scenarios", "calendar", "modes", "illustrations"];
 // Named endpoints (`providers`) and the model of each function (`models`) have keys of their own (llm/routes.mjs).
 const FREE_SECTIONS = ["providers", "models"];
@@ -120,11 +126,11 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
   const data = file?.data ?? file ?? {};
   const dir = file?.dir ?? process.cwd();
   const warnings = [];
-  for (const [name, key] of Object.entries(LEGACY_ENV)) if (env[name] !== undefined) warnings.push(`${name} is no longer read; set ${key} in gm-agent.yml (or pass --${SETTINGS.find((s) => s[2] === key)?.[0] ?? key})`);
+  for (const [name, key] of Object.entries(LEGACY_ENV)) if (env[name] !== undefined) warnings.push(RETIRED_KEYS.includes(key) ? `${name} is no longer read; its setting is retired` : `${name} is no longer read; set ${key} in gm-agent.yml (or pass --${SETTINGS.find((s) => s[2] === key)?.[0] ?? key})`);
   for (const section of Object.keys(data)) {
     if (!SECTIONS.includes(section)) { warnings.push(`gm-agent.yml: unknown section "${section}"`); continue; }
     if (FREE_SECTIONS.includes(section)) continue;
-    for (const key of Object.keys(data[section] ?? {})) if (`${section}.${key}` !== "channel.rules" && !SETTINGS.some((s) => s[2] === `${section}.${key}`)) warnings.push(`gm-agent.yml: unknown key "${section}.${key}"`);
+    for (const key of Object.keys(data[section] ?? {})) if (`${section}.${key}` !== "channel.rules" && !RETIRED_KEYS.includes(`${section}.${key}`) && !SETTINGS.some((s) => s[2] === `${section}.${key}`)) warnings.push(`gm-agent.yml: unknown key "${section}.${key}"`);
   }
   // flag › environment (allowed names only) › file › default
   const pick = (flag, d) => {
@@ -176,7 +182,6 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     cooldownMs: Math.max(0, int(pick("planner-cooldown-minutes", 10), 10)) * 60000,
     stallTurns: Math.max(2, int(pick("planner-stall-turns", 6), 6)),
     maxRunsPerHour: Math.max(1, int(pick("planner-max-runs-per-hour", 4), 4)),
-    impulseLines: Math.max(1, int(pick("planner-impulse-lines", 60), 60)),
     planTokens: Math.max(300, int(pick("planner-plan-tokens", 1500), 1500)),
     // The final review after a session of human play (planner.mjs): on unless turned off, from this many player lines.
     // The planner window, where the players write wishes and corrections for the planner's next run (wishes.mjs).
@@ -215,6 +220,7 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
   const routes = data.models && typeof data.models === "object" && !Array.isArray(data.models) ? data.models : {};
   if (data.models !== undefined && (typeof data.models !== "object" || Array.isArray(data.models) || data.models === null)) warnings.push("gm-agent.yml: models must be a mapping of functions to models");
   for (const [fn, raw] of Object.entries(routes)) {
+    if (RETIRED_MODELS.includes(fn)) continue;
     if (![...FUNCTION_NAMES, ...PURPOSES, "default"].includes(fn)) { warnings.push(`gm-agent.yml: models: unknown function "${fn}" (${FUNCTION_NAMES.join(", ")}, a purpose, or default)`); continue; }
     const spec = typeof raw === "string" ? { provider: raw } : raw;
     if (raw === null || raw === undefined) continue;
@@ -243,10 +249,7 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     serverName: str(pick("server-name", "AI GM's table")),
     channelName: str(pick("channel-name", "A campaign with an AI GM")),
     era: str(pick("era", "")),
-    coplayersSpecified: pick("coplayers") != null,
-    coplayers: Math.max(0, Math.min(8, int(pick("coplayers", 2), 2))),
-    level: Math.max(1, Math.min(20, int(pick("level", 1), 1))),   // D&D: the level of new co-players
-    coplayerWindows: list(pick("coplayer-windows", "")),
+    level: Math.max(1, Math.min(20, int(pick("level", 1), 1))),   // D&D: the level of the characters the Forge makes
     language: str(pick("language", "")),
     writing,
     llm,
@@ -260,24 +263,18 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     // the token budgets, with older history compacted into chapters (memory.mjs).
     contextLines: Math.max(10, Math.min(200, int(pick("context-lines", 100), 100))),
     gmContextTokens: Math.max(8000, int(pick("gm-context-tokens", 60000), 60000)),
-    coplayerContextTokens: Math.max(4000, int(pick("coplayer-context-tokens", 24000), 24000)),
     recallTokens: Math.max(0, Math.min(4000, int(pick("context-recall-tokens", 1200), 1200))),
     historyBackfillLines: Math.max(0, int(pick("history-backfill-lines", 1000), 1000)),
-    // The worldbook (worldbook.mjs): how much of it a GM or co-player prompt may carry, and how far back a mention counts.
+    // The worldbook (worldbook.mjs): how much of it the GM's prompt and the bots' notes may carry (gm_tokens,
+    // coplayer_tokens), and how far back a mention counts.
     worldbook: Object.fromEntries(Object.entries(WORLDBOOK_DEFAULTS).map(([k, d]) => [k, Math.min(k === "recent_lines" ? 200 : 20000, Math.max(k === "recent_lines" ? 1 : 0, int(pick(`worldbook-${k.replaceAll("_", "-")}`, d), d)))])),
     // Billable-equivalent tokens a day (cache reads count a tenth); spent, the table stops its own autonomous turns.
     dailyTokenBudget: Math.max(0, int(pick("llm-daily-token-budget", 0), 0)),
     kickoff: bool(pick("kickoff"), false),
-    // Autonomy: the table moves on its own clock (side timelines, quiet shared windows) while humans are around.
+    // Autonomy: the table moves quiet shared windows on its own clock while humans are around.
     autonomy: bool(pick("autonomy"), true),
     autonomyTickMs: Math.max(1000, int(pick("autonomy-tick-ms", 30000), 30000)),
-    autonomySideIntervalMs: int(pick("autonomy-side-interval-ms", 90000), 90000),
     autonomyQuietMs: int(pick("autonomy-quiet-ms", 180000), 180000),
-    coplayerIdleLines: Math.max(0, int(pick("coplayer-idle-lines", 12), 12)),
-    coplayerIdleMinutes: Math.max(1, int(pick("coplayer-idle-minutes", 20), 20)),
-    // Away mode: once nobody has posted for idle_minutes, co-players-only threads still move, this rarely (0 = they
-    // wait too). Fragmented play keeps going between visits without spending much.
-    awaySideIntervalMs: Math.max(0, int(pick("away-side-interval-ms", 21600000), 21600000)),
     autonomyQuietTurns: Math.max(0, int(pick("autonomy-quiet-turns", 2), 2)),
     autonomyMaxTurnsPerHour: Math.max(0, int(pick("autonomy-max-turns-per-hour", 20), 20)),
     autonomyIdleMinutes: Math.max(1, int(pick("autonomy-idle-minutes", 30), 30)),
@@ -286,10 +283,8 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     // Scene forks: after the first split the main story moves to a restricted fork and the Main Chat becomes a public
     // lobby the GM never narrates in (for several players who must not read each other's scenes). Off: the main
     // story stays in the Main Chat with the players; only those who go elsewhere get a window (a single player is
-    // always in the Main Chat; co-players move around them).
+    // always in the Main Chat).
     sceneForks: bool(pick("scene-forks"), false),
-    timelineGuardTurns: Math.max(0, int(pick("timeline-guard-turns", 2), 2)),
-    timelineGuardMs: Math.max(0, int(pick("timeline-guard-ms", 180000), 180000)),
     timelineMaxActive: Math.max(1, int(pick("timeline-max-active", 4), 4)),
     timelinePcCooldownMs: Math.max(0, int(pick("timeline-pc-cooldown-ms", 300000), 300000)),
     timelineMaxArrivalsPerHour: Math.max(0, int(pick("timeline-max-arrivals-per-hour", 12), 12)),
@@ -319,10 +314,6 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     improv: tri(pick("improv")),
     casual: tri(pick("casual")),
     casualMaxDelayMinutes: Math.max(0, int(pick("casual-max-delay-minutes", 240), 240)),
-    // Texts between AI characters (co-players and NPCs): answered at most this many an hour, and an exchange between
-    // two of them stops after this many messages until a person writes again.
-    casualAiTextsPerHour: Math.max(0, int(pick("casual-ai-texts-per-hour", 12), 12)),
-    casualAiChain: Math.max(1, int(pick("casual-ai-chain", 4), 4)),
     worldFile: where("world", pick("world", "")),
     secretsFile: where("secrets", pick("secrets", "")),
     stateDir: path.resolve(args["state-dir"] !== undefined || env.STATE_DIR ? process.cwd() : dir, str(pick("state-dir", path.join(process.cwd(), ".state")))),

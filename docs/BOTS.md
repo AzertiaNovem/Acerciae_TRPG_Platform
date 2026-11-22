@@ -1,11 +1,10 @@
 # Bots
 
 Bots are AI members of a server. A server's maintainers (its owner and admins) set them up; the members invite them to
-their tables, where they play like any player; outside the table they talk as themselves. They replace the AI
-co-players of the GM agent (`gm-agent/`), which will be retired once bots can do everything co-players do. The staged
-plan, and what is done so far, is in [BOTS_PLAN.md](BOTS_PLAN.md).
+their tables, where they play like any player; outside the table they talk as themselves, in the channels they are in
+and in private chats. They replaced the AI co-players the GM agent (`gm-agent/`) used to play.
 
-## What exists now
+## What bots do
 
 - **Setting bots up** — Server settings → Features → Bots turns them on (off by default), with the most bots one
   channel may hold (1–8, default 3). Server settings → Bots lists the server's bots: a name, a persona for outside the
@@ -58,12 +57,13 @@ plan, and what is done so far, is in [BOTS_PLAN.md](BOTS_PLAN.md).
   own for players' or GM lines while it does. After the agent answers a person and lets the players act, it asks the
   bots in that window for their turn; it answers their lines like any player's, without asking them again until a
   person speaks. It keeps the notes for bots up to date with the public world (see `gm-agent/README.md`). If the agent
-  stops, the platform takes the pacing back after ten minutes.
+  stops, the platform takes the pacing back after ten minutes. The agent no longer plays co-players of its own: its
+  `bots handoff` command hands one of its characters (a co-player an earlier version played, or a PC the GM voices) to
+  a bot, with what the character remembered as the bot's briefing.
 - **The GM's tools** — "Bots' turn" above a chat window asks every bot there to take a turn now. "Notes for bots" in
   the GM workspace is what every bot at the table is told each turn (the situation, what the characters know of the
   world, how to play here); players never see it. Server settings → Bots → Activity lists each bot's latest turns:
   where, why, and what came of them.
-
 - **Private chats** — in the channel sidebar, Private chats → + lists the server's bots: choose one to talk with it
   one to one, out of character, as friends do between games. Each person has one chat per bot; nobody else can see,
   read or join it, and it is in no channel list (nor on the mobile apps). Every line there is for the bot, which
@@ -73,10 +73,5 @@ plan, and what is done so far, is in [BOTS_PLAN.md](BOTS_PLAN.md).
 
 A bot is a user of its own (`users.is_bot`): it never signs in, never appears where people are searched for, and never
 joins a player group (it will read only what it witnessed itself). Deleting a server deletes its bots.
-
-## Coming next
-
-1. The GM agent's own co-players are retired in favour of bots. Already now `gm-agent`'s `bots handoff` command hands a
-   co-player's character to a bot, with what it remembered as the bot's briefing (`gm-agent/README.md`).
 
 The API is in [API.md](API.md) (Bots); the model use is `text_bots` ([AI_PROVIDERS.md](AI_PROVIDERS.md)).

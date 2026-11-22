@@ -1,5 +1,5 @@
 // context: table is the explicit runtime context supplied by Table; no service singleton.
-import { renderLine } from "../context/coplayerContext.mjs";
+import { renderLine } from "../context/lines.mjs";
 import { isPlayerCharacter } from "../roles/roster.mjs";
 import { MAIN } from "../timelines.mjs";
 import { renderTableNotes } from "../wishes.mjs";
@@ -84,13 +84,12 @@ export function calendarOn(table) { return Boolean(table.casual.on); }
 export function calendarPaceCfg(table) { return { minMinutes: table.cfg.calendarMinMinutes ?? 0, minLines: table.cfg.calendarMinLines ?? 0, maxDays: table.cfg.calendarMaxDays ?? 0 }; }
 
 export async function buildGm(table, windowId, extra = {}) {
+    table.worldbook();   // a worldbook edited since the last turn is adopted before the world setting is read
     const initiative = await table.initiativeOf(windowId);
     return table.gm.build({ windowId, initiative, roster: table.roster, characters: table.characters, windows: table.windows, timelines: table.timelines, sceneOf: (w) => table.scene(w), improv: table.improv, worldbook: (o) => table.gmWorldbook(windowId, o), worldStateText: worldContext(table, windowId), hide: table.hiddenLines(), awayOf: (id) => table.awayOf(id), calendar: table.calendarOn() ? renderCalendar(table.calendar, { pace: table.calendarPaceCfg(), now: table.now() }) : "", bonds: renderBonds(table.bonds, (id) => table.nameOf(id)), table: renderTableNotes(table.planner.table), ...extra });
   }
 
 export function renderForGm(table, m) { return renderLine({ ...m, whisper_to_names: (m.whisper_to ?? []).map((id) => table.nameOf(id)) }, { markVisibility: true, timeline: table.timelines.ofLine(m).name, gm: table.profile?.vocab.gm }); }
-
-export function renderForCoplayer(table, m) { return renderLine(m, { gm: table.profile?.vocab.gm }); }
 
 export async function initiativeOf(table, windowId) {
     if (table.profile?.id !== "dnd2024" || !windowId) return null;

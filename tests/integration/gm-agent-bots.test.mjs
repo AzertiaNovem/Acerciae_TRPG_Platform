@@ -33,6 +33,7 @@ test('gm-agent paces the platform bots: it answers the player, asks the bot, ans
 
   const llm = new MockLlm();
   let answers = 0;
+  // coplayers_may_act: the director's say on whether the other players, the platform's bots included, may act now.
   llm.director = () => ({ actions: [{ type: 'narrate', text: `The fog thickens (${++answers}).` }], coplayers_may_act: true });
   const cfg = buildConfig({}, {}); cfg.planner.enabled = false; cfg.autonomy = false; cfg.postDelayMs = 0; cfg.debounceMs = 0; cfg.sceneForks = false;
   const t = await new Table({ api: gm, channelId: ch.id, cfg, llm, roster: new Roster(), deferArrivals: true, improv: { on: true, world: 'A harbour town where the fog never lifts.' }, sleep: async () => {} }).init();

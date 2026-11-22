@@ -19,7 +19,7 @@ export async function applyCandidate({ api, channel, session:s, save, gmId }) {
     actors=active.applied.characters;
   } else {
     for(const c of s.candidate.characters) {
-      const created=c.existing_id ? {id:c.existing_id,updated_at:c.expected_updated_at} : await once(`create-${c.key}`,{name:c.name,kind:c.kind==='npc'?'npc':'pc',speaking_style:c.speaking_style},b=>api.createCharacter(channel.id,b));
+      const created=c.existing_id ? {id:c.existing_id,updated_at:c.expected_updated_at} : await once(`create-${c.key}`,{name:c.name,kind:c.kind==='player'?'pc':'npc',speaking_style:c.speaking_style},b=>api.createCharacter(channel.id,b));
       const result=await once(`card-${c.key}`,{name:c.name,bio:c.persona,speaking_style:c.speaking_style,role_card:c.role_card,rule_system:s.rule,expected_updated_at:created.updated_at},b=>api.putCard(channel.id,created.id,b));
       await once(`appearance-${c.key}`,{appearance_prompt:c.appearance_prompt},b=>api.putAppearance(channel.id,created.id,b));
       actors.push({key:c.key,character:result.character});

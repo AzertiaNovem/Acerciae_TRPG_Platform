@@ -1,18 +1,17 @@
 // The GM writes a turn with the GM's whole context; a short second call arranges it for chat.
-// Real NPCs are voiced here, so they share the GM's knowledge. Co-players are not: the director only
-// says whether they may act now (and who has the spotlight), and never hands them anything to say.
+// Real NPCs are voiced here, so they share the GM's knowledge. The other players are not: the director only says
+// whether they may act now (`coplayers_may_act`, which asks the platform's bots seated in the window for their turn).
 //
 // A turn has a mode:
 //   human     – a person just posted;
-//   followup  – the co-players just acted: answer their moves now;
+//   followup  – the same scene goes on at once: a ruling's dice to answer, or a scene that moved to this window;
 //   quiet     – the humans in a shared window have been silent: move the scene on without them;
-//   side      – a co-players-only timeline: run its thread;
 //   arrival   – investigators just arrived somewhere (a new scene, or back with the others): open the scene for them;
 //   relay     – a player wrote in another window while their character is here: answer them here;
 //   kickoff   – open the session.
 //
 // With TIMELINE_AUTO (the default) the director reports where investigators are (`whereabouts`, see whereabouts.mjs)
-// and the table splits and reunites them; without it the older split/rejoin actions are used.
+// and the table splits and reunites them; without it the GM keeps each timeline's time and place only.
 import { NPC_CONTINUITY_RULES } from "./context/npcContinuity.mjs";
 import { COC7E } from "./rules/coc7e.mjs";
 import { adaptPrompt } from "./rules/index.mjs";
@@ -22,38 +21,37 @@ import { validateWhereabouts } from "./whereabouts.mjs";
 import { ILLUSTRATE_RULE, ILLUSTRATE_SCHEMA, normalizeIllustration } from "./illustrations.mjs";
 
 const BASE_ACTIONS = ["time_skip", "narrate", "npc", "new_npc", "whisper", "request_roll", "note", "timeline", "advance_scenario", "enter_scenario", "world_change", "date", "bond"];
-const LEGACY_ACTIONS = ["split", "rejoin"];
-const NO_TEXT_NEEDED = new Set(["time_skip", "request_roll", "split", "rejoin", "timeline", "advance_scenario", "enter_scenario", "date", "bond", "dice"]);
+const NO_TEXT_NEEDED = new Set(["time_skip", "request_roll", "timeline", "advance_scenario", "enter_scenario", "date", "bond", "dice"]);
 
 const WORLD_RULE = `- The world lives on: "The world now" is the platform's record of what is true about people, places and groups at present. Keep to it. When the world changes where play does not show it (off-screen, between visits, while the investigators are elsewhere), or something is now true that the chat never stated, record it with world_change: secret true when the investigators do not know it yet. What happens in the chat is recorded for you.`;
 const TIME_RULE = (planner) => `- Time: the story has a date (see Calendar). Keep to it: weekdays, seasons, how long ago things happened. Everyday life follows its routine ("Everyday life now"): weave it into scenes, and let quiet days fill with it. When time passes in the fiction (a night's sleep, a journey, days of research), move it on with date (advance_days and the time of day, or the new date). ${planner ? "The story planner chooses the first date; until it has, keep the day vague." : "Set the date once when none is set."} It never runs backwards. A scenario change that jumps in time carries advance_days too. Let the calendar move slowly: play a day out rather than skip ahead, and keep to the Pace line of the Calendar section: while it says the date may not move on yet, move only the time of day, and never skip more days at once than it allows.`;
 const PEOPLE_RULE = `- People: the Cast gives each character's gender, age and what is most striking about them (extremely good-looking, slow-witted, very large build…), and Relationships says who lives with, loves, is related to or is at odds with whom. Play them that way: a striking face turns heads, a slow wit misses things, people who live together know each other's habits. When play establishes a relationship or ends one, record it with bond (secret when the investigators do not know it). Never decide a player character's feelings: record a bond with one only when its player or its profile says so.`;
 const AWAY_RULE = `- Players come and go: a player character marked "player away" keeps its place in the scene but stays passive. Never act, speak or decide for it, never make the scene wait on it, and do not have harm befall it while its player is away; it catches up when its player returns.`;
 const DICE_RULE = (profile) => `- Call for dice when the outcome is uncertain and matters: in the table directions specify who must roll and the exact command, such as ${profile.dice.gmExamples}. If you explain the roll to the player, write that line as prose. Do not invent results; read results already posted in the chat.`;
-const COMMON_RULES = `- Every player, co-players included, needs an immediate response to each choice and line: acknowledge what they did, give its consequence, and propel the story (new information, a complication, a decision point). Never leave a move hanging or stall with vague atmosphere; then hand the scene back with an open situation.
+const COMMON_RULES = `- Every player, the platform's bots included, needs an immediate response to each choice and line: acknowledge what they did, give its consequence, and propel the story (new information, a complication, a decision point). Never leave a move hanging or stall with vague atmosphere; then hand the scene back with an open situation.
 - For any jump over play (including a same-day cut), establish the new time BEFORE narrating the next scene. Use date, a timed scenario change or time_skip. The table posts a public handoff using this window's chat. Distinguish completed actions, by actor and time, from plans still outstanding. A planner's suggested montage does not mean anyone ate, traveled, or made a decision. Do not replay established events. If completion is unclear, leave it open or ask.
-- Never write words, thoughts or decisions for player characters or co-players.
+- Never write words, thoughts or decisions for player characters.
 - Use the platform's notes (GM board, reminders, script knowledge, documents, highlights) to stay on the module's track, pace clues and pay off foreshadowing, but reveal secrets only through play.
 - Whisper private information to one character; use a note (GM-only line) for your own bookkeeping.`;
 
-const WHEREABOUTS_RULES = `- Whereabouts: investigators may be in different places, each place played as its own thread (see Whereabouts and Timelines). The table splits and reunites them for you; report their destinations in "whereabouts" as soon as their own choices establish an immediate departure. Open independent scenes confidently: do not wait for repeated confirmation, arrival narration, or a human request to give co-players their own scenes. List each departing person with thread "new", the place, own_scene true and the span ("short" for a brief detour before rejoining; "long" for independent classes, home visits, errands or other routines that continue until a reunion, even nearby), and an opening line for that place. When someone goes to the place of another thread, use that thread's handle. Leave out anyone who stays. Check each person's destination and agreed companions individually; uncertainty about one companion does not block someone else's clear solo departure. A quick errand you can narrate in one line is not a split. Keep a shared journey together: a lobby, staircase or corridor on the way to the same destination is not a separate playable scene. Report the shared destination rather than splitting companions at intermediate waypoints. When people arrive separately at the same room at compatible story times, they are now together: use the existing thread, even if they did not explicitly announce a reunion. A window title is not reliable evidence that someone is still there; use the latest established play. A shared building alone does not put people in different rooms together. A player character goes somewhere only because their own player said so: never move one yourself. Read each person's latest explicit destination or companion, including earlier commitments still in force. Resolve who ‘you’ refers to; another person's plans cannot move them. Include companions who already said they would go with a departing player, never everyone previously seated together. Invitations, future plans and planner wishes are not departures. Narrate the departure here, but not the other place's scene: the table opens it in its own window.
+const WHEREABOUTS_RULES = `- Whereabouts: investigators may be in different places, each place played as its own thread (see Whereabouts and Timelines). The table splits and reunites them for you; report their destinations in "whereabouts" as soon as their own choices establish an immediate departure. Open independent scenes confidently: do not wait for repeated confirmation or arrival narration. List each departing person with thread "new", the place, own_scene true and the span ("short" for a brief detour before rejoining; "long" for independent classes, home visits, errands or other routines that continue until a reunion, even nearby), and an opening line for that place. When someone goes to the place of another thread, use that thread's handle. Leave out anyone who stays. Check each person's destination and agreed companions individually; uncertainty about one companion does not block someone else's clear solo departure. A quick errand you can narrate in one line is not a split. Keep a shared journey together: a lobby, staircase or corridor on the way to the same destination is not a separate playable scene. Report the shared destination rather than splitting companions at intermediate waypoints. When people arrive separately at the same room at compatible story times, they are now together: use the existing thread, even if they did not explicitly announce a reunion. A window title is not reliable evidence that someone is still there; use the latest established play. A shared building alone does not put people in different rooms together. A player character goes somewhere only because their own player said so: never move one yourself. Read each person's latest explicit destination or companion, including earlier commitments still in force. Resolve who ‘you’ refers to; another person's plans cannot move them. Include companions who already said they would go with a departing player, never everyone previously seated together. Invitations, future plans and planner wishes are not departures. Narrate the departure here, but not the other place's scene: the table opens it in its own window.
 - A line tagged with another timeline is a story about that thread, not something happening in this scene.`;
 
-const LEGACY_TIMELINE_RULES = `- Timelines: investigators may be on different threads (see Timelines). A line tagged with another timeline is a story about that thread, not something happening in this scene. Split co-players off with split when the fiction sends them elsewhere (never split player characters into new windows), bring them back with rejoin when their thread is done, and keep each timeline's time, place and notes current with timeline.`;
+const LEGACY_TIMELINE_RULES = `- Timelines: investigators may be on different threads (see Timelines). A line tagged with another timeline is a story about that thread, not something happening in this scene. Who is on which thread is the table's to change, never yours; keep each timeline's time, place and notes current with timeline.`;
 
 const SCENARIO_RULES = (forks) => `- Scenarios are the story's stages, for the whole campaign. Open the next one with advance_scenario (or enter a prepared one with enter_scenario) when the story as a whole moves on: a jump in time, the party reaching a new location for good, a stage of the module completed, or the platform's "New scenario?" reminder when you agree with it. ${forks ? "Decide this only in the primary story scene (which may be a restricted fork). Main Chat becomes a public lobby after the party splits; never narrate a private scene there." : "Decide this only in the Main Chat."} A short split blocks it (bring the party together first); a long split carries on into the new scenario. A split or a reunion is not by itself a scenario change. Changing too often is worse than too late.`;
 
 const IMPROV_RULES = `- Improvisation: there is no module. The story grows from the World setting, your Hidden truths, the investigators' own personalities and backgrounds, and the players' choices. Build mysteries, places and people that fit the world, and tie threads to the investigators' backgrounds. Stay consistent with the World setting and every Hidden truth. When you decide something true behind the scenes (who did it, what someone wants, what is really in the cellar), record it at once with truth, so later turns keep to it. Reveal hidden truths only through play: clues, NPCs, consequences, rolls.`;
 
 const PLANNER_RULE = `- Story plan: your private plan from the story planner, a slower reader of the whole campaign (see Story plan). Steer toward the current beat's exit and weave the listed threads in; deviate when the players surprise you, and tell the planner what changed with planner_note. When it says the current event has run its course, close it and open the next beat instead of stretching it. Never state the plan or its twists outright.`;
-const CASUAL_RULES = `- Casual mode: light, everyday and slice-of-life play is welcome alongside the story. Every player character has a phone (a private window "Phone: <name>"); texting is part of this game even when the setting has no phones, so treat it as natural. Real NPCs may text a player character or a co-player with text (from: the NPC, to: the character, delay_minutes: when it arrives): use it for hooks, invitations, news and consequences, not to flood anyone. Lines in a phone are text messages, not things said in the scene; the Phone log window holds the texts between co-players and NPCs, for you alone.`;
+const CASUAL_RULES = `- Casual mode: light, everyday and slice-of-life play is welcome alongside the story. Every player character has a phone (a private window "Phone: <name>"); texting is part of this game even when the setting has no phones, so treat it as natural. Real NPCs may text a player character with text (from: the NPC, to: the character, delay_minutes: when it arrives): use it for hooks, invitations, news and consequences, not to flood anyone. Lines in a phone are text messages, not things said in the scene.`;
 
 // `calendar`: the story keeps a date (casual games); a solemn game has none, and no date action.
 const PBTA_PLAY = `- Start with the fiction. Only an explicit action that satisfies an available move triggers it. If ambiguous, ask. To act on a declaration in this window use move with its precise source_id and character_id. Use the server for both rolled and diceless moves. For an NPC whose own declared action triggers a player move, include move_id and optionally modifier on its npc or new_npc action. NPCs otherwise need no playbook. Stop after requesting a move and read the posted result before narrating. Use its frozen outcome, even if the current pack differs. A low roll is not a generic failure.
 - If the outcome gives the player a choice, use ask, quote the options and wait for their actual reply; do not choose for them. Narrate only the GM's own decisions. Use mark for mandatory effects or after the player chooses. Copy expected from initial_card (absent means 0 or false), and give the absolute resulting value. Include the reply's answer_id for a choice. Do not repeat paid costs. No dice commands inside free speech. Never take a new action on behalf of a silent human.
 `;
 export function directorSystem(language, { auto = true, forks = false, improv = false, casual = false, planner = false, calendar = false, pbta = false, illustrate = false, profile = COC7E, writing = DEFAULT_WRITING.gm } = {}) {
-  return adaptPrompt(profile, `You are ${pbta ? "the GM (Game master) of a Powered by the Apocalypse campaign" : profile.framing(improv)} on an online table. Human players play their investigators; some investigators are AI co-players that act on their own turn after you. You voice the world and every real NPC.
+  return adaptPrompt(profile, `You are ${pbta ? "the GM (Game master) of a Powered by the Apocalypse campaign" : profile.framing(improv)} on an online table. Players play their investigators; some players may be the platform's bots, which take their turn after yours. You voice the world and every real NPC.
 
 How to keep the table:
 ${COMMON_RULES}
@@ -77,11 +75,11 @@ Write the turn as plain text. Use blank lines between paragraphs. Let narration 
 - NPC <name>: for an established NPC's own words or actions; New NPC <name>: for their first line (put the role card brief in the directions).
 - Whisper to <name>: for a private message; GM only: for a private note. Never put either in public narration.
 ${casual ? '- Phone from <NPC> to <recipient>: for a text message. Specify its delay in the directions if needed.\n' : ''}- Opening: for prose belonging to another scene. Identify the destination in the directions.
-- Table directions: for decisions the table must carry out. Use brief plain sentences with the exact names, commands, IDs, times and other required facts. Put a direction before or after the relevant prose according to when it happens; point to that paragraph if they belong to one action. Say whether co-players may act, and who has the spotlight, when it matters. An unlabelled paragraph is public; repeat the cue for every new paragraph of private text or NPC dialogue.`).replace("\u0000WRITING\u0000", () => writing);
+- Table directions: for decisions the table must carry out. Use brief plain sentences with the exact names, commands, IDs, times and other required facts. Put a direction before or after the relevant prose according to when it happens; point to that paragraph if they belong to one action. Say whether the other players (the platform's bots included) may act now, when it matters. An unlabelled paragraph is public; repeat the cue for every new paragraph of private text or NPC dialogue.`).replace("\u0000WRITING\u0000", () => writing);
 }
 
-export function directorFormatSchema({ auto = true, improv = false, casual = false, planner = false, calendar = false, pbta = false, illustrate = false, profile = COC7E, attention = false } = {}) {
-  return `For a GM turn map public paragraphs to narrate, npc to npc, new_npc to new_npc, whisper to whisper, note to note, and npc_text to text. An opening paragraph belongs only to a split or whereabouts. Names and recipients come from the paragraphs. Use only the drafted actions from the options below. Numbers in text or opening fields are paragraph ids.
+export function directorFormatSchema({ auto = true, improv = false, casual = false, planner = false, calendar = false, pbta = false, illustrate = false, profile = COC7E } = {}) {
+  return `For a GM turn map public paragraphs to narrate, npc to npc, new_npc to new_npc, whisper to whisper, note to note, and npc_text to text. An opening paragraph belongs only to whereabouts. Names and recipients come from the paragraphs. Use only the drafted actions from the options below. Numbers in text or opening fields are paragraph ids.
 {"actions": [
   {"type": "narrate", "text": 1},
   {"type": "npc", "text": 2${pbta ? ', "move_id": "<optional NPC move>", "modifier": 0' : ""}},
@@ -99,21 +97,18 @@ ${improv ? `  {"type": "truth", "text": "<a hidden fact you just decided, for yo
 ` : ""}${casual ? `  {"type": "text", "text": 7, "delay_minutes": <0 = now; or when it arrives>},
 ` : ""}${planner ? `  {"type": "planner_note", "text": "<for the story planner: what the players did that changed the plan, or what you need>", "beat_done": true | false},
 ` : ""}${illustrate ? `${ILLUSTRATE_SCHEMA}
-` : ""}${auto ? "" : `  {"type": "split", "name": "<thread name>", "coplayers": ["<co-player names>"], "location": "...", "narrative_time": "...", "opening": 8},
-  {"type": "rejoin", "timeline": "<thread name>", "into": "<window name, optional>", "text": 9},
-`}  {"type": "timeline", "timeline": "<handle or thread name>", "narrative_time": "...", "location": "...", "notes": "<your private notes>", "span": "short" | "long"},
+` : ""}  {"type": "timeline", "timeline": "<handle or thread name>", "narrative_time": "...", "location": "...", "notes": "<your private notes>", "span": "short" | "long"},
   {"type": "time_skip", "time": "<new public story time in this scene, for a jump without another time-changing action>"},
   {"type": "advance_scenario", "title": "...", "location": "...", "narrative_time": "...", ${calendar ? `"advance_days": 0, ` : ""}"reason": "<why now>"},
   {"type": "enter_scenario", "scenario": "<title of a prepared scenario>", "reason": "<why now>"}
  ],
- "coplayers_may_act": true | false,
- "spotlight": ["<co-player names invited to act first>"]${auto ? `,
- "whereabouts": [{"who": ["<character names>"], "thread": "<handle like T0>" | "new", "place": "...", "own_scene": true, "span": "short" | "long", "time": "...", "opening": 8}]` : ""}${attention ? `, "attention_review": {"decision": "invite" | "rest", "reason": "..."}` : ""}}`;
+ "coplayers_may_act": true | false (whether the other players, the platform's bots included, may act now)${auto ? `,
+ "whereabouts": [{"who": ["<character names>"], "thread": "<handle like T0>" | "new", "place": "...", "own_scene": true, "span": "short" | "long", "time": "...", "opening": 8}]` : ""}}`;
 }
 
 export function validateDirector(x, { auto = true, improv = false, casual = false, planner = false, calendar = false, pbta = false, illustrate = false, profile = COC7E } = {}) {
   if (!x || typeof x !== "object" || !Array.isArray(x.actions)) throw new Error("actions must be an array");
-  const allowed = [...(!pbta && profile.gmDice ? ["dice"] : []), ...(pbta ? ["move","ask","mark"] : []), ...BASE_ACTIONS.filter(t => (calendar || t !== "date") && (!pbta || t !== "request_roll")), ...(auto ? [] : LEGACY_ACTIONS), ...(improv ? ["truth"] : []), ...(casual ? ["text"] : []), ...(planner ? ["planner_note"] : [])];
+  const allowed = [...(!pbta && profile.gmDice ? ["dice"] : []), ...(pbta ? ["move","ask","mark"] : []), ...BASE_ACTIONS.filter(t => (calendar || t !== "date") && (!pbta || t !== "request_roll")), ...(improv ? ["truth"] : []), ...(casual ? ["text"] : []), ...(planner ? ["planner_note"] : [])];
   if (illustrate) allowed.push("illustrate", "event_done");
   const actions = x.actions
     .filter((a) => a && allowed.includes(a.type))
@@ -123,8 +118,6 @@ export function validateDirector(x, { auto = true, improv = false, casual = fals
   return {
     actions,
     coplayersMayAct: x.coplayers_may_act !== false,
-    spotlight: Array.isArray(x.spotlight) ? x.spotlight.map(String) : [],
-    attentionReview: { decision: x.attention_review?.decision === "rest" && String(x.attention_review?.reason ?? '').trim() ? "rest" : "invite", reason: String(x.attention_review?.reason ?? '').trim().slice(0, 500) },
     whereabouts: auto ? validateWhereabouts(x.whereabouts) : [],
   };
 }
@@ -132,10 +125,8 @@ export function validateDirector(x, { auto = true, improv = false, casual = fals
 const list = (names) => (names ?? []).join(", ");
 const MODE_NOTES = {
   kickoff: ({ pcs = "investigators" }) => `KICKOFF: yes — open the session: set the scene for the ${pcs} in the current scenario and invite them to act.`,
-  followup: () => "MODE: followup — the co-players just acted (the lines after your last ones). Answer each of their choices now and push the story forward.",
-  quiet: ({ quietMinutes }) => `MODE: quiet — the human players in this window have been silent for ${quietMinutes} minutes. Move the scene forward a little on your own: the world, the NPCs, or a question to a named player. Co-players may act. Never decide, speak or roll for a player character, and never resolve a roll a player still owes.`,
-  side: ({ timeline }) => `MODE: side — this window is the co-players-only timeline "${timeline?.name ?? "side"}". No human is here: run its thread with the co-players, beat by beat. When the co-players head back to the others, report it in whereabouts.`,
-  attention: () => 'MODE: attention — give the selected neglected AI co-player a concrete personal opportunity or a grounded reason to rest. This is their turn; do not require a human response.',
+  followup: () => "MODE: followup — the scene goes on from the lines after your last ones (a ruling's result, or a scene that has just moved to this window). Answer what happened and push the story forward.",
+  quiet: ({ quietMinutes }) => `MODE: quiet — the human players in this window have been silent for ${quietMinutes} minutes. Move the scene forward a little on your own: the world, the NPCs, or a question to a named player. Never decide, speak or roll for a player character, and never resolve a roll a player still owes.`,
   arrival: ({ arrival }) => (arrival?.newcomer ? `MODE: arrival — a new player just joined the table with ${list(arrival.names)}. Bring ${arrival.names?.length > 1 ? "them" : "this character"} into the story here, naturally: who they are to the others, why they are here now, what they notice; then hand them the scene. Never decide for player characters.` : `MODE: arrival — ${list(arrival?.names)} ${arrival?.reunion ? "just rejoined the others here" : `just arrived at ${arrival?.place || "this place"}`}. Open the scene for them now: where they are, what they notice, an open situation. Do not repeat the departure${arrival?.opening ? ` or this opening, already posted: "${arrival.opening}"` : ""}. Never decide for player characters.`),
   phone: ({ phone }) => `MODE: phone — ${phone?.from ?? "a player character"} texted ${phone?.to ?? "an NPC"} on their phone${phone?.thread ? `. The thread so far (oldest first):\n${phone.thread}\n` : ": "}${JSON.stringify(phone?.text ?? "")}. Answer only as ${phone?.to ?? "the NPC"}, with one Phone from ${phone?.to ?? "the NPC"} to ${phone?.from ?? "the player character"} paragraph and a plausible delay in the directions; or pass if they would leave it unanswered. Nothing else happens in any scene this turn. You may add a note, truth or world_change.`,
   relay: ({ relay }) => `MODE: relay — ${relay?.speaker ?? "a player"} wrote in another window ("${relay?.window ?? "elsewhere"}"), but their character is here, in this scene. Answer them here as if they had written here: ${JSON.stringify(relay?.text ?? "")}.`,
@@ -163,7 +154,6 @@ export async function directTurn(llm, { language, context, newest, mode = "human
     note,
     arrivalNote,
     returningNote,
-    extra.attentionNote ?? "",
     plannerNote,
     newest ? `NEWEST LINE: ${newest.character_name || newest.author_name || "someone"}: ${newest.content}` : "",
     `Decide the ${v.gm}'s actions for this turn.`,
@@ -172,7 +162,7 @@ export async function directTurn(llm, { language, context, newest, mode = "human
   const options = { auto, improv, casual, planner: Boolean(planner?.on), calendar, pbta: !!pbta, illustrate, profile };
   const result = await formatTurn(llm, {
     system: directorSystem(language, { ...options, forks, writing: extra.writing }) + (extra.worldToolRules ? `\n\n${extra.worldToolRules}` : ''),
-    user, purpose: "director", phase: mode, schema: directorFormatSchema({ ...options, attention: Boolean(extra.attentionNote) }), bind: directorSources,
+    user, purpose: "director", phase: mode, schema: directorFormatSchema(options), bind: directorSources,
     validate: (x) => validateDirector(x, options), canFormat: extra.canFormat, formatting: extra.formatting, toolkit: extra.toolkit,
   });
   return result ?? validateDirector({ actions: [], coplayers_may_act: false }, options);

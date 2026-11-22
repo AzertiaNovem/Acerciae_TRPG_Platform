@@ -1,6 +1,5 @@
 // Private GM state for the authenticated host UI, including story plans; credentials are excluded.
 // Each section is built on its own, so one that cannot be read reports its error instead of hiding the rest.
-import { openWindows } from "./roles/roster.mjs";
 import { billableTokens } from "./store.mjs";
 import { calendarPace, describeCalendar } from "./calendar.mjs";
 import { MAIN } from "./timelines.mjs";
@@ -73,14 +72,6 @@ export function tableSnapshot(table, { cfg = table.cfg, channel = table.channel,
     realtime: realtime ? { streams: [...(realtime.streams ?? [])], connected: [...(realtime.connected ?? [])] } : null,
     cast: section("cast", () => ({
       players: (table.characters ?? []).filter((c) => table.isPc?.(c.id)).map((c) => ({ name: c.name, player: c.player_name ?? null, timeline: table.timelines?.of(c.id)?.handle ?? null })),
-      coplayers: (table.roster?.coplayers ?? []).map((c) => {
-        const windowDetails = [...new Set(openWindows(c))].map(id => {
-          const window = windows.find(w => w.id === id);
-          return { id, name: window?.name ?? id, status: !window ? "missing" : window.archived_at ? "archived" : table.timelines?.retired?.(id) ? "ended" : "active" };
-        });
-        return { characterId: c.characterId, name: c.name, windows: windowDetails.map(w => w.name), windowDetails,
-          seats: c.seats?.length ?? 0, timeline: table.timelines?.of(c.characterId)?.handle ?? null };
-      }),
       npcs: (table.roster?.npcs ?? []).map((n) => n.name).slice(0, 60), npcCount: table.roster?.npcs?.length ?? 0,
       windows: windows.filter((w) => !w.archived_at).length,
     })),
@@ -100,15 +91,14 @@ export function tableSnapshot(table, { cfg = table.cfg, channel = table.channel,
     }),
     memory: section("memory", () => {
       const db = table.store.db;
-      const chapters = db.prepare("SELECT scope LIKE 'coplayer:%' AS cp, count(*) AS n FROM chapters GROUP BY 1").all();
-      return { lines: db.prepare("SELECT count(*) AS n FROM lines").get().n, gmChapters: chapters.find((x) => !x.cp)?.n ?? 0, coplayerChapters: chapters.find((x) => x.cp)?.n ?? 0, gmTokens: cfg.gmContextTokens, coplayerTokens: cfg.coplayerContextTokens };
+      return { lines: db.prepare("SELECT count(*) AS n FROM lines").get().n, gmChapters: db.prepare("SELECT count(*) AS n FROM chapters WHERE scope = 'gm'").get().n, gmTokens: cfg.gmContextTokens };
     }),
     planner: section("planner", () => {
       const p = table.planner, arc = p.arc, notes = p.table ?? [];
       return {
         on: Boolean(p.on), mode: !p.on ? "off" : table.improv?.on ? "full" : "pace", busy: Boolean(table.memory?.jobs?.has("planner")),
         version: arc?.version ?? null, updatedAt: parsed(arc?.updatedAt), trigger: arc?.trigger ?? null, beat: arc?.beat?.title ?? null,
-        moveOn: Boolean(arc?.verdict?.moveOn), threads: arc?.threads?.length ?? 0, impulses: (p.impulses ?? []).map((i) => i.name),
+        moveOn: Boolean(arc?.verdict?.moveOn), threads: arc?.threads?.length ?? 0,
         window: p.window ? wname(p.window) : null, inbox: p.inbox?.length ?? 0,
         corrections: notes.filter((n) => n.kind === "correction").length, wishes: notes.filter((n) => n.kind === "wish").length,
         session: p.session ? { lines: p.session.lines, startedAt: at(p.session.startedAt) } : null, between: Boolean(p.between),

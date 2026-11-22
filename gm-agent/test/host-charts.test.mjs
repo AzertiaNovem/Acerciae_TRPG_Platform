@@ -4,35 +4,23 @@ import { Store } from '../src/store.mjs';
 import { usageSnapshot, tableSnapshot } from '../src/host-status.mjs';
 import { buildConfig } from '../src/config.mjs';
 import { groupPurposes, partsOf } from '../web/usage.js';
-import { Roster, openSeat } from '../src/roles/roster.mjs';
+import { Roster, isPlayerCharacter } from '../src/roles/roster.mjs';
 import { Timelines } from '../src/timelines.mjs';
 
-test('co-player locations follow current seats, retain window IDs and identify unavailable windows', () => {
+test('the cast lists the player characters with their thread, and every character the GM voices among the NPCs', () => {
   const store = new Store();
   try {
     const cfg = buildConfig({}, {}, { data: { llm: { provider: 'mock' } } });
-    const roster = new Roster({ coplayers: [{ characterId: 'cp', name: '林岚', seats: [
-      { windowId: 'old', fromSeq: 0, toSeq: 10 }, openSeat('harbour', 11), openSeat('harbour', 12), openSeat('archived'), openSeat('ended'), openSeat('missing'),
-    ] }, { characterId: 'waiting', name: '周宁', seats: [] }] });
-    const timelines = new Timelines(); timelines.reconcile(['cp', 'waiting']);
-    const thread = timelines.split({ name: '港口', members: ['cp'], windowId: 'harbour' });
-    const ended = timelines.split({ name: '旧场景', members: [], windowId: 'ended' }); timelines.merge(ended.id);
-    const windows = [{ id: 'main', name: '主聊天' }, { id: 'old', name: '历史窗口' }, { id: 'harbour', name: '茶馆' },
-      { id: 'archived', name: '茶馆', archived_at: '2026-11-12T00:00:00Z' }, { id: 'ended', name: '旧场景' }];
-    const table = { cfg, store, roster, timelines, windows, planner: {}, calendarOn: () => false };
-    const cast = () => tableSnapshot(table).cast.coplayers;
-    const [cp, waiting] = cast();
-    assert.equal(cp.characterId, 'cp'); assert.equal(cp.timeline, thread.handle);
-    assert.deepEqual(cp.windowDetails, [
-      { id: 'harbour', name: '茶馆', status: 'active' }, { id: 'archived', name: '茶馆', status: 'archived' },
-      { id: 'ended', name: '旧场景', status: 'ended' }, { id: 'missing', name: 'missing', status: 'missing' },
-    ]);
-    assert.deepEqual(waiting.windowDetails, []);
-    windows.find(w => w.id === 'harbour').name = '港口茶馆';
-    assert.equal(cast()[0].windowDetails[0].name, '港口茶馆', 'renames appear on the next snapshot');
-    roster.moveSeats([roster.coplayers[0]], ['main'], 20); timelines.move(['cp'], 'main', 21);
-    assert.deepEqual(cast()[0].windowDetails, [{ id: 'main', name: '主聊天', status: 'active' }]);
-    assert.equal(cast()[0].timeline, 0, 'returning to T0 is represented explicitly');
+    const characters = [{ id: 'pc', name: '林岚', kind: 'pc', user_id: 'u-lin', player_name: 'lin' }, { id: 'own', name: '周宁', kind: 'pc', user_id: 'gm' }, { id: 'npc', name: '老陈', kind: 'npc' }];
+    const roster = new Roster().reconcile(characters, { castBy: 'gm' });
+    const timelines = new Timelines(); timelines.reconcile(['pc']);
+    const thread = timelines.split({ name: '港口', members: ['pc'], windowId: 'harbour' });
+    const table = { cfg, store, roster, timelines, characters, windows: [{ id: 'main', name: '主聊天' }, { id: 'harbour', name: '茶馆' }], planner: {}, calendarOn: () => false,
+      isPc: (id) => isPlayerCharacter(characters.find((c) => c.id === id), roster) };
+    const { cast } = tableSnapshot(table);
+    assert.deepEqual(cast.players, [{ name: '林岚', player: 'lin', timeline: thread.handle }]);
+    assert.deepEqual([cast.npcs, cast.npcCount], [['周宁', '老陈'], 2], 'a PC the GM account owns is one of its NPCs');
+    assert.equal('coplayers' in cast, false);
   } finally { store.close(); }
 });
 
