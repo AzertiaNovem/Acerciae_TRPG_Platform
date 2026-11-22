@@ -6,7 +6,7 @@ export const FEATURES = [
   { key: 'illustrations.enabled', title: '剧情插画', help: '为剧情中的时刻配图，也可让玩家请求回顾插画。需要平台配置图像服务，绘图费用另计。', children: ['illustrations.max_per_hour', 'illustrations.requests_per_hour', 'illustrations.allow_cloud'] },
 ];
 export const BASICS = ['table.language', 'table.coplayers', 'table.level'];
-const PHONE_FIELDS = ['modes.casual_max_delay_minutes', 'modes.casual_ai_texts_per_hour', 'modes.casual_ai_chain', 'calendar.max_days'];
+const PHONE_FIELDS = ['modes.casual_max_delay_minutes', 'calendar.max_days'];
 const RULES = { coc7e: 'CoC 7e', dnd2024: 'D&D 2024', pbta: 'PbtA' };
 const STEPS = ['频道', '故事模式', '配套功能', '邀请玩家', '确认启动'];
 const playerLabel = p => p.display_name && p.display_name !== p.username ? `${p.display_name}（@${p.username}）` : `@${p.username}`;

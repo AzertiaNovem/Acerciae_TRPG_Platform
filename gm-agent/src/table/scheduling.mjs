@@ -111,7 +111,7 @@ export function onMessage(table, m) {
       table.onWishLine(m);
       return placement;
     }
-    if (m && m.chat_window_id && m.chat_window_id === table.casual.log) return undefined;   // the GM's own phone log
+    if (m && m.chat_window_id && m.chat_window_id === table.casual.log) return undefined;   // an older version's phone log
     if (m && table.isPhone(m.chat_window_id)) return table.onPhoneLine(m);   // a phone never starts a scene turn
     if (!table.isTrigger(m)) return undefined;
     // Keep the platform's bots this client's to pace while it plays (a call every few minutes at most).

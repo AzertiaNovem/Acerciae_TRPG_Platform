@@ -310,18 +310,18 @@ test("one routed model object: each purpose on its function's provider and model
   try {
     const cfg = buildConfig({}, { ANTHROPIC_API_KEY: "ka" }, { llm: { provider: "anthropic", api_base: claude.base, model: "claude-opus-5-5", stream: false },
       providers: { gw: { provider: "openai_compatible", api_base: `${gw.base}/v1`, api_key: "kg", model: "gpt-x", stream: false } },
-      models: { coplayers: "gw", memory: { provider: "default", model: "claude-haiku-5-5", effort: "low" } } });
+      models: { readers: "gw", memory: { provider: "default", model: "claude-haiku-5-5", effort: "low" } } });
     const llm = createModels(cfg);
     const usage = [];
     const ask = (purpose) => llm.complete({ system: "sys", messages: [{ role: "user", content: "hi" }], purpose, onUsage: (u) => usage.push([u.provider, u.model]) });
     assert.equal(await ask("director"), '{"from":"claude-opus-5-5"}');
-    assert.equal(await ask("coplayer_turn"), '{"from":"gw"}');
+    assert.equal(await ask("scene_presence"), '{"from":"gw"}');
     assert.equal(await ask("compact"), '{"from":"claude-haiku-5-5"}');
     assert.equal(await ask("npc_card"), '{"from":"claude-opus-5-5"}', "a function not routed runs on the default");
     assert.deepEqual(claude.seen.map((r) => [r.body.model, r.body.output_config.effort, r.headers["x-api-key"]]), [["claude-opus-5-5", "medium", "ka"], ["claude-haiku-5-5", "low", "ka"], ["claude-opus-5-5", "medium", "ka"]]);
     assert.deepEqual(gw.seen.map((r) => [r.body.model, r.headers.authorization]), [["gpt-x", "Bearer kg"]]);
     assert.deepEqual(usage, [["anthropic", "claude-opus-5-5"], ["gw", "gpt-x"], ["anthropic", "claude-haiku-5-5"], ["anthropic", "claude-opus-5-5"]], "the usage names the provider (the llm settings by their type) and the model that answered");
-    assert.deepEqual([llm.route("coplayer_phone").name, llm.route("planner").effort], ["gw", "high"]);
+    assert.deepEqual([llm.route("placement_correction").name, llm.route("planner").effort], ["gw", "high"]);
   } finally { claude.close(); gw.close(); }
 });
 

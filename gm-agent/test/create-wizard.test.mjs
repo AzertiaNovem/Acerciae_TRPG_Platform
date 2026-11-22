@@ -15,10 +15,10 @@ test('creation offers no daily-life switch, and an unfinished Forge is pending',
   assert.ok(branches(d, { ...c, saved: { forgePhase: 'review' } }, defaults).pendingForge);
 });
 test('backtracking removes incompatible world, feature children and D&D values from the request', () => {
-  const d = draft({ story: 'module', values: { 'modes.world_file': 'world.md', 'modes.secrets_file': 'secrets.md', 'table.level': '8', 'planner.enabled': 'false', 'planner.final_review': 'true', 'illustrations.enabled': 'false', 'illustrations.allow_cloud': 'true', 'modes.casual_ai_chain': '3' } });
+  const d = draft({ story: 'module', values: { 'modes.world_file': 'world.md', 'modes.secrets_file': 'secrets.md', 'table.level': '8', 'planner.enabled': 'false', 'planner.final_review': 'true', 'illustrations.enabled': 'false', 'illustrations.allow_cloud': 'true', 'modes.casual_max_delay_minutes': '30' } });
   const s = creationSettings(d, null, defaults);
   assert.equal(s['modes.improv'], false); assert.equal(s['forge.enabled'], false);
-  for (const key of ['modes.world_file', 'modes.secrets_file', 'table.level', 'planner.final_review', 'illustrations.allow_cloud', 'modes.casual_ai_chain']) assert.equal(key in s, false, key);
+  for (const key of ['modes.world_file', 'modes.secrets_file', 'table.level', 'planner.final_review', 'illustrations.allow_cloud', 'modes.casual_max_delay_minutes']) assert.equal(key in s, false, key);
   assert.equal(s['planner.enabled'], 'false');
   const back = { ...d, story: 'improv', world: 'file', rule: 'dnd2024', values: { ...d.values, 'modes.casual': 'true' } };
   const restored = creationSettings(back, null, defaults);
@@ -29,7 +29,7 @@ test('existing mode defaults come from saved state and are not overwritten on at
   assert.deepEqual([branches(d, c, defaults).improv, branches(d, c, defaults).casual], [true, true]);
   const s = creationSettings(d, c, defaults);
   assert.equal('modes.improv' in s, false); assert.equal('modes.casual' in s, false); assert.equal('modes.world_file' in s, false);
-  assert.ok(availableKeys(d, c, defaults).includes('modes.casual_ai_chain'));
+  assert.ok(availableKeys(d, c, defaults).includes('modes.casual_max_delay_minutes'));
 });
 test('private forks make a new non-casual channel isolated and public existing channels cannot enable them', () => {
   const d = draft({ story: 'module', values: { 'modes.casual': false, 'timelines.scene_forks': 'true' } });
@@ -61,5 +61,5 @@ test('only functioning planner-window, phone and calendar options are offered', 
   assert.ok(!keys.includes('planner.wish_window')); assert.ok(!keys.includes('illustrations.requests_per_hour'));
   const improv = { ...d, story: 'improv' };
   assert.ok(availableKeys(improv, null, defaults).includes('calendar.max_days'));
-  assert.ok(!availableKeys({ ...improv, source: 'existing' }, { knowledge: 'public' }, defaults).includes('modes.casual_ai_chain'));
+  assert.ok(!availableKeys({ ...improv, source: 'existing' }, { knowledge: 'public' }, defaults).includes('modes.casual_max_delay_minutes'));
 });

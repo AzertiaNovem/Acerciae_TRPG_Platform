@@ -48,7 +48,7 @@ test('shared credentials, independent policies, relative paths and invalid overr
   assert.deepEqual([routeFor(b, 'coplayer_turn').name, routeFor(b, 'coplayer_turn').model, routeFor(b, 'compact').name, routeFor(b, 'director').name], ['gw', 'gpt-mini', 'fast', 'default']);
   assert.deepEqual([routeFor(a, 'coplayer_turn').name, routeFor(a, 'compact').name], ['default', 'fast'], 'the shared routes hold where a channel says nothing');
   assert.throws(() => channelConfig(host, host.channels[0], 'providers:\n  mine:\n    provider: mock\n'), /shared configuration/);
-  assert.throws(() => channelConfig(host, host.channels[0], 'models:\n  coplayers: nowhere\n'), /no provider "nowhere"/);
+  assert.throws(() => channelConfig(host, host.channels[0], 'models:\n  readers: nowhere\n'), /no provider "nowhere"/);
   assert.ok(secretsOf(host).includes('gateway-secret'), "a provider's key is redacted like the others");
   const data = host.data; data.channels[1].id = 'a'; fs.writeFileSync(host.file, JSON.stringify(data));
   assert.throws(() => loadHost(host.file), /duplicate/);

@@ -51,9 +51,7 @@ export async function coplayerAct(table, windowId, coplayer, spotlight, { side =
     table.memory.maintainCoplayer(coplayer, witnessed, (m) => table.renderForCoplayer(m));
     if (move.action === "text") {
       const to = table.characterByName(move.to);
-      // To a companion co-player or an NPC: the phone log, where they answer in their own time.
-      if (to && to.id !== me && (table.roster.isCoplayer(to.id) || table.roster.isNpc(to.id))) return table.aiText(me, to.id, move.text);
-      // To a player character: it arrives in their phone at once.
+      // To a player character: it arrives in their phone at once. Nobody else has a phone.
       if (!to || !table.isPc(to.id) || !table.casual.phones[to.id]) return 0;
       table.store.addPhone({ windowId: table.casual.phones[to.id], from: me, to: to.id, text: move.text, at: table.now() });
       table.casual.last[to.id] = me;

@@ -258,7 +258,7 @@ const SCENE_PAGES = 10;     // pages of 200 lines read back from the platform fo
 export async function drawPastPlot(table, m, request) {
     const user = m.author_id;
     // Every window of play, other players' and co-players' scenes too (a picture of someone else's scene is fine at a
-    // casual table); never a table window (the planner window, phones, the phone log).
+    // casual table); never a table window (the planner window, phones).
     const windows = table.windows.filter((w) => !table.isTableWindow(w.id));
     if (!windows.length) return "notFound";
     const nameOf = (id) => table.nameOf(id);

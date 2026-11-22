@@ -26,8 +26,6 @@ function draftFor(purpose, plan) {
     const sourced = new Set(["narrate", "npc", "new_npc", "whisper", "note", "text", "request_roll", "ask", "dice", "rejoin"]);
     plan = { ...plan, actions: plan.actions.map(a => sourced.has(a.type) ? { ...a, text: part(a.text, label(a)) } : withOpening(a)) };
     if (plan.whereabouts) plan.whereabouts = plan.whereabouts.map(withOpening);
-  } else if (purpose === "coplayer_phone") {
-    plan = { ...plan, reply: part(plan.reply) ?? null };
   } else {
     plan = { ...plan, text: part(plan.text, plan.action === "text" ? `Phone to ${plan.to}` : plan.kind === "ooc" ? "Out of character" : "") };
     if (plan.defer) plan.defer = { ...plan.defer, question: part(plan.defer.question, "Question for later") };
@@ -76,7 +74,6 @@ export class MockLlm {
       case "plot_illustration": return JSON.stringify(this.plotMoment(user));
       case "director": return draftFor(purpose, this.director(user));
       case "coplayer_turn": return draftFor(purpose, this.coplayer(user, system));
-      case "coplayer_phone": return draftFor(purpose, { reply: `[mock ${field(user, "YOU ARE")}] On my way.`, delay_minutes: 5 });
       case "chat_format": return JSON.parse(messages[0].content).findLast(p => p.kind === "directions")?.text ?? "{}";
       case "planner": return JSON.stringify(this.planner(user));
       case "compact": case "coplayer_memory": return JSON.stringify({ summary: `[mock ${purpose}] ${field(user, "LINES") || field(user, "CHAPTERS") || "(nothing)"}`.slice(0, 400) });

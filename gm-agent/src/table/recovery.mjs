@@ -24,7 +24,6 @@ export function noteLine(table, m) {
         table.lastLineBy.set(m.character_id, Math.max(prev ?? 0, at));
       }
       table.lastHumanAt = Math.max(table.lastHumanAt, at);
-      if (Object.keys(table.casual.chain).length) table.casual.chain = {};   // AI characters may text on again
       if (m.character_id && m.visibility === "window" && SPEAKER_KINDS.has(m.kind) && table.isPc(m.character_id)) {
         if (!table.speakers.has(m.chat_window_id)) table.speakers.set(m.chat_window_id, []);
         table.speakers.get(m.chat_window_id).push({ id: m.character_id, seq: m.seq, content: m.content });

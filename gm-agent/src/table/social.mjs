@@ -1,14 +1,9 @@
 // social: table is the explicit runtime context supplied by Table; no service singleton.
-import { investigatorsFor } from "../context/profiles.mjs";
 import { directTurn } from "../director.mjs";
-import { coplayerSelf } from "../coplayer.mjs";
-import { playerRules } from "../pbta.mjs";
 import { hashText } from "../improv.mjs";
-import { PHONE_LOG, PHONE_PREFIX, coplayerPhoneReply, dueAt, pairKey, parseAddress, renderThread } from "../casual.mjs";
-import { WISH_WINDOW, addToInbox, renderCorrectionsFor } from "../wishes.mjs";
-import { describeCalendar, describeRoutine } from "../calendar.mjs";
-import { renderBondsFor } from "../bonds.mjs";
-import { names, chunk, HOUR } from "./shared.mjs";
+import { PHONE_PREFIX, dueAt, parseAddress, renderThread } from "../casual.mjs";
+import { WISH_WINDOW, addToInbox } from "../wishes.mjs";
+import { chunk } from "./shared.mjs";
 
 export function isPhone(table, windowId) { return Boolean(windowId) && Object.values(table.casual.phones).includes(windowId); }
 
@@ -27,6 +22,7 @@ export async function setCasual(table, on) {
 
 export function isPlannerWindow(table, windowId) { return Boolean(windowId) && windowId === table.planner.window; }
 
+// An older version's phone log (casual.log), a window with only the GM in it, is one too.
 export function isTableWindow(table, windowId) { return table.windows?.some(w => w.id === windowId && w.purpose === "forge") || table.isPhone(windowId) || table.isPlannerWindow(windowId) || (Boolean(windowId) && windowId === table.casual.log); }
 
 export function plannerWindowWanted(table) { return Boolean(table.improv?.on) && table.cfg.planner?.wishWindow !== false && table.plannerMode() !== "off"; }
@@ -36,7 +32,7 @@ export async function ensureTableWindows(table) {
     table.ensuringWindows = true;
     try {
       if (table.plannerWindowWanted()) await table.ensurePlannerWindow();
-      if (table.casual.on) { await table.ensurePhones(); await table.ensurePhoneLog(); }
+      if (table.casual.on) await table.ensurePhones();
     } finally { table.ensuringWindows = false; }
   }
 
@@ -60,16 +56,6 @@ export async function ensurePlannerWindow(table) {
       await table.api.addWindowMember(table.channelId, w.id, { user_id });
       table.log(`planner window: seated a new player (${rows.find((r) => (r.id ?? r.user_id) === user_id)?.display_name ?? user_id})`);
     }
-  }
-
-export async function ensurePhoneLog(table) {
-    if (!table.casualOn() || (table.casual.log && table.windows.some((w) => w.id === table.casual.log))) return;
-    const w = await table.api.createWindow(table.channelId, { name: PHONE_LOG, kind: "private", members: [] });
-    table.casual.log = w.id;
-    table.save();
-    table.windows = [...table.windows, w];
-    table.log(`casual: opened "${w.name}"`);
-    await table.post(w.id, { content: "📒 Texts between co-players and NPCs, for the GM only. Every line is one text: the sender, then → and the recipient.", kind: "narration" }, { count: false, allowPaused: true });
   }
 
 export function onWishLine(table, m) {
@@ -146,35 +132,17 @@ export async function phoneTurn(table, windowId, { fromId, toId }) {
     if (!table.casualOn() || !fromId || !toId) return;
     const canFormat = () => table.isPc(fromId) || !table.overBudget();
     const thread = renderThread(table.store.thread(fromId, toId, 30), (id) => table.nameOf(id));
-    const max = table.cfg.casualMaxDelayMinutes ?? 240;
-    const cp = table.roster.coplayers.find((c) => c.characterId === toId);
-    if (cp) {
-      const memories = table.memory.coplayerChapters(cp).map((c) => `[#${c.fromSeq}–#${c.toSeq}] ${c.text}`);
-      const today = table.calendarOn() ? describeCalendar(table.calendar, { time: table.timelines.of(toId)?.narrativeTime || table.calendar.time }) : "";
-      const known = new Set([...investigatorsFor(table.characters, table.roster).map((c) => c.id), fromId]);
-      const card = await table.card(toId);
-      const tableInfo = table.pbta
-        ? [JSON.stringify(playerRules(table.pbta.pack, card?.pbta?.book))]
-        : [today ? `TODAY IN THE STORY: ${today}` : "", today && describeRoutine(table.calendar) ? `${describeRoutine(table.calendar)} (common knowledge)` : "", renderBondsFor(table.bonds, toId, known, (id) => table.nameOf(id)), renderCorrectionsFor(table.planner.table, cp.name)];
-      const self = [coplayerSelf({ coplayer: cp, card, world: table.improv.on ? table.improv.world : "", profile: table.profile, attrs: table.attrs.get(toId) ?? {} }), memories.length ? `WHAT YOU REMEMBER:\n${memories.join("\n\n")}` : "", ...tableInfo].filter(Boolean).join("\n\n");
-      let r;
-      try { r = await coplayerPhoneReply(table.llm, { language: table.language, lore: table.publicLore({ texts: [table.store.thread(fromId, toId, 12).reverse().map((x) => x.text).join("\n")] }), self, name: cp.name, from: table.nameOf(fromId), thread, maxDelay: max, pc: table.profile.vocab.pc, canFormat, formatting: table.cfg.writing?.formatting }); }
-      catch (e) { table.log(`co-player ${cp.name} (phone): ${e.message}`); return; }
-      if (r.reply) table.queueText({ windowId, from: toId, to: fromId, text: r.reply, minutes: r.delay });
-      else table.log(`casual: ${cp.name} leaves ${table.nameOf(fromId)}'s message on read`);
-    } else {
-      const ctx = await table.buildGm(windowId);
-      const last = table.store.thread(fromId, toId, 1).at(-1);
-      let plan;
-      try { plan = await directTurn(table.llm, { language: table.language, profile: table.profile, context: ctx.parts, pbta:table.pbta, newest: null, mode: "phone", auto: table.cfg.timelineAuto, forks: table.forks, improv: table.improv.on, casual: true, phone: { from: table.nameOf(fromId), to: table.nameOf(toId), thread, text: last?.text ?? "" }, canFormat, writing: table.cfg.writing?.gm, formatting: table.cfg.writing?.formatting }); }
-      catch (e) { table.log(`phone turn: ${e.message}`); return; }
-      // Only messages and the GM's own notes: nothing happens in a scene because of a text.
-      for (const a of plan.actions.filter((x) => ["text", "note", "truth", "world_change"].includes(x.type))) {
-        if (a.type === "note") await table.post(table.mainWindow().id, { content: a.text, kind: "narration", visibility: "gm_only" }, { count: false });
-        else await table.act(windowId, a, ctx, { mode: "phone", parent: "phone" });
-      }
-      if (!plan.actions.some((x) => x.type === "text")) table.log(`casual: ${table.nameOf(toId)} leaves ${table.nameOf(fromId)}'s message unanswered`);
+    const ctx = await table.buildGm(windowId);
+    const last = table.store.thread(fromId, toId, 1).at(-1);
+    let plan;
+    try { plan = await directTurn(table.llm, { language: table.language, profile: table.profile, context: ctx.parts, pbta:table.pbta, newest: null, mode: "phone", auto: table.cfg.timelineAuto, forks: table.forks, improv: table.improv.on, casual: true, phone: { from: table.nameOf(fromId), to: table.nameOf(toId), thread, text: last?.text ?? "" }, canFormat, writing: table.cfg.writing?.gm, formatting: table.cfg.writing?.formatting }); }
+    catch (e) { table.log(`phone turn: ${e.message}`); return; }
+    // Only messages and the GM's own notes: nothing happens in a scene because of a text.
+    for (const a of plan.actions.filter((x) => ["text", "note", "truth", "world_change"].includes(x.type))) {
+      if (a.type === "note") await table.post(table.mainWindow().id, { content: a.text, kind: "narration", visibility: "gm_only" }, { count: false });
+      else await table.act(windowId, a, ctx, { mode: "phone", parent: "phone" });
     }
+    if (!plan.actions.some((x) => x.type === "text")) table.log(`casual: ${table.nameOf(toId)} leaves ${table.nameOf(fromId)}'s message unanswered`);
     await table.deliverDue();
   }
 
@@ -182,38 +150,10 @@ export async function sendText(table, a) {
     const from = table.characterByName(a.from);
     const to = table.characterByName(a.to);
     if (!from || !table.roster.isNpc(from.id)) { table.log(`text from "${a.from}" skipped: the GM texts only as a real NPC`); return 0; }
-    if (to && table.roster.isCoplayer(to.id)) return table.aiText(from.id, to.id, a.text, a.delay_minutes);   // to a co-player: the phone log
     if (!to || !table.isPc(to.id) || !table.casual.phones[to.id]) { table.log(`text to "${a.to}" skipped: not a player character with a phone`); return 0; }
     table.queueText({ windowId: table.casual.phones[to.id], from: from.id, to: to.id, text: a.text, minutes: a.delay_minutes });
     await table.deliverDue();
     return 0;
-  }
-
-export async function aiText(table, from, to, text, minutes = 0) {
-    if (!table.casualOn() || !table.casual.log || !String(text ?? "").trim() || from === to) return 0;
-    table.queueText({ windowId: table.casual.log, from, to, text, minutes });
-    await table.deliverDue();
-    return 0;
-  }
-
-export function answerAiText(table, p) {
-    const key = pairKey(p.from, p.to);
-    const chain = (table.casual.chain[key] ?? 0) + 1;
-    table.casual.chain[key] = chain;
-    const now = table.now();
-    table.casual.aiTexts = table.casual.aiTexts.filter((t) => now - t < HOUR);
-    const away = now - table.lastHumanAt > table.cfg.autonomyIdleMinutes * 60000;
-    const why = chain >= (table.cfg.casualAiChain ?? 4) ? "the exchange is long enough until someone writes" : table.casual.aiTexts.length >= (table.cfg.casualAiTextsPerHour ?? 12) ? "the hourly cap on texts between AI characters" : away ? "everyone is away" : table.overBudget() ? "the daily token budget" : "";
-    if (why) { table.log(`casual: ${table.nameOf(p.to)} does not answer ${table.nameOf(p.from)} now (${why})`); return; }
-    table.casual.aiTexts.push(now);
-    table.enqueuePhone(table.casual.log, { fromId: p.from, toId: p.to });
-  }
-
-export function enqueuePhone(table, windowId, phone) {
-    if (table.generation.signal.aborted) return;
-    table.pending++;
-    table.queue = table.queue.then(table.generation.task(() => table.phoneTurn(windowId, phone))).catch((e) => table.log(`phone turn failed: ${e.message}`)).then(() => { table.pending--; });
-    return table.queue;
   }
 
 export function queueText(table, { windowId, from, to, text, minutes = 0 }) {
@@ -232,12 +172,11 @@ export async function deliverDue(table) {
     table.casual.pending = table.casual.pending.filter((p) => p.dueAt > now);
     table.save();
     for (const p of due) {
-      const logged = p.windowId === table.casual.log;
-      const signal = table.generation.signal;
-      await table.post(p.windowId, { content: logged ? `→ ${table.nameOf(p.to)}: ${p.text}` : p.text, kind: "ic", character_id: p.from }, { count: false, allowPaused: true });
+      // A text an older version sent between two AI characters, to its phone log: nobody reads it any more.
+      if (p.windowId === table.casual.log) { table.log(`casual: an old text from ${table.nameOf(p.from)} to ${table.nameOf(p.to)} for the phone log is dropped`); continue; }
+      await table.post(p.windowId, { content: p.text, kind: "ic", character_id: p.from }, { count: false, allowPaused: true });
       table.store.addPhone({ windowId: p.windowId, from: p.from, to: p.to, text: p.text, at: now });
       table.casual.last[p.to] = p.from;   // a reply without @ goes back to whoever texted last
-      if (logged && !signal.aborted) table.answerAiText(p);
     }
     table.save();
     return due.length;

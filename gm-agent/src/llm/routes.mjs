@@ -6,7 +6,7 @@
 // settings still name its route when `models.planner` does not.
 export const MODEL_FUNCTIONS = {
   director: ["director"],
-  coplayers: ["coplayer_turn", "coplayer_phone"],
+  coplayers: ["coplayer_turn"],
   formatting: ["chat_format", "forge_format"],
   forge: ["forge_interview", "forge_compile", "forge_review", "forge_secrets", "forge_seed", "forge_playtest"],
   planner: ["planner"],

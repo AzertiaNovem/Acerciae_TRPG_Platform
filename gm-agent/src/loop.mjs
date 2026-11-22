@@ -881,7 +881,7 @@ export class Table {
 
   setCasual(...args) { return social.setCasual(this, ...args); }
 
-  // ---- the table's own windows: the planner window (wishes.mjs), the phones and the GM's phone log (casual.mjs)
+  // ---- the table's own windows: the planner window (wishes.mjs) and the phones (casual.mjs)
   isPlannerWindow(...args) { return social.isPlannerWindow(this, ...args); }
   // Windows that are no scene: no turn is played there and autonomy never moves them.
   isTableWindow(...args) { return social.isTableWindow(this, ...args); }
@@ -891,9 +891,6 @@ export class Table {
 
   // The planner window: every player of the channel in it (a newcomer is added), the GM reading.
   ensurePlannerWindow(...args) { return social.ensurePlannerWindow(this, ...args); }
-
-  // Casual mode: the GM's phone log, a window with only the GM in it, for texts no player is part of.
-  ensurePhoneLog(...args) { return social.ensurePhoneLog(this, ...args); }
 
   // A line in the planner window: kept for the planner's next run, whatever triggers it (no run of its own).
   onWishLine(...args) { return social.onWishLine(this, ...args); }
@@ -910,19 +907,11 @@ export class Table {
   // Player to player: the message appears at once in the recipient's phone, as the sender's character.
   relayText(...args) { return social.relayText(this, ...args); }
 
-  // An NPC or a co-player reads a text and answers, after a believable delay, or leaves it unanswered.
+  // An NPC reads a text and answers through the GM, after a believable delay, or leaves it unanswered.
   phoneTurn(...args) { return social.phoneTurn(this, ...args); }
 
   // The GM's text action: a real NPC texts a player character, now or after a delay.
   sendText(...args) { return social.sendText(this, ...args); }
-
-  // A text no player character is part of (co-player or NPC to co-player or NPC): it goes to the phone log.
-  aiText(...args) { return social.aiText(this, ...args); }
-  // A text delivered to an AI character in the phone log: it answers, unless the two have gone back and forth
-  // CASUAL_AI_CHAIN times since a person last wrote, the hourly cap is reached, or everyone is away.
-  answerAiText(...args) { return social.answerAiText(this, ...args); }
-  // A phone turn on the turn queue without a window timer (the phone log carries several conversations at once).
-  enqueuePhone(...args) { return social.enqueuePhone(this, ...args); }
 
   queueText(...args) { return social.queueText(this, ...args); }
 
