@@ -73,9 +73,9 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
     auth_.requireWindowMember(a, windowId);
     // Interactive messages have their own route; their lines come only from HypertextService (origin).
     if (!origin && (body.isMember("hypertext") || json::str(body, "kind") == "hypertext")) throw badRequest("interactive messages are posted with POST /windows/{w}/hypertext");
-    if (body.isMember("stand_in") && !body["stand_in"].isBool()) throw badRequest("stand_in must be a boolean");
-    const bool standIn = !origin && body.get("stand_in", false).asBool();
-    if (standIn && (!a.isGm || !ruling.isNull())) throw badRequest("stand_in requires the GM speaking as another player's PC");
+    // Stand-in lines (an AI speaking for an absent player's character) were removed; an older client asking for one is
+    // refused rather than its line posted as the GM's.
+    if (body.isMember("stand_in") && !(body["stand_in"].isBool() && !body["stand_in"].asBool())) throw badRequest("stand-in lines are no longer supported");
     if (!ruling.isNull()) auth_.requireGm(a);
     auto content = json::str(body, "content");
     if (content.empty()) throw badRequest("content required");
@@ -85,7 +85,6 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
     // A card's line goes to the audience the server gave it (the card's or a narrower one), whoever acts.
     auto visibility = origin ? origin->visibility : json::str(body, "visibility", "window");
     if (visibility != "window" && visibility != "gm_only" && visibility != "whisper") throw badRequest("invalid visibility");
-    if (standIn && (visibility != "window" || (kind != "ic" && kind != "ooc"))) throw badRequest("stand_in requires ic or ooc with window visibility");
     if (!origin && visibility != "window" && !a.isGm) throw forbidden("only the GM can post gm_only or whisper messages");
     if(body.isMember("reference_ids") && !body["reference_ids"].isArray()) throw badRequest("reference_ids must be an array");
     if(body["reference_ids"].size()>5) throw badRequest("At most five chat references");
@@ -99,7 +98,6 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
     // A card's reply speaks as its template's character (or none); a viewer's say as their active character, checked
     // as the composer's would be, or the window's.
     std::string characterId = origin ? (origin->fixedCharacter ? origin->characterId : origin->sayCharacterId) : json::str(body, "character_id");
-    if (standIn && characterId.empty()) throw badRequest("stand_in requires character_id");
     if (characterId.empty() && !(origin && origin->fixedCharacter)) { auto wc = auth_.windowCharacter(a.userId, windowId); if (wc) characterId = *wc; }
     std::string characterKind, characterOwner;
     if (!characterId.empty()) {
@@ -107,7 +105,6 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
         if (c.isNull()) throw badRequest("character not in this channel");
         if (!a.isGm && (c["user_id"].isNull() || c["user_id"].asString() != a.userId)) throw forbidden("not your character");
         characterKind = c["kind"].asString(); characterOwner = json::str(c, "user_id");
-        if (standIn && (characterKind != "pc" || c["user_id"].isNull() || c["user_id"].asString() == a.userId)) throw badRequest("stand_in requires another user's PC");
     }
     // Sealdice-style commands (.r .ra .sc .st .en ...) are evaluated by the dice service and stored as roll messages.
     // A card's lines never run more than a card may ask for, whatever its client sent (HypertextService checks first):
@@ -120,13 +117,12 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
             throw forbidden("an interactive message cannot run " + diceCmd->raw);
     }
     if (!ruling.isNull() && ruling["op"]=="move" && (!diceCmd || diceCmd->name!="move")) throw badRequest("PbtA dice are disabled");
-    if (standIn && diceCmd) throw badRequest("stand-in lines cannot roll dice");
     if (diceCmd) kind = "roll";
     else if (kind == "roll") throw badRequest("roll messages come from dice commands: start the message with a dot command such as .ra or .r");
 
     DiceService::Result diceResult;
     const auto agentRequest = json::str(body,"request_id");
-    if (!agentRequest.empty() && (!a.isGm || origin || diceCmd || !ruling.isNull() || standIn || agentRequest.size()>160)) throw badRequest("request_id is for ordinary GM story messages only");
+    if (!agentRequest.empty() && (!a.isGm || origin || diceCmd || !ruling.isNull() || agentRequest.size()>160)) throw badRequest("request_id is for ordinary GM story messages only");
     const auto agentFingerprint = agentRequest.empty() ? std::string() : crypto::sha256Hex(windowId+":"+json::dump(body));
     Json::Value notice;
     pbta::Ruling audit;
@@ -206,10 +202,10 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
         auto insert = [&](const std::string& vis, const std::vector<std::string>& to, const std::string& text, const Json::Value& dice, bool action) {
             return Db::queryOne(w,
                 // A character's line keeps the outfit the character wears as it is written (a visual novel shows it so).
-                "INSERT INTO messages(channel_id, chat_window_id, scene_id, author_id, author_role, character_id, kind, content, visibility, whisper_to, dice, outfit_id, stand_in, via_hypertext_id, via_user_id, via_interaction_id, via_effect) "
-                "VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::uuid[],$11::jsonb,(SELECT outfit_id FROM characters WHERE id=$6::uuid),$12,$13::uuid,$14::uuid,$15::uuid,$16::smallint) RETURNING id",
+                "INSERT INTO messages(channel_id, chat_window_id, scene_id, author_id, author_role, character_id, kind, content, visibility, whisper_to, dice, outfit_id, via_hypertext_id, via_user_id, via_interaction_id, via_effect) "
+                "VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::uuid[],$11::jsonb,(SELECT outfit_id FROM characters WHERE id=$6::uuid),$12::uuid,$13::uuid,$14::uuid,$15::smallint) RETURNING id",
                 {a.channelId, windowId, sceneId.empty() ? dbNull() : DbParam(sceneId), a.userId, a.isGm ? "gm" : "player", characterId.empty() ? dbNull() : DbParam(characterId), kind, text, vis,
-                 pgArrayLiteral(to), dice.isNull() ? dbNull() : DbParam(json::dump(dice)), standIn,
+                 pgArrayLiteral(to), dice.isNull() ? dbNull() : DbParam(json::dump(dice)),
                  origin ? DbParam(origin->cardId) : dbNull(), origin ? DbParam(origin->userId) : dbNull(),
                  origin && action && !origin->interactionId.empty() ? DbParam(origin->interactionId) : dbNull(), origin && action ? DbParam((int64_t)origin->effect) : dbNull()})["id"].asString();
         };
@@ -235,10 +231,9 @@ Json::Value ChatService::postMessage(const ChannelAccess& a, const std::string& 
             } else if (visibility == "whisper") { audience = whisperTo; evVis = "whisper"; }
             else evVis = "gm_only";
             NewEvent e; e.channelId = a.channelId; e.chatWindowId = windowId; e.sceneId = sceneId; e.messageId = messageId;
-            e.actorUserId = a.userId; e.actorRole = a.isGm && !standIn ? "gm" : "player"; e.characterId = characterId; e.kind = "message.posted";
+            e.actorUserId = a.userId; e.actorRole = a.isGm ? "gm" : "player"; e.characterId = characterId; e.kind = "message.posted";
             e.visibility = evVis; e.audience = audience;
             e.payload["content"] = eventText; e.payload["message_kind"] = kind; e.payload["reference_message_ids"]=json::fromStrArray(references);
-            if (standIn) e.payload["stand_in"] = true;
             if (origin) { e.payload["via_hypertext_id"] = origin->cardId; if (origin->userId != a.userId) e.payload["via_user_id"] = origin->userId; }
             if (!mediaAssetId.empty()) e.payload["media_asset_id"] = mediaAssetId;
             if (diceCmd) { e.payload["command"] = content; e.payload["dice"] = diceJson; }
@@ -267,18 +262,17 @@ Json::Value ChatService::recallMessage(const ChannelAccess& a, const std::string
         // ended or saves a state meanwhile, and a line being posted holds the row (postMessage), so none lands after it.
         auto card = Db::queryOne(w, "SELECT id FROM messages WHERE id=$1 AND channel_id=$2 AND kind='hypertext'", {messageId, a.channelId});
         if (!card.isNull()) Db::exec(w, "SELECT pg_advisory_xact_lock(hashtext('acerciae.hypertext.' || $1))", {card["id"].asString()});
-        auto m = Db::queryOne(w, "SELECT m.author_id, m.stand_in, (SELECT c.user_id FROM characters c WHERE c.id=m.character_id) AS character_owner, m.kind, m.content, m.recalled_at, m.created_at > now() - " + RECALL_WINDOW + " AS recent, " + ON_MOVE_RECORD + " AS on_record, "
+        auto m = Db::queryOne(w, "SELECT m.author_id, m.kind, m.content, m.recalled_at, m.created_at > now() - " + RECALL_WINDOW + " AS recent, " + ON_MOVE_RECORD + " AS on_record, "
             "w.archived_at, " + Visibility::messageFilter(a) + " AS readable FROM messages m JOIN chat_windows w ON w.id=m.chat_window_id WHERE m.id=$1 AND m.channel_id=$2 FOR UPDATE OF m",
             {messageId, a.channelId});
         if (m.isNull() || !m["readable"].asBool()) throw notFound("message not found");
-        const bool standInOwner = m["stand_in"].asBool() && json::str(m, "character_owner") == a.userId;
-        if (!standInOwner && json::str(m, "author_id") != a.userId) throw forbidden("Only the author can recall a message");
+        if (json::str(m, "author_id") != a.userId) throw forbidden("Only the author can recall a message");
         if (!m["recalled_at"].isNull()) { repeated = true; return Db::queryOne(w, MSG_SELECT + "WHERE m.id=$1", {messageId}); }
         auto kind = json::str(m, "kind");
         if (kind == "roll") throw ApiError(409, "not_recallable", "Dice rolls cannot be recalled: their results stay on the record");
         if (kind == "system") throw ApiError(409, "not_recallable", "System lines cannot be recalled");
         if (m["on_record"].asBool()) throw ApiError(409, "not_recallable", "This line is part of a move's record and cannot be recalled");
-        if (!standInOwner && !m["recent"].asBool()) throw ApiError(409, "recall_expired", "Messages can only be recalled within " + std::to_string(kRecallSeconds / 60) + " minutes of sending");
+        if (!m["recent"].asBool()) throw ApiError(409, "recall_expired", "Messages can only be recalled within " + std::to_string(kRecallSeconds / 60) + " minutes of sending");
         if (!m["archived_at"].isNull()) throw conflict("This window is archived. Restore it or fork it to continue.");
         if (kind != "hypertext") original = json::str(m, "content");   // a card's fallback is no draft to send again
         for (const auto& e : Db::queryJson(w, "SELECT id FROM events WHERE message_id=$1", {messageId})) eventIds.push_back(e["id"].asString());

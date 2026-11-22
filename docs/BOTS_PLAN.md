@@ -374,4 +374,5 @@ mobile changes).
 
 ## Progress
 
-- 1a (GM agent: daily life removed): in review.
+- 1a (GM agent: daily life removed): merged (#68).
+- 1b (platform, web and apps: stand-in and passive marks removed, migration 0070): in review.

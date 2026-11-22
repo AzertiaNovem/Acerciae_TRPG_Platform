@@ -139,14 +139,11 @@ Swift 的真实 WebSocket 测试可先运行 `node mobile/scripts/socket-test-se
 `fixtures/client-access.json` is also consumed by all three clients: Studio access (GM/player, feature disabled, hidden, locked, story ended) and persistent-cache eligibility. `no-store` takes precedence over `immutable`; native storage implementations remain independent.
 
 
-## 2026-11-12 — Daily life passive presence
+## 2026-11-12 — Daily life passive presence (removed 2026-11-22)
 
-Messages optionally carry `stand_in`; character rows optionally carry `passive_since`. Android and iOS render a
-stand-in label on the character's line (including OOC stand-ins) and a passive-presence label beside the typing mark.
-The character owner sees Recall for a stand-in regardless of its author or `recall_seconds_left`; the server retains
-its readability, archived-window and move-record checks. `character.updated` refreshes the character list as before.
-Absent fields on older servers show neither mark and retain ordinary recall rules. Localizations come from
-`localization/mobile.tsv`; `fixtures/passive-presence.json` describes both modern and legacy rows.
+Daily life was removed. Messages no longer carry `stand_in` and character rows no longer carry `passive_since`; the
+apps show neither mark, and only a line's author may recall it, within its recall window. Old stand-in lines read as
+ordinary lines of the GM account.
 
 ## 2026-11-14 — Interactive messages (hypertext)
 

@@ -95,9 +95,7 @@ export function MessageRow({ m, jumped, readOnly }: { m: Message; jumped: boolea
   const recall = useChat(s=>s.recall);
   const draft = useChat(s=>s.recallDrafts[m.id]);
   const own = user?.id === m.author_id;
-  const timedRecallable = useRecallable(m, own && !readOnly);
-  const ownerId = useNav(s => s.characters.find(c => c.id === m.character_id)?.user_id);
-  const recallable = timedRecallable || (!readOnly && !!m.stand_in && !!user && ownerId === user.id && !m.recalled_at);
+  const recallable = useRecallable(m, own && !readOnly);
   // A pinned line sits in the group's context bubbles; its pinner (or the GM) can take it down again.
   const pin = useReminders((s) => s.list.find((r) => r.kind === 'pinned' && r.pinned_message_id === m.id));
   const pinLine = useReminders((s) => s.pin), unpinLine = useReminders((s) => s.unpin);
@@ -106,14 +104,14 @@ export function MessageRow({ m, jumped, readOnly }: { m: Message; jumped: boolea
   const toast = useUi((s) => s.toast);
   // Out of character the player speaks: their own avatar and name. Otherwise the character's avatar first, the
   // player's when the character has none.
-  const ooc = m.kind === 'ooc' && !m.stand_in;
+  const ooc = m.kind === 'ooc';
   const avatar = !ooc && m.character_avatar_asset_id ? api.mediaUrl(m.channel_id, m.character_avatar_asset_id, m.character_avatar_version ?? undefined) : own ? api.ownAvatarUrl(user) : m.author_avatar_version ? api.avatarUrl(m.author_id, m.author_avatar_version) : '';
   // The picture's content hash (lib/assetCache): the signed-in user's inline data-URI avatar needs none.
   const avatarHash = !ooc && m.character_avatar_asset_id ? m.character_avatar_hash : own ? (user.avatar_data ? null : user.avatar_hash) : m.author_avatar_hash;
   const [failedAvatar, setFailedAvatar] = useState('');
   const author = own ? user.display_name : m.author_name;
   const speaker = ooc ? null : m.character_name;
-  const name = speaker ?? (m.author_role === 'gm' && !m.stand_in ? `${author} (GM)` : author);
+  const name = speaker ?? (m.author_role === 'gm' ? `${author} (GM)` : author);
   // Each reader picks how dice results show: a separate message from the dice (default) or under the command.
   const separateDice = !!m.dice && (user?.dice_display ?? 'separate') === 'separate';
   // A hidden roll's public notice is the dice's own announcement: in separate display only the dice speak.
@@ -132,7 +130,6 @@ export function MessageRow({ m, jumped, readOnly }: { m: Message; jumped: boolea
       <div className={`avatar ${m.author_role}`}>{avatar && failedAvatar !== avatar ? <CachedImg src={avatar} hash={avatarHash} alt="" onError={() => setFailedAvatar(avatar)} /> : (speaker ?? author).slice(0, 2).toUpperCase()}</div>
       <div>
         <div className={`meta ${m.kind === 'hypertext' || m.via_hypertext_id ? 'hx-meta' : ''}`}><span className="author">{name}</span>
-          {m.stand_in && <span className="pill stand-in">{tr('stand-in')}</span>}
           {m.kind === 'hypertext' ? <span className="pill hx-pill">{kindLabel(m.kind)}</span> : m.kind !== 'ic' && !m.dice && <span className="pill">{kindLabel(m.kind)}</span>}
           {m.via_hypertext_id && <ViaPill m={m} />}
           {m.dice?.hidden && <span className="pill ai">{tr("hidden roll")}</span>}
