@@ -10,7 +10,7 @@ namespace acerciae::ai {
 // images, never text or embeddings).
 //
 // Capabilities: text | embedding | image_generation | image_edit | tts.
-// Uses: text (every text task), text_chronicle / text_assist / text_writing (optional overrides for a group of tasks;
+// Uses: text (every text task), text_chronicle / text_assist / text_writing / text_bots (optional overrides for a group of tasks;
 // unset = follow text), embedding, image_generation, image_edit (unset = follow image generation), tts.
 namespace catalog {
 const Json::Value& kinds();                       // [{id, label, capabilities[], default_api_base, fields[], models{capability: [ids]}, notes}]

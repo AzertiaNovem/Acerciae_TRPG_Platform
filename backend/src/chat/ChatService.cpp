@@ -68,7 +68,7 @@ Json::Value ChatService::discoverServers(const Principal& p, const std::string& 
     auto q = text::trim(query);
     std::string like;
     for (char c : q) { if (c == '%' || c == '_' || c == '\\') like += '\\'; like += c; }
-    return db_.queryJson("SELECT s.id, s.name, (SELECT count(*) FROM server_members m WHERE m.server_id=s.id AND m.role<>'guest') AS member_count "
+    return db_.queryJson("SELECT s.id, s.name, (SELECT count(*) FROM server_members m JOIN users mu ON mu.id=m.user_id WHERE m.server_id=s.id AND m.role<>'guest' AND NOT mu.is_bot) AS member_count "
                          "FROM servers s JOIN server_settings ss ON ss.server_id=s.id AND ss.join_policy='open' "
                          "WHERE s.suspended_at IS NULL AND NOT EXISTS (SELECT 1 FROM server_members me WHERE me.server_id=s.id AND me.user_id=$1 AND me.role<>'guest') "
                          "AND ($2='' OR s.name ILIKE '%' || $2 || '%') ORDER BY member_count DESC, s.created_at LIMIT 50", {p.userId, like});
@@ -116,7 +116,7 @@ Json::Value ChatService::revokeInvite(const Principal& p, const std::string& ser
 Json::Value ChatService::previewInvite(const Principal& p, const std::string& code) {
     auto r = db_.queryOne("SELECT s.id AS server_id, s.name, coalesce(ss.join_policy, 'invite') AS join_policy, s.suspended_at IS NULL AS server_active, "
                           "(i.revoked_at IS NULL AND (i.expires_at IS NULL OR i.expires_at > now()) AND (i.max_uses=0 OR i.uses < i.max_uses)) AS active, "
-                          "(SELECT count(*) FROM server_members m WHERE m.server_id=s.id AND m.role<>'guest') AS member_count "
+                          "(SELECT count(*) FROM server_members m JOIN users mu ON mu.id=m.user_id WHERE m.server_id=s.id AND m.role<>'guest' AND NOT mu.is_bot) AS member_count "
                           "FROM server_invites i JOIN servers s ON s.id=i.server_id LEFT JOIN server_settings ss ON ss.server_id=s.id WHERE i.code=$1", {text::trim(code)});
     if (r.isNull()) throw notFound("invite not found");
     Json::Value v;
@@ -134,10 +134,13 @@ Json::Value ChatService::acceptInvite(const Principal& p, const std::string& cod
 }
 Json::Value ChatService::findUser(const std::string& user) {
     auto u = Visibility::isUuid(user)
-        ? db_.queryOne("SELECT id, username, display_name FROM users WHERE id=$1", {user})
-        : db_.queryOne("SELECT id, username, display_name FROM users WHERE username=$1", {user});
-    if (u.isNull()) throw notFound("user not found");
+        ? db_.queryOne("SELECT id, username, display_name FROM users WHERE id=$1 AND NOT is_bot", {user})
+        : db_.queryOne("SELECT id, username, display_name FROM users WHERE username=$1 AND NOT is_bot", {user});
+    if (u.isNull()) throw notFound("user not found");   // bots are managed from the server's Bots settings
     return u;
+}
+bool ChatService::isBot(const std::string& userId) {
+    return Visibility::isUuid(userId) && !db_.queryOne("SELECT 1 AS ok FROM users WHERE id=$1 AND is_bot", {userId}).isNull();
 }
 bool ChatService::isServerMaintainer(const std::string& userId, const std::string& serverId) {
     auto r = db_.queryOne("SELECT role FROM server_members WHERE server_id=$1 AND user_id=$2", {serverId, userId});
@@ -162,6 +165,7 @@ Json::Value ChatService::setServerMemberRole(const Principal& p, const std::stri
     auto cur = serverRole(db_, serverId, userId);
     if (cur.empty()) throw notFound("not a member of this server");
     if (cur == "owner") throw badRequest("the owner's role cannot be changed");
+    if (isBot(userId)) throw badRequest("a bot's role cannot be changed");
     db_.exec("UPDATE server_members SET role=$3 WHERE server_id=$1 AND user_id=$2", {serverId, userId, role});
     return serverMembers(p, serverId);
 }
@@ -170,6 +174,7 @@ Json::Value ChatService::removeServerMember(const Principal& p, const std::strin
     auto theirs = serverRole(db_, serverId, userId);
     if (theirs.empty()) throw notFound("not a member of this server");
     if (theirs == "owner") throw badRequest("the owner cannot be removed");
+    if (isBot(userId)) throw badRequest("bots are removed in the server's Bots settings");
     bool self = userId == p.userId;
     if (!self) {
         if (mine != "owner" && mine != "admin") throw forbidden("server maintainer required");
@@ -190,7 +195,7 @@ Json::Value ChatService::removeServerMember(const Principal& p, const std::strin
 Json::Value ChatService::serverMembers(const Principal& p, const std::string& serverId) {
     auth_.requireServerMember(p.userId, serverId);
     if (serverRole(db_, serverId, p.userId) == "guest") throw forbidden("guests only see the channels they were invited to");
-    return db_.queryJson("SELECT u.id, u.username, u.display_name, sm.role, sm.joined_at FROM server_members sm JOIN users u ON u.id=sm.user_id WHERE sm.server_id=$1 "
+    return db_.queryJson("SELECT u.id, u.username, u.display_name, sm.role, sm.joined_at, u.is_bot FROM server_members sm JOIN users u ON u.id=sm.user_id WHERE sm.server_id=$1 "
                          "ORDER BY CASE sm.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, sm.joined_at", {serverId});
 }
 Json::Value ChatService::searchUsers(const Principal& p, const std::string& query, int limit) {
@@ -198,7 +203,7 @@ Json::Value ChatService::searchUsers(const Principal& p, const std::string& quer
     if (q.empty()) return Json::Value(Json::arrayValue);
     std::string like;
     for (char c : q) { if (c == '%' || c == '_' || c == '\\') like += '\\'; like += c; }
-    return db_.queryJson("SELECT id, username, display_name FROM users WHERE username ILIKE '%' || $1 || '%' OR display_name ILIKE '%' || $1 || '%' "
+    return db_.queryJson("SELECT id, username, display_name FROM users WHERE NOT is_bot AND (username ILIKE '%' || $1 || '%' OR display_name ILIKE '%' || $1 || '%') "
                          "ORDER BY (lower(username) = lower($2)) DESC, username LIMIT " + std::to_string(std::max(1, std::min(limit, 25))), {like, q});
 }
 

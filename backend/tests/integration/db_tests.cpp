@@ -2,6 +2,8 @@
 // database that may be wiped) — defaults to postgresql://postgres@localhost:5432/acerciae_test.
 #include <drogon/utils/Utilities.h>
 #include "logstudio/ObjectStore.h"
+#include "bots/BotService.h"
+#include "servers/DeletionService.h"
 #include "logstudio/LogStudioService.h"
 #include "logstudio/PresentationService.h"
 #include "logstudio/PublicationService.h"
@@ -1844,6 +1846,7 @@ int main() {
     });
 
     #include "inventory_tests.inc"
+    #include "bot_tests.inc"
     std::cout << passed << " checks passed, " << failures << " failed\n";
     Services::shutdown();
     return failures == 0 ? 0 : 1;

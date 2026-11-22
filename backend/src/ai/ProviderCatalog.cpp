@@ -91,6 +91,8 @@ static const char* USES = R"JSON([
   "tasks": ["consistency", "inspiration"]},
  {"id": "text_writing", "capability": "text", "modes": ["inherit", "provider", "mock"], "default": "inherit", "label": "Text: long writing",
   "tasks": ["vn_script", "log_performance", "module_structure", "script_knowledge"]},
+ {"id": "text_bots", "capability": "text", "modes": ["inherit", "provider", "mock"], "default": "inherit", "label": "Text: bots",
+  "tasks": ["bot_turn", "bot_card", "bot_memory"]},
  {"id": "embedding", "capability": "embedding", "modes": ["provider", "disabled"], "default": "disabled", "label": "Embedding"},
  {"id": "image_generation", "capability": "image_generation", "modes": ["provider", "mock", "disabled"], "default": "disabled", "label": "Image generation"},
  {"id": "image_edit", "capability": "image_edit", "modes": ["inherit", "provider", "mock", "disabled"], "default": "inherit", "label": "Image editing"},

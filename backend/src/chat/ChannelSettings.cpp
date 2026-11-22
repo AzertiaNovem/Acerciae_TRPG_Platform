@@ -86,7 +86,7 @@ Json::Value ChatService::updateChannel(const ChannelAccess& a, const Json::Value
             throw badRequest("unknown dice text group");
     }
     for (const auto* key : {"point_buy", "ai_enabled", "auto_scenarios", "studio_visible", "studio_player_access",
-                            "consistency_enabled", "inspiration_enabled", "atmosphere_enabled", "illustrations_enabled"})
+                            "consistency_enabled", "inspiration_enabled", "atmosphere_enabled", "illustrations_enabled", "bot_invites_enabled"})
         if (body.isMember(key) && !body[key].isBool()) throw badRequest(std::string(key) + " must be boolean");
     auto flag = [&](const char* k) { return json::toBool(body, k, cur[k].asBool()); };
     // The rule system decides the dice commands, the character sheet and how the AI names the game and the GM; point
@@ -104,6 +104,7 @@ Json::Value ChatService::updateChannel(const ChannelAccess& a, const Json::Value
                  "consistency_enabled=$11, inspiration_enabled=$12, atmosphere_enabled=$13, illustrations_enabled=$14 WHERE id=$1",
             {a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "description", cur["description"].asString()), mode, flag("ai_enabled"), group, flag("auto_scenarios"), text::utf8Prefix(json::str(body, "era", cur["era"].asString()), 80), flag("studio_visible"), flag("studio_player_access"),
              flag("consistency_enabled"), flag("inspiration_enabled"), flag("atmosphere_enabled"), flag("illustrations_enabled")});
+        Db::exec(w, "UPDATE channels SET bot_invites_enabled=$2 WHERE id=$1", {a.channelId, flag("bot_invites_enabled")});
         if (from == ruleSystem) return;
         transition = CharacterSpaceService::transitionCards(w, a.channelId, from, ruleSystem, a.userId);
         auto main = Db::queryOne(w, "SELECT id FROM chat_windows WHERE channel_id=$1 AND kind='main' ORDER BY created_at LIMIT 1", {a.channelId});
@@ -137,6 +138,17 @@ Json::Value ChatService::reopenStory(const ChannelAccess& a) {
     notifier_.channelUpdated(a.channelId);
     return getChannel(a);
 }
+std::string ChatService::joinChannel(pqxx::work& w, const std::string& channelId, const std::string& userId, const std::string& role, const std::string& invitedBy) {
+    Db::exec(w, "INSERT INTO channel_members(channel_id, user_id, role, invited_by) VALUES($1,$2,$3,$4) ON CONFLICT (channel_id,user_id) DO UPDATE SET role=EXCLUDED.role",
+             {channelId, userId, role, invitedBy.empty() ? dbNull() : DbParam(invitedBy)});
+    // A newcomer starts with the history read: the unread counters count what is posted from now on.
+    Db::exec(w, "INSERT INTO chat_window_reads(chat_window_id, user_id, last_read_seq) SELECT cw.id, $2, coalesce((SELECT max(seq) FROM messages m WHERE m.chat_window_id=cw.id), 0) FROM chat_windows cw WHERE cw.channel_id=$1 ON CONFLICT DO NOTHING", {channelId, userId});
+    // Everyone joins the main window by default.
+    auto main = Db::queryOne(w, "SELECT id FROM chat_windows WHERE channel_id=$1 AND kind='main' ORDER BY created_at LIMIT 1", {channelId});
+    if (main.isNull()) return "";
+    Db::exec(w, "INSERT INTO chat_window_members(chat_window_id, user_id) VALUES($1,$2) ON CONFLICT DO NOTHING", {main["id"].asString(), userId});
+    return main["id"].asString();
+}
 Json::Value ChatService::addChannelMember(const ChannelAccess& a, const std::string& user, const std::string& role) {
     auth_.requireGm(a);
     if (role != "gm" && role != "player") throw badRequest("role must be gm or player");
@@ -153,12 +165,7 @@ Json::Value ChatService::addChannelMember(const ChannelAccess& a, const std::str
     std::string mainId;
     db_.tx([&](pqxx::work& w) {
         if (!serverRoleForNew.empty()) Db::exec(w, "INSERT INTO server_members(server_id, user_id, role) VALUES($1,$2,$3) ON CONFLICT DO NOTHING", {a.serverId, uid, serverRoleForNew});
-        Db::exec(w, "INSERT INTO channel_members(channel_id, user_id, role) VALUES($1,$2,$3) ON CONFLICT (channel_id,user_id) DO UPDATE SET role=EXCLUDED.role", {a.channelId, uid, role});
-        // A newcomer starts with the history read: the unread counters count what is posted from now on.
-        Db::exec(w, "INSERT INTO chat_window_reads(chat_window_id, user_id, last_read_seq) SELECT cw.id, $2, coalesce((SELECT max(seq) FROM messages m WHERE m.chat_window_id=cw.id), 0) FROM chat_windows cw WHERE cw.channel_id=$1 ON CONFLICT DO NOTHING", {a.channelId, uid});
-        // Everyone joins the main window by default.
-        auto main = Db::queryOne(w, "SELECT id FROM chat_windows WHERE channel_id=$1 AND kind='main' ORDER BY created_at LIMIT 1", {a.channelId});
-        if (!main.isNull()) { mainId = main["id"].asString(); Db::exec(w, "INSERT INTO chat_window_members(chat_window_id, user_id) VALUES($1,$2) ON CONFLICT DO NOTHING", {mainId, uid}); }
+        mainId = joinChannel(w, a.channelId, uid, role, a.userId);
     });
     if (!mainId.empty()) notifier_.windowChanged(a.channelId, db_.queryOne("SELECT * FROM chat_windows WHERE id=$1", {mainId}));
     u["role"] = role;
@@ -185,7 +192,7 @@ Json::Value ChatService::removeChannelMember(const ChannelAccess& a, const std::
 }
 Json::Value ChatService::channelMembers(const ChannelAccess& a) {
     return db_.queryJson(
-        "SELECT u.id, u.username, u.display_name, cm.role, "
+        "SELECT u.id, u.username, u.display_name, cm.role, u.is_bot, "
         "(SELECT json_agg(json_build_object('id', ch.id, 'name', ch.name)) FROM characters ch WHERE ch.channel_id=cm.channel_id AND ch.user_id=u.id) AS characters "
         "FROM channel_members cm JOIN users u ON u.id=cm.user_id WHERE cm.channel_id=$1 ORDER BY cm.role, cm.joined_at", {a.channelId});
 }

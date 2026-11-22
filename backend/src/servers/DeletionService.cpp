@@ -65,10 +65,17 @@ Json::Value DeletionService::deleteServer(const Principal& p, const std::string&
     requirePhrase(body, kServerPhrase);
     std::vector<std::string> members, channels, keys;
     retryOnDeadlock([&] { db_.tx([&](pqxx::work& w) {
-        members = column(Db::queryJson(w, "SELECT user_id FROM server_members WHERE server_id=$1", {serverId}), "user_id");
+        members = column(Db::queryJson(w, "SELECT sm.user_id FROM server_members sm JOIN users u ON u.id=sm.user_id WHERE sm.server_id=$1 AND NOT u.is_bot", {serverId}), "user_id");
         channels = column(Db::queryJson(w, "SELECT id FROM channels WHERE server_id=$1", {serverId}), "id");
         keys = objectKeys(w, "IN (SELECT id FROM channels WHERE server_id=$1)", serverId);
+        auto bots = column(Db::queryJson(w, "SELECT user_id FROM server_bots WHERE server_id=$1", {serverId}), "user_id");
         Db::exec(w, "DELETE FROM servers WHERE id=$1", {serverId});
+        // A server's bots go with it: their accounts belong to nothing else. A row elsewhere still naming one (none is
+        // expected) keeps that account rather than failing the deletion.
+        for (const auto& b : bots) {
+            try { pqxx::subtransaction sub(w, "bot_user"); sub.exec_params("DELETE FROM users WHERE id=$1 AND is_bot", b); sub.commit(); }
+            catch (const pqxx::foreign_key_violation&) {}
+        }
     }); });
     int files = channels.empty() ? 0 : removeObjects(channels, keys);
     notifier_.serverDeleted(serverId, channels, members);
@@ -86,7 +93,7 @@ Json::Value DeletionService::deleteChannel(const Principal& p, const std::string
     auto serverId = c["server_id"].asString();
     std::vector<std::string> members, keys;
     retryOnDeadlock([&] { db_.tx([&](pqxx::work& w) {
-        members = column(Db::queryJson(w, "SELECT user_id FROM server_members WHERE server_id=$1", {serverId}), "user_id");
+        members = column(Db::queryJson(w, "SELECT sm.user_id FROM server_members sm JOIN users u ON u.id=sm.user_id WHERE sm.server_id=$1 AND NOT u.is_bot", {serverId}), "user_id");
         keys = objectKeys(w, "= $1::uuid", channelId);
         Db::exec(w, "DELETE FROM channels WHERE id=$1", {channelId});
     }); });

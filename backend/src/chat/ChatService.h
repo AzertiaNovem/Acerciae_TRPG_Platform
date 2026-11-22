@@ -62,7 +62,10 @@ public:
     // `user` is a user id or a username. Someone outside the server is added as a member when a maintainer invites
     // them, as a guest (who sees only the channels they are invited to) when the server allows guest invites, and is
     // refused otherwise.
-    Json::Value addChannelMember(const ChannelAccess& a, const std::string& user, const std::string& role);
+    Json::Value addChannelMember(const ChannelAccess& a, const std::string& user, const std::string& role);   // people only, never a bot
+    // Seats a user in a channel (inside the caller's transaction): the membership, the history read so far, the main
+    // window. Returns the main window's id ("" without one). Bots join through BotService::invite.
+    std::string joinChannel(pqxx::work& w, const std::string& channelId, const std::string& userId, const std::string& role, const std::string& invitedBy);
     Json::Value removeChannelMember(const ChannelAccess& a, const std::string& userId);
     Json::Value channelMembers(const ChannelAccess& a);
     // Main Chat spectating: when the server allows it, members (not guests) may read the Main Chat of channels they
@@ -114,6 +117,7 @@ public:
 private:
     Json::Value findUser(const std::string& user);
     bool isServerMaintainer(const std::string& userId, const std::string& serverId);
+    bool isBot(const std::string& userId);
     Db& db_; AuthService& auth_; EventStore& events_; SceneManager& scenes_; Notifier& notifier_; DocumentService& docs_; DiceService& dice_;
 };
 }

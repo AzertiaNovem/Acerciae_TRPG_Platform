@@ -145,6 +145,13 @@ Daily life was removed. Messages no longer carry `stand_in` and character rows n
 apps show neither mark, and only a line's author may recall it, within its recall window. Old stand-in lines read as
 ordinary lines of the GM account.
 
+## 2026-11-22 — Bots: the "bot" tag
+
+Messages optionally carry `author_is_bot`, character rows `player_is_bot` (docs/BOTS.md: AI members a server's
+maintainers set up). Android and iOS append " · bot" to a bot's name on its lines and show "bot" beside a character a bot
+plays. Bots are created, edited and invited in the web and desktop apps only. Absent fields (older servers) mean false.
+`fixtures/bots.json` holds both modern and legacy rows; the string comes from `localization/mobile.tsv`.
+
 ## 2026-11-14 — Interactive messages (hypertext)
 
 A channel's GM accounts (bots such as gm-agent) can post an **interactive message** through REST; no composer posts

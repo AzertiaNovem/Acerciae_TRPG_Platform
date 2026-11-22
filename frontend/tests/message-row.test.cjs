@@ -28,6 +28,7 @@ function load(file) {
   const mod={exports:{}}; new Function('require','module','exports',code)(name=>fake[name]??require(name),mod,mod.exports); return mod.exports;
 }
 fake['./messageKind']=load('messageKind.ts');
+fake['./BotTag']=load('BotTag.tsx');
 const {MessageRow}=load('MessageList.tsx');
 const line={id:'line',character_id:'pc',character_name:'Alice',author_id:'gm',author_name:'Host',author_role:'gm',kind:'ooc',visibility:'window',created_at:'2020-01-01',content:'Let me think.'};
 test('a line from before stand-ins were removed reads as the GM account\'s, and only its author may recall it',()=>{
@@ -46,4 +47,10 @@ test('an interactive message keeps its frame with the "Interactive message" pill
   const reply={...line,id:'reply',character_id:null,character_name:null,kind:'narration',content:'The door opens.',via_hypertext_id:'card',via_user_id:'alice',via_user_name:'Alice'};
   assert.match(renderToStaticMarkup(React.createElement(MessageRow,{m:reply,jumped:false})),/via interactive message · answering Alice/);
   assert.ok(!renderToStaticMarkup(React.createElement(MessageRow,{m:line,jumped:false})).includes('hx-via'));
+});
+test('a bot\'s line carries the bot tag after its name; a person\'s does not',()=>{
+  const said={...line,id:'bot-line',author_id:'mina',author_name:'Mina',author_role:'player',kind:'ic',character_id:null,character_name:null,content:'Hello!',author_is_bot:true};
+  const html=renderToStaticMarkup(React.createElement(MessageRow,{m:said,jumped:false}));
+  assert.match(html,/<span class="author">Mina<\/span><span class="pill ai bot-tag" title="An AI member of this server">bot<\/span>/);
+  assert.ok(!renderToStaticMarkup(React.createElement(MessageRow,{m:{...said,author_is_bot:false},jumped:false})).includes('bot-tag'));
 });

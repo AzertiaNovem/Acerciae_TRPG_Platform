@@ -1,4 +1,5 @@
 import { t as tr } from '../i18n';
+import { BotTag } from './BotTag';
 import { useEscape } from '../hooks/useEscape';
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
@@ -39,7 +40,7 @@ export default function WindowMembersModal({ windowId, onClose }: { windowId: st
           {members.length === 0 && <div className="muted small">{tr("Nobody yet.")}</div>}
           {members.map((m) => (
             <div key={m.user_id} className="pick-row">
-              <span className="grow">{m.display_name}{m.character_name && <span className="tiny muted">{tr(" as ")}{m.character_name}</span>}</span>
+              <span className="grow">{m.display_name}{m.is_bot && <BotTag />}{m.character_name && <span className="tiny muted">{tr(" as ")}{m.character_name}</span>}</span>
               {m.visibility_paused && <span className="pill">{tr('Visibility paused')}</span>}
               {win.kind !== 'main' && channelMembers.some(c => c.id === m.user_id && c.role === 'player') && <button className="small" disabled={busy !== null} onClick={() => pause(m.user_id, !m.visibility_paused)}>{tr(m.visibility_paused ? 'Resume visibility' : 'Pause visibility')}</button>}
               {m.user_id !== me?.id && <button className="small" onClick={() => remove(m.user_id)}>{tr("Remove")}</button>}

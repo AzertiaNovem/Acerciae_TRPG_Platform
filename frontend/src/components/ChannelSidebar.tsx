@@ -16,6 +16,8 @@ import ServerSettingsModal from './ServerSettingsModal';
 import type { ChannelMember, Character, ServerMember } from '../types';
 import { studioAccess } from './studio/access';
 import { CachedImg } from './CachedImg';
+import { BotTag } from './BotTag';
+import ChannelBots from './ChannelBots';
 import { CharacterVitals, TypingMark, useIsTyping } from './CharacterStatus';
 
 // A character's entry: avatar, name (with a pen while being written as), who plays it, and the vital numbers below.
@@ -25,7 +27,7 @@ function CharacterRow({ c, channelId, active, open }: { c: Character; channelId:
     <div className={`item character ${active ? 'active' : ''} ${typing ? 'is-typing' : ''}`} {...activate(open)} title={tr("Open character space")}>
       {c.avatar_asset_id && channelId ? <CachedImg className="mini-avatar" src={api.mediaUrl(channelId, c.avatar_asset_id, c.avatar_asset_version)} hash={c.avatar_asset_hash} alt="" fallback={<span className="mini-avatar text">{c.name.slice(0, 1)}</span>} /> : <span className="mini-avatar text">{c.name.slice(0, 1)}</span>}
       <span className="char-lines">
-        <span className="char-head"><span className="name small">{c.name}</span><TypingMark characterId={c.id} />{c.card_pending && <span className="pill rebuild" title={tr("The rules changed: this character's numbers need rebuilding")}>{tr("rebuild")}</span>}<span className="tiny muted">{c.kind === 'npc' ? tr("NPC") : c.player_name ?? ''}</span></span>
+        <span className="char-head"><span className="name small">{c.name}</span>{c.player_is_bot && <BotTag />}<TypingMark characterId={c.id} />{c.card_pending && <span className="pill rebuild" title={tr("The rules changed: this character's numbers need rebuilding")}>{tr("rebuild")}</span>}<span className="tiny muted">{c.kind === 'npc' ? tr("NPC") : c.player_name ?? ''}</span></span>
         <CharacterVitals vitals={c.vitals} />
       </span>
     </div>
@@ -155,6 +157,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
             })}
             <div className="section"><span>{tr("Characters")}</span><button className="ghost small" title={tr("New character")} onClick={() => setDialog('character')}>+</button></div>
             {characters.map((c) => <CharacterRow key={c.id} c={c} channelId={nav.channelId} active={nav.characterSpaceId === c.id} open={() => { nav.openCharacter(c.id); onClose(); }} />)}
+            {nav.channelId && <ChannelBots channelId={nav.channelId} />}
             {studioOpen && (
               <>
                 <div className="section"><span>{tr("Production")}</span></div>
@@ -193,7 +196,7 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
             {dialog === 'member' && (<><h3>{tr("Invite to channel")}</h3>
               <select value={f('role') || 'player'} onChange={(e) => set('role', e.target.value)}><option value="player">{tr("as Player")}</option><option value="gm">{tr("as GM")}</option></select>
               <UserPicker mode="action" actionLabel={tr("Invite")} autoFocus
-                candidates={serverMembers.map((m) => userCandidate(m))} search={canInviteOutsiders ? searchAll : undefined}
+                candidates={serverMembers.filter((m) => !m.is_bot).map((m) => userCandidate(m))} search={canInviteOutsiders ? searchAll : undefined}
                 exclude={channelMembers.map((m) => m.id)} placeholder={canInviteOutsiders ? tr("Search server members or any user…") : tr("Search server members…")}
                 emptyText={canInviteOutsiders ? tr("No matching user.") : tr("No matching server member — a server maintainer can invite new people to the server.")}
                 onAction={(c) => invite(c.id, c.label)} /></>)}

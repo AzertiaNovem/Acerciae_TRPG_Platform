@@ -1,4 +1,5 @@
 import { t as tr } from '../i18n';
+import { BotTag } from './BotTag';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useChat } from '../store/chat';
 import { useNav } from '../store/nav';
@@ -34,7 +35,7 @@ function Card({ n, count, inList, onClick, onClose }: { n: MessageNotice; count?
           <span className="notice-time">{new Date(n.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>
           {onClose && <button className="notice-x" aria-label={tr('Close')} title={tr('Close')} onClick={onClose}>×</button>}
         </div>
-        <div className="notice-speaker">{speaker}{m.kind !== 'ic' && m.kind !== 'system' && !m.dice && <span className="notice-kind">{kindLabel(m.kind)}</span>}</div>
+        <div className="notice-speaker">{speaker}{m.author_is_bot && <BotTag />}{m.kind !== 'ic' && m.kind !== 'system' && !m.dice && <span className="notice-kind">{kindLabel(m.kind)}</span>}</div>
         {m.dice?.text ? <div className="notice-dice">🎲 {m.dice.text}</div> : <div className={`notice-body ${m.kind}`}>{m.content}</div>}
       </div>
     </div>

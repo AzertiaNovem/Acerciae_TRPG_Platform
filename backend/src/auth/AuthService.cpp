@@ -26,6 +26,8 @@ std::string AuthService::tokenHash(const std::string& token) const {
 
 Json::Value AuthService::registerUser(const std::string& username, const std::string& password, const std::string& displayName) {
     validateUsername(username);
+    // bot-… names belong to the bots a server's maintainers create (BotService).
+    if (username.rfind("bot-", 0) == 0) throw badRequest("usernames starting with bot- are reserved");
     if (listedAdmin(username)) throw forbidden("administrator usernames must be provisioned before configuring PLATFORM_ADMINS");
     if (password.size() < 6) throw badRequest("password must be at least 6 characters");
     auto existing = db_.queryOne("SELECT id FROM users WHERE username=$1", {username});
@@ -37,7 +39,7 @@ Json::Value AuthService::registerUser(const std::string& username, const std::st
 }
 
 Json::Value AuthService::login(const std::string& username, const std::string& password) {
-    auto row = db_.queryOne("SELECT id, username, display_name, password_hash, suspended_at, suspended_reason FROM users WHERE username=$1", {username});
+    auto row = db_.queryOne("SELECT id, username, display_name, password_hash, suspended_at, suspended_reason FROM users WHERE username=$1 AND NOT is_bot", {username});
     if (row.isNull() || !crypto::verifyPassword(password, row["password_hash"].asString()))
         throw unauthorized("invalid username or password");
     if (!row["suspended_at"].isNull()) {
@@ -71,7 +73,10 @@ Json::Value AuthService::updateProfile(const Principal& principal, const Json::V
         if (key != "atmosphere_enabled" && !body[key].isString()) throw badRequest("profile fields must be strings");
     }
     // Validate every supplied field before writing; a failed edit cannot partially change the account.
-    if (body.isMember("username")) validateUsername(body["username"].asString());
+    if (body.isMember("username")) {
+        validateUsername(body["username"].asString());
+        if (body["username"].asString().rfind("bot-", 0) == 0) throw badRequest("usernames starting with bot- are reserved");
+    }
     if (body.isMember("display_name")) {
         auto name = text::trim(body["display_name"].asString());
         if (name.empty() || name.size() > 200 || name.find_first_of("\r\n\t") != std::string::npos) throw badRequest("display name must be 1-200 bytes on one line");
@@ -209,7 +214,7 @@ std::optional<Principal> AuthService::authenticateFileToken(const std::string& t
     if (!splitFileToken(token, hash, exp, sig)) return std::nullopt;
     if (!crypto::constantTimeEquals(sig, crypto::hmacSha256Hex(cfg_.authSecret, "file-token|" + hash + "|" + exp))) return std::nullopt;
     if (std::stoll(exp) < (long long)std::time(nullptr)) return std::nullopt;
-    auto row = db_.queryOne("SELECT u.id, u.username, u.display_name, u.is_admin FROM auth_tokens t JOIN users u ON u.id=t.user_id WHERE t.token_hash=$1 AND t.expires_at > now() AND u.suspended_at IS NULL", {hash});
+    auto row = db_.queryOne("SELECT u.id, u.username, u.display_name, u.is_admin FROM auth_tokens t JOIN users u ON u.id=t.user_id WHERE t.token_hash=$1 AND t.expires_at > now() AND u.suspended_at IS NULL AND NOT u.is_bot", {hash});
     if (row.isNull()) return std::nullopt;
     return principalOf(row);
 }
@@ -222,7 +227,7 @@ std::optional<Principal> AuthService::authenticate(const std::string& token) {
     if (token.empty()) return std::nullopt;
     auto row = db_.queryOne(
         "SELECT u.id, u.username, u.display_name, u.is_admin FROM auth_tokens t JOIN users u ON u.id=t.user_id "
-        "WHERE t.token_hash=$1 AND t.expires_at > now() AND u.suspended_at IS NULL", {tokenHash(token)});
+        "WHERE t.token_hash=$1 AND t.expires_at > now() AND u.suspended_at IS NULL AND NOT u.is_bot", {tokenHash(token)});
     if (row.isNull()) return std::nullopt;
     return principalOf(row);
 }

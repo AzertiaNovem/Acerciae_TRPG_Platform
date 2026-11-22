@@ -21,7 +21,7 @@ const std::vector<std::string>& ServerSettingsService::languages() {
 }
 
 // Point buy is not here: it is a channel option the GM turns on (channels.point_buy), next to the rule system.
-static const char* FEATURES[] = {"consistency", "dice", "inspiration", "log_studio", "atmosphere", "illustrations"};
+static const char* FEATURES[] = {"consistency", "dice", "inspiration", "log_studio", "atmosphere", "illustrations", "bots"};
 static constexpr int kFeatureCount = sizeof(FEATURES) / sizeof(FEATURES[0]);
 
 bool ServerSettingsService::isMaintainer(const std::string& userId, const std::string& serverId) {
@@ -38,6 +38,7 @@ Json::Value ServerSettingsService::publicView(const Json::Value& r, const std::s
     Json::Value v;
     v["server_id"] = serverId; v["name"] = r["server_name"]; v["language"] = r["language"];
     for (auto* f : FEATURES) v["features"][f] = r[std::string("feature_") + f].asBool();
+    v["bots_per_channel"] = r["bots_per_channel"].isNull() ? 3 : r["bots_per_channel"].asInt();
     auto text = useRow(serverId, "text");
     v["llm_mode"] = text.mode == "provider" ? "live" : "mock";
     v["images_enabled"] = useRow(serverId, "image_generation").mode != "disabled";
@@ -106,6 +107,11 @@ Json::Value ServerSettingsService::update(const Principal& p, const std::string&
     // Older clients still send {llm, image, tts}: translated to providers and uses (validated before anything is written).
     applyLegacyAi(p, serverId, b);
 
+    int botsPerChannel = cur["bots_per_channel"].isNull() ? 3 : cur["bots_per_channel"].asInt();
+    if (b.isMember("bots_per_channel")) {
+        if (!b["bots_per_channel"].isIntegral() || b["bots_per_channel"].asInt64() < 1 || b["bots_per_channel"].asInt64() > 8) throw badRequest("bots_per_channel must be between 1 and 8");
+        botsPerChannel = b["bots_per_channel"].asInt();
+    }
     bool feat[kFeatureCount];
     for (int i = 0; i < kFeatureCount; ++i) feat[i] = json::toBool(b["features"], FEATURES[i], cur[std::string("feature_") + FEATURES[i]].asBool());
 
@@ -116,7 +122,7 @@ Json::Value ServerSettingsService::update(const Principal& p, const std::string&
             {serverId, language, feat[0], feat[1], feat[2], feat[3], p.userId, (int64_t)tokenBudget, (int64_t)imageBudget, period, (int64_t)maxConcurrent});
         Db::exec(w, "UPDATE server_settings SET join_policy=$2, channel_creation=$3, guest_invites=$4, main_chat_spectators=$5 WHERE server_id=$1",
                  {serverId, joinPolicy, channelCreation, guestInvites, spectators});
-        Db::exec(w, "UPDATE server_settings SET feature_atmosphere=$2, feature_illustrations=$3 WHERE server_id=$1", {serverId, feat[4], feat[5]});
+        Db::exec(w, "UPDATE server_settings SET feature_atmosphere=$2, feature_illustrations=$3, feature_bots=$4, bots_per_channel=$5 WHERE server_id=$1", {serverId, feat[4], feat[5], feat[6], (int64_t)botsPerChannel});
         if (resetUsage) Db::exec(w, "UPDATE server_settings SET ai_usage_reset_at=now() WHERE server_id=$1", {serverId});
     });
     auto fresh = row(serverId);
@@ -127,7 +133,8 @@ Json::Value ServerSettingsService::update(const Principal& p, const std::string&
 bool ServerSettingsService::featureEnabled(const std::string& serverId, const std::string& feature) {
     if (std::find(std::begin(FEATURES), std::end(FEATURES), feature) == std::end(FEATURES)) return false;
     auto r = db_.queryOne("SELECT feature_" + feature + " AS enabled FROM server_settings WHERE server_id=$1", {serverId});
-    return r.isNull() ? feature != "atmosphere" : r["enabled"].asBool();   // Automatic atmosphere generation is opt-in, including before the settings row exists.
+    // Automatic atmosphere generation and bots are opt-in, including before the settings row exists.
+    return r.isNull() ? feature != "atmosphere" && feature != "bots" : r["enabled"].asBool();
 }
 std::string ServerSettingsService::language(const std::string& serverId) {
     auto r = db_.queryOne("SELECT language FROM server_settings WHERE server_id=$1", {serverId});

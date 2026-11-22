@@ -1,0 +1,7 @@
+{
+  "note": "Bots (docs/BOTS.md): a line by one of the server's bots, a character a bot plays, and the same rows from an older server without the flags.",
+  "message": {"id":"line","content":"Hello, everyone!","author_name":"Mina","author_id":"mina","character_id":null,"kind":"ooc","seq":1,"author_is_bot":true,"recall_seconds_left":null},
+  "legacy_message": {"id":"old","content":"Hello.","author_name":"Alice","kind":"ic","seq":2},
+  "character": {"id":"pc","name":"Mina's sleuth","kind":"pc","user_id":"mina","player_is_bot":true},
+  "legacy_character": {"id":"pc2","name":"Ada","kind":"pc","user_id":"alice"}
+}

@@ -3,6 +3,7 @@ namespace acerciae::http {
 void registerAuthRoutes();
 void registerChannelRoutes();
 void registerCharacterRoutes();
+void registerBotRoutes();
 void registerInventoryRoutes();
 void registerKnowledgeRoutes();
 void registerStudioRoutes();

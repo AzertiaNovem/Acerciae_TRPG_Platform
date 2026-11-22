@@ -1,4 +1,5 @@
 import PbtaPackEditor from './pbta/PackEditor';
+import { BotTag } from './BotTag';
 import { t as tr, currentLocale } from '../i18n';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
@@ -90,7 +91,7 @@ function ChannelSettings() {
   const toast = useUi((s) => s.toast);
   const [groups, setGroups] = useState<DiceTextGroup[]>([]);
   const [members, setMembers] = useState<ChannelMember[]>([]);
-  const blank = { name: '', description: '', knowledge_mode: 'isolated', ai_enabled: true, consistency_enabled: true, inspiration_enabled: true, atmosphere_enabled: true, illustrations_enabled: true, dice_text_group: '', era: '', studio_visible: true, studio_player_access: true, rule_system: 'coc7e', point_buy: false };
+  const blank = { name: '', description: '', knowledge_mode: 'isolated', ai_enabled: true, consistency_enabled: true, inspiration_enabled: true, atmosphere_enabled: true, illustrations_enabled: true, bot_invites_enabled: true, dice_text_group: '', era: '', studio_visible: true, studio_player_access: true, rule_system: 'coc7e', point_buy: false };
   const [form, setFormState] = useState(blank);
   const [dirty, setDirty] = useState(false);
   const setForm = (f: typeof blank) => { setFormState(f); setDirty(true); };
@@ -100,7 +101,7 @@ function ChannelSettings() {
   useEffect(() => {
     if (!channel || (dirty && loadedFor.current === channel.id)) return;
     loadedFor.current = channel.id; setDirty(false);
-    setFormState({ name: channel.name, description: channel.description, knowledge_mode: channel.knowledge_mode, ai_enabled: channel.ai_enabled, consistency_enabled: channel.consistency_enabled !== false, inspiration_enabled: channel.inspiration_enabled !== false, atmosphere_enabled: channel.atmosphere_enabled !== false, illustrations_enabled: channel.illustrations_enabled !== false, dice_text_group: channel.dice_text_group ?? '', era: channel.era ?? '', studio_visible: channel.studio_visible !== false, studio_player_access: channel.studio_player_access !== false, rule_system: systemOf(channel.rule_system), point_buy: !!channel.point_buy });
+    setFormState({ name: channel.name, description: channel.description, knowledge_mode: channel.knowledge_mode, ai_enabled: channel.ai_enabled, consistency_enabled: channel.consistency_enabled !== false, inspiration_enabled: channel.inspiration_enabled !== false, atmosphere_enabled: channel.atmosphere_enabled !== false, illustrations_enabled: channel.illustrations_enabled !== false, bot_invites_enabled: channel.bot_invites_enabled !== false, dice_text_group: channel.dice_text_group ?? '', era: channel.era ?? '', studio_visible: channel.studio_visible !== false, studio_player_access: channel.studio_player_access !== false, rule_system: systemOf(channel.rule_system), point_buy: !!channel.point_buy });
   }, [channel, dirty]);
   useEffect(() => {
     if (serverId) api.diceTextGroups(serverId).then(setGroups).catch(() => undefined);
@@ -161,6 +162,8 @@ function ChannelSettings() {
         <label className="row small"><input type="checkbox" checked={form.atmosphere_enabled} disabled={serverSettings?.features?.atmosphere === false} onChange={(e) => setForm({ ...form, atmosphere_enabled: e.target.checked })} />{tr("Atmosphere backgrounds")}</label>
         <label className="row small"><input type="checkbox" checked={form.illustrations_enabled} disabled={serverSettings?.features?.illustrations === false} onChange={(e) => setForm({ ...form, illustrations_enabled: e.target.checked })} />{tr("Illustrations")}</label>
         <div className="tiny muted">{tr("Turn all five off for a plain chat room that costs no tokens: no model calls are made for this channel. Features the server maintainer turned off are greyed out.")}</div>
+        <label className="row small"><input type="checkbox" checked={form.bot_invites_enabled} disabled={serverSettings?.features?.bots !== true} onChange={(e) => setForm({ ...form, bot_invites_enabled: e.target.checked })} />{tr("Players may invite bots")}</label>
+        <div className="tiny muted">{tr("Off: only you can bring one of the server's bots to this table. Bots already here stay until you remove them.")}</div>
         <label className="field"><span>{tr("Dice reply texts")}</span>
           <select value={form.dice_text_group} onChange={(e) => setForm({ ...form, dice_text_group: e.target.value })} disabled={!diceOn}>
             <option value="">{tr("Follow server language (")}{LANGUAGE_LABELS[lang] ?? lang})</option>
@@ -194,7 +197,7 @@ function ChannelSettings() {
         <div className="tiny muted" style={{ marginBottom: 6 }}>{tr("Invite people with “Invite player” in the sidebar; manage who is in each chat window with the ⚇ button next to it.")}</div>
         {members.map((m) => (
           <div key={m.id} className="pick-row">
-            <span className="grow">{m.display_name} <span className="tiny muted">@{m.username}{m.characters?.length ? ` · ${m.characters.map((c) => c.name).join(', ')}` : ''}</span></span>
+            <span className="grow">{m.display_name} {m.is_bot && <BotTag />}<span className="tiny muted">@{m.username}{m.characters?.length ? ` · ${m.characters.map((c) => c.name).join(', ')}` : ''}</span></span>
             <span className={`pill ${m.role === 'gm' ? 'gm' : ''}`}>{tr(m.role)}</span>
             {m.id !== me?.id && <button className="small" onClick={() => remove(m)}>{tr("Remove")}</button>}
           </div>

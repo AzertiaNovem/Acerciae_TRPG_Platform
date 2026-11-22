@@ -270,6 +270,7 @@ class MainActivity : ComponentActivity() {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(item.name, Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (item.flag("player_is_bot")) Text(" · " + tr("bot"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
                 if (state.typing.containsKey(item.id)) Text(" ✎", Modifier.semantics { contentDescription = tr("typing…") }, color = MaterialTheme.colorScheme.secondary)
             }
             if (parts.isNotEmpty()) Text(buildAnnotatedString {
@@ -373,7 +374,7 @@ private fun sidebarDetail(title: String, campaign: DemoCampaign?): String = when
         if (!mine) { ProfileAvatar(name, state, model, asset, revision, message.authorId.orEmpty(), message.authorAvatarVersion ?: 0, hash = hash, ownerHash = message.authorAvatarHash.orEmpty()); Spacer(Modifier.width(8.dp)) }
         // An interactive message gets a little more room for its controls.
         Column(Modifier.widthIn(max = if (message.kind == Hypertext.KIND) 320.dp else 280.dp).weight(1f, fill = false), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
-            Text(name + (if (mine) " · " + tr("Me") else "") + (if (message.kind == "narration") " · " + tr("Narration") else if (message.kind == "ooc") " · OOC" else "") + (if (pin != null) " · 📌" else ""),
+            Text(name + (if (message.authorIsBot) " · " + tr("bot") else "") + (if (mine) " · " + tr("Me") else "") + (if (message.kind == "narration") " · " + tr("Narration") else if (message.kind == "ooc") " · OOC" else "") + (if (pin != null) " · 📌" else ""),
                 style = MaterialTheme.typography.labelSmall, color = Color(0xFFA8ABA9))
             // "Interactive message" on a card, "↳ via interactive message" on a line one posted (never the raw kind).
             if (message.kind == Hypertext.KIND || HypertextView.via(message)) { Spacer(Modifier.height(4.dp)); HypertextPills(message) }
