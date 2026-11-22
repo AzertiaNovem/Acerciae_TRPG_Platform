@@ -60,6 +60,9 @@ try {
   // The GM turns invitations off; the player's dialog says so.
   await api('PUT', `/channels/${channel.id}`, { bot_invites_enabled: false }, gm.token);
   await page.reload();
+  // Once the sidebar has loaded again (and before navigating away: WebKit reports a request a navigation cancels as a
+  // page error).
+  await page.locator('.item.bot').filter({ hasText: 'Mina' }).waitFor();
   await page.getByRole('button', { name: 'Invite a bot' }).count().then((n) => assert.equal(n, 0, 'a player has nothing to open once invitations are off'));
   // The GM asks the bots for their turn: hers comes in character (the mock model answers).
   await as(gm.token);
@@ -72,7 +75,8 @@ try {
   // briefing to the GM, who adds a note for her to keep in mind everywhere.
   await page.getByRole('button', { name: 'Invite a bot' }).click();
   const dialog = page.getByRole('dialog', { name: 'Bots at this table' });
-  await dialog.getByRole('button', { name: 'Memory' }).click();
+  const [memory] = await Promise.all([page.waitForResponse((r) => /\/bots\/[^/]+\/memory$/.test(new URL(r.url()).pathname) && r.request().method() === 'GET'), dialog.getByRole('button', { name: 'Memory' }).click()]);
+  assert.equal(memory.status(), 200, await memory.text());
   await dialog.getByText('It has not written anything about this table yet.', { exact: false }).waitFor();
   await dialog.getByPlaceholder('What only this bot should know at this table', { exact: false }).fill('Her sleuth hides a stolen book.');
   await Promise.all([page.waitForResponse((r) => r.url().endsWith('/briefing') && r.ok()), dialog.getByRole('button', { name: 'Save briefing' }).click()]);
@@ -88,6 +92,7 @@ try {
   if (shots) await page.screenshot({ path: `${shots}/bots-memory-${engine}.png` });
   const kept = await api('GET', `/servers/${server.id}/bots/${mina.id}/memories`, undefined, gm.token);
   assert.deepEqual(kept.memories.map((m) => m.kind).sort(), ['briefing', 'note']);
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   assert.deepEqual(errors, []);

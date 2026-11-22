@@ -391,7 +391,7 @@ export default function ServerSettingsModal({ onClose }: { onClose: () => void }
     return ()=>{live=false;};
   }, [serverId]);
   if (!serverId) return null;
-  const onSaved = (s: ServerSettings) => { setSettings(s); loadServerSettings(); useNav.getState().loadServers(); };
+  const onSaved = (s: ServerSettings) => { setSettings(s); loadServerSettings(); useNav.getState().loadServers().catch(() => undefined); };
   const tabs: [Tab, string][] = [['general', 'General'], ['access', 'Access'], ['ai', 'AI services'], ['features', 'Features'], ['members', 'Members'], ['bots', 'Bots'], ['channels', 'Channels'], ['dice', 'Dice texts']];
   return (
     <div className="modal-backdrop" onClick={onClose}>
