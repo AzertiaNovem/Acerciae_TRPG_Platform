@@ -24,7 +24,7 @@ using namespace chatQueries;
 Json::Value ChatService::listChannels(const Principal& p, const std::string& serverId) {
     auth_.requireServerMember(p.userId, serverId);
     auto rows = db_.queryJson(
-        "SELECT c.*, cm.role AS my_role FROM channels c JOIN channel_members cm ON cm.channel_id=c.id AND cm.user_id=$2 WHERE c.server_id=$1 ORDER BY c.created_at",
+        "SELECT c.*, cm.role AS my_role FROM channels c JOIN channel_members cm ON cm.channel_id=c.id AND cm.user_id=$2 WHERE c.server_id=$1 AND c.kind='campaign' ORDER BY c.created_at",
         {serverId, p.userId});
     for (auto& r : rows) if (r["my_role"] != "gm") r.removeMember("bot_brief");   // the GM's notes for bots stay the GM's
     return rows;
@@ -35,7 +35,7 @@ Json::Value ChatService::allChannels(const Principal& p, const std::string& serv
     if (role != "owner" && role != "admin") throw forbidden("server maintainer required");
     return db_.queryJson(
         "SELECT c.id, c.name, c.description, c.created_at, (SELECT count(*) FROM channel_members cm WHERE cm.channel_id=c.id)::int AS member_count, "
-        "(SELECT count(*) FROM messages m WHERE m.channel_id=c.id AND m.recalled_at IS NULL)::int AS message_count FROM channels c WHERE c.server_id=$1 ORDER BY c.created_at", {serverId});
+        "(SELECT count(*) FROM messages m WHERE m.channel_id=c.id AND m.recalled_at IS NULL)::int AS message_count FROM channels c WHERE c.server_id=$1 AND c.kind='campaign' ORDER BY c.created_at", {serverId});
 }
 Json::Value ChatService::createChannel(const Principal& p, const std::string& serverId, const Json::Value& body) {
     auth_.requireServerMember(p.userId, serverId);
@@ -202,8 +202,8 @@ Json::Value ChatService::channelMembers(const ChannelAccess& a) {
 // ---- Main Chat spectating ------------------------------------------------------------------
 bool ChatService::canSpectate(const std::string& userId, const std::string& channelId) {
     if (!Visibility::isUuid(channelId)) return false;
-    auto c = db_.queryOne("SELECT c.server_id, s.suspended_at FROM channels c JOIN servers s ON s.id=c.server_id WHERE c.id=$1", {channelId});
-    if (c.isNull() || !c["suspended_at"].isNull()) return false;
+    auto c = db_.queryOne("SELECT c.server_id, c.kind, s.suspended_at FROM channels c JOIN servers s ON s.id=c.server_id WHERE c.id=$1", {channelId});
+    if (c.isNull() || !c["suspended_at"].isNull() || c["kind"] != "campaign") return false;   // a private chat is nobody else's
     auto sid = c["server_id"].asString();
     auto role = serverRole(db_, sid, userId);
     return !role.empty() && role != "guest" && policy(sid).spectators;
@@ -212,7 +212,7 @@ Json::Value ChatService::spectatableChannels(const Principal& p, const std::stri
     auth_.requireServerMember(p.userId, serverId);
     auto role = serverRole(db_, serverId, p.userId);
     if (role == "guest" || !policy(serverId).spectators) return Json::Value(Json::arrayValue);
-    return db_.queryJson("SELECT c.id, c.name, c.description FROM channels c WHERE c.server_id=$1 "
+    return db_.queryJson("SELECT c.id, c.name, c.description FROM channels c WHERE c.server_id=$1 AND c.kind='campaign' "
                          "AND NOT EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id=c.id AND cm.user_id=$2) ORDER BY c.created_at", {serverId, p.userId});
 }
 Json::Value ChatService::spectate(const Principal& p, const std::string& channelId, int limit, int64_t beforeSeq) {

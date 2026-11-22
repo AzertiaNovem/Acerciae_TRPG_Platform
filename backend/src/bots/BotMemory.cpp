@@ -51,7 +51,7 @@ std::vector<BotMemory::Claim> BotMemory::due(int limit) {
     auto rows = db_.queryJson(
         "SELECT s.bot_id, s.chat_window_id, s.channel_id FROM bot_window_state s JOIN server_bots b ON b.id=s.bot_id AND b.deleted_at IS NULL "
         "JOIN servers sv ON sv.id=b.server_id AND sv.suspended_at IS NULL JOIN server_settings ss ON ss.server_id=b.server_id AND ss.feature_bots "
-        "JOIN channels c ON c.id=s.channel_id AND c.ai_enabled "
+        "JOIN channels c ON c.id=s.channel_id AND (c.ai_enabled OR c.kind='bot_chat') "
         "LEFT JOIN chat_window_members wm ON wm.chat_window_id=s.chat_window_id AND wm.user_id=b.user_id "
         "WHERE s.cursor_seq > s.memory_seq AND (s.memory_lease_until IS NULL OR s.memory_lease_until < now()) "
         "AND (s.memory_retry_after IS NULL OR s.memory_retry_after < now()) "
@@ -79,7 +79,7 @@ std::vector<BotMemory::Claim> BotMemory::due(int limit) {
 
 void BotMemory::refresh(const Claim& c) {
     auto st = db_.queryOne(
-        "SELECT s.channel_id, s.memory_seq, s.cursor_seq, b.user_id, u.display_name AS name, c.name AS channel_name, c.rule_system, cw.name AS window_name "
+        "SELECT s.channel_id, s.memory_seq, s.cursor_seq, b.user_id, u.display_name AS name, c.name AS channel_name, c.rule_system, c.kind AS channel_kind, cw.name AS window_name "
         "FROM bot_window_state s JOIN server_bots b ON b.id=s.bot_id JOIN users u ON u.id=b.user_id JOIN channels c ON c.id=s.channel_id "
         "JOIN chat_windows cw ON cw.id=s.chat_window_id WHERE s.bot_id=$1 AND s.chat_window_id=$2 AND s.memory_lease_token=$3", {c.botId, c.windowId, c.token});
     if (st.isNull()) return;
@@ -105,7 +105,8 @@ void BotMemory::refresh(const Claim& c) {
             if (json::str(m, "visibility") == "whisper") { whispered.push_back(line); mockWhispers.append(m["content"]); continue; }
             open.push_back(line); mockLines.append(m["content"]);
             const auto author = json::str(m, "author_id");
-            if (!author.empty() && author != user && !m["is_bot"].asBool() && json::str(m, "kind") != "system") people[author] = json::str(m, "author_name");
+            // Notes on people come from tables only: a private chat stays between the two of them.
+            if (!author.empty() && author != user && !m["is_bot"].asBool() && json::str(m, "kind") != "system" && st["channel_kind"] != "bot_chat") people[author] = json::str(m, "author_name");
         }
         const auto system = [&](const char* tpl) {
             return replaceAll(replaceAll(replaceAll(tpl, "{BOT}", name), "{CHANNEL}", json::str(st, "channel_name")), "{WINDOW}", json::str(st, "window_name"));
@@ -210,7 +211,7 @@ std::string BotMemory::recall(const std::string& botId, const std::string& chann
     std::vector<std::string> tables;
     for (const auto& r : db_.queryJson(
              "SELECT c.name, m.text, m.highlight, m.channel_id=$3 AS here FROM bot_memories m JOIN channels c ON c.id=m.channel_id "
-             "WHERE m.bot_id=$1 AND m.kind='table' AND m.text<>'' AND ($4 OR NOT EXISTS (SELECT 1 FROM chat_window_members wm JOIN users u ON u.id=wm.user_id AND NOT u.is_bot "
+             "WHERE m.bot_id=$1 AND m.kind='table' AND m.text<>'' AND (m.channel_id=$3 OR c.kind='campaign') AND ($4 OR NOT EXISTS (SELECT 1 FROM chat_window_members wm JOIN users u ON u.id=wm.user_id AND NOT u.is_bot "
              "  WHERE wm.chat_window_id=$2 AND NOT EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id=m.channel_id AND cm.user_id=wm.user_id))) "
              "ORDER BY (m.channel_id=$3) DESC, m.updated_at DESC LIMIT 6", {botId, windowId, channelId, bot["share_tables"].asBool()}))
         tables.push_back((r["here"].asBool() ? "- Here (" : "- At \"") + json::str(r, "name") + (r["here"].asBool() ? "): " : "\": ") + json::str(r, "text") + striking(r));

@@ -18,6 +18,8 @@ class LlmGateway;
 // What a bot brings to a turn: its maintainers' notes; its notes on the people in the window; at the table, that
 // table's account, its private part and the GM's briefing for it, never another table's story; as itself, the
 // accounts of the tables everyone in the window played at too, or of every table when its maintainers let it share.
+// A private chat with one person is remembered like a table but never comes up anywhere else, and leaves no notes on
+// people.
 class BotMemory {
 public:
     BotMemory(const Config& cfg, Db& db, LlmGateway& llm) : cfg_(cfg), db_(db), llm_(llm) {}

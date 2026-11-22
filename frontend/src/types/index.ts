@@ -41,7 +41,7 @@ export interface ServerPolicy { join_policy: 'open' | 'invite' | 'closed'; chann
 export interface SpectatableChannel { id: string; name: string; description: string }
 export interface SpectateView { channel: { id: string; server_id: string; name: string; description: string }; window: { id: string; name: string } | null; messages: Message[] }
 export interface Channel {
-  id: string; server_id: string; name: string; description: string; rule_system: 'coc7e' | 'dnd2024' | string; point_buy?: boolean;
+  id: string; server_id: string; name: string; description: string; kind?: 'campaign' | 'bot_chat'; rule_system: 'coc7e' | 'dnd2024' | string; point_buy?: boolean;
   player_group_id?: string; player_group_name?: string; player_group_version?: number;
   knowledge_mode: 'public' | 'isolated'; current_scene_id: string | null; current_scene_title?: string | null; era?: string; studio_visible?: boolean; studio_player_access?: boolean;
   story_status?: 'ongoing' | 'ended'; story_ended_at?: string | null; story_reveal_all?: boolean;
@@ -259,6 +259,8 @@ export interface BotTurn { id: string; trigger: string; mode: 'table' | 'self'; 
 export interface BotMemory { id: string; kind: 'note' | 'person' | 'table' | 'table_private' | 'briefing'; channel_id: string | null; channel_name: string | null; user_id: string | null; name: string | null; text: string; highlight: string; source: 'auto' | 'edited'; updated_at: string }
 export interface BotMemories { share_tables: boolean; memories: BotMemory[] }
 export interface BotTableMemory { table: BotMemory | null; table_private: BotMemory | null; briefing: BotMemory | null }
+// A private chat with one of the server's bots (docs/BOTS.md): a hidden channel of the person's own.
+export interface BotChat { channel_id: string; window_id: string; bot_id: string; bot_name: string; bot_user_id: string; last_message_at: string | null; created?: boolean }
 export interface ChannelBot { id: string; user_id: string; name: string; enabled: boolean; joined_at: string; invited_by_name: string | null; characters: { id: string; name: string }[] }
 export interface ChannelBots { feature: boolean; invites_enabled: boolean; can_invite: boolean; can_remove: boolean; limit: number; present: ChannelBot[]; invitable: { id: string; user_id: string; name: string }[] }
 export interface AiPolicyUsage { token_budget: number; image_budget: number; period: 'month' | 'total'; max_concurrent: number; period_start: string | null; tokens_used: number; cached_tokens_used?: number; images_used: number; running: number }

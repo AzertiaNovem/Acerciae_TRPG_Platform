@@ -26,6 +26,8 @@ void registerBotRoutes() {
     route3("/api/servers/{1}/bots/{2}/memories/{3}", {Delete}, [&](auto&, auto& p, auto& a) { return S.bots->deleteMemory(p, a[0], a[1], a[2]); });
     route2("/api/channels/{1}/bots/{2}/memory", {Get}, [&](auto&, auto& p, auto& a) { return S.bots->tableMemory(access(p, a[0]), a[1]); });
     route2("/api/channels/{1}/bots/{2}/memory", {Delete}, [&](auto&, auto& p, auto& a) { return S.bots->forgetTable(access(p, a[0]), a[1]); });
+    route2("/api/servers/{1}/bots/{2}/chat", {Post}, [&](auto&, auto& p, auto& a) { return S.bots->openChat(p, a[0], a[1]); });
+    route1("/api/servers/{1}/bot-chats", {Get}, [&](auto&, auto& p, auto& a) { return S.bots->chats(p, a[0]); });
     route2("/api/channels/{1}/bots/{2}/briefing", {Put}, [&](auto& req, auto& p, auto& a) { return S.bots->setBriefing(access(p, a[0]), a[1], body(req)); });
 }
 }

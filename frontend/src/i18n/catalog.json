@@ -24082,5 +24082,113 @@
     "изменено",
     "editado",
     "modificato"
+  ],
+  "Private chats": [
+    "私聊",
+    "私聊",
+    "個人チャット",
+    "개인 대화",
+    "Chats privados",
+    "Discussions privées",
+    "Private Chats",
+    "Личные чаты",
+    "Conversas privadas",
+    "Chat privati"
+  ],
+  "Chat with a bot": [
+    "和机器人聊天",
+    "和機器人聊天",
+    "ボットとチャット",
+    "봇과 대화",
+    "Chatear con un bot",
+    "Discuter avec un bot",
+    "Mit einem Bot chatten",
+    "Чат с ботом",
+    "Conversar com um bot",
+    "Chatta con un bot"
+  ],
+  "This server has no bot to chat with yet.": [
+    "这个服务器还没有可以聊天的机器人。",
+    "這個伺服器還沒有可以聊天的機器人。",
+    "このサーバーにはまだ話せるボットがいません。",
+    "이 서버에는 아직 대화할 봇이 없습니다.",
+    "Este servidor aún no tiene ningún bot con el que chatear.",
+    "Ce serveur n’a pas encore de bot avec qui discuter.",
+    "Auf diesem Server gibt es noch keinen Bot zum Chatten.",
+    "На этом сервере пока нет бота для разговора.",
+    "Este servidor ainda não tem nenhum bot para conversar.",
+    "Questo server non ha ancora un bot con cui chattare."
+  ],
+  "Chat": [
+    "聊天",
+    "聊天",
+    "チャット",
+    "대화",
+    "Chatear",
+    "Discuter",
+    "Chatten",
+    "Чат",
+    "Conversar",
+    "Chatta"
+  ],
+  "Just the two of you: nobody else sees a private chat. The bot remembers it, but never brings it up anywhere else.": [
+    "只有你们两个：别人看不到私聊。机器人会记得这段对话，但绝不会在别处提起。",
+    "只有你們兩個：別人看不到私聊。機器人會記得這段對話，但絕不會在別處提起。",
+    "あなたとボットの二人だけ：個人チャットはほかの誰にも見えません。ボットは覚えていますが、ほかの場所で話題にすることはありません。",
+    "둘만의 대화입니다: 다른 사람은 개인 대화를 볼 수 없습니다. 봇은 이 대화를 기억하지만 다른 곳에서는 절대 꺼내지 않습니다.",
+    "Solo vosotros dos: nadie más ve un chat privado. El bot lo recuerda, pero nunca lo menciona en ningún otro sitio.",
+    "Rien que vous deux : personne d’autre ne voit une discussion privée. Le bot s’en souvient, mais n’en parle jamais ailleurs.",
+    "Nur ihr beide: Niemand sonst sieht einen privaten Chat. Der Bot erinnert sich daran, spricht aber nirgends sonst davon.",
+    "Только вы вдвоём: личный чат никто больше не видит. Бот его помнит, но нигде больше о нём не упоминает.",
+    "Só vocês dois: ninguém mais vê uma conversa privada. O bot se lembra dela, mas nunca a menciona em outro lugar.",
+    "Solo voi due: nessun altro vede una chat privata. Il bot la ricorda, ma non ne parla mai altrove."
+  ],
+  "Private chat": [
+    "私聊",
+    "私聊",
+    "個人チャット",
+    "개인 대화",
+    "Chat privado",
+    "Discussion privée",
+    "Privater Chat",
+    "Личный чат",
+    "Conversa privada",
+    "Chat privata"
+  ],
+  "Delete this private chat? Its lines are deleted for good; the bot still remembers what it wrote down.": [
+    "删除这段私聊？其中的消息会被永久删除；机器人仍会记得它记下的内容。",
+    "刪除這段私聊？其中的訊息會被永久刪除；機器人仍會記得它記下的內容。",
+    "この個人チャットを削除しますか？発言は完全に削除されます。ボットが書き留めたことは覚えたままです。",
+    "이 개인 대화를 삭제할까요? 메시지는 영구히 삭제되며, 봇은 적어 둔 내용을 계속 기억합니다.",
+    "¿Borrar este chat privado? Sus mensajes se borran para siempre; el bot sigue recordando lo que anotó.",
+    "Supprimer cette discussion privée ? Ses messages sont supprimés définitivement ; le bot se souvient toujours de ce qu’il a noté.",
+    "Diesen privaten Chat löschen? Seine Nachrichten werden endgültig gelöscht; der Bot erinnert sich weiter an das, was er notiert hat.",
+    "Удалить этот личный чат? Его сообщения удалятся навсегда; бот по-прежнему помнит то, что записал.",
+    "Apagar esta conversa privada? As mensagens são apagadas para sempre; o bot continua lembrando o que anotou.",
+    "Eliminare questa chat privata? I messaggi vengono eliminati per sempre; il bot ricorda comunque ciò che ha annotato."
+  ],
+  "Delete this chat": [
+    "删除这段聊天",
+    "刪除這段聊天",
+    "このチャットを削除",
+    "이 대화 삭제",
+    "Borrar este chat",
+    "Supprimer cette discussion",
+    "Diesen Chat löschen",
+    "Удалить этот чат",
+    "Apagar esta conversa",
+    "Elimina questa chat"
+  ],
+  "Write to {name}…": [
+    "给 {name} 写点什么…",
+    "給 {name} 寫點什麼…",
+    "{name} にメッセージ…",
+    "{name}에게 메시지…",
+    "Escribe a {name}…",
+    "Écrire à {name}…",
+    "An {name} schreiben…",
+    "Написать {name}…",
+    "Escreva para {name}…",
+    "Scrivi a {name}…"
   ]
 }

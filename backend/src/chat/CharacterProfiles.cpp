@@ -49,6 +49,7 @@ Json::Value ChatService::listCharacters(const ChannelAccess& a) {
     return list;
 }
 Json::Value ChatService::createCharacter(const ChannelAccess& a, const Json::Value& body) {
+    if (a.botChat) throw forbidden("a private chat with a bot has no characters");
     auto name = json::requireStr(body, "name");
     auto kind = json::str(body, "kind", "pc");
     if (kind != "pc" && kind != "npc") throw badRequest("kind must be pc or npc");

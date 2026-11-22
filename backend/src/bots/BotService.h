@@ -53,6 +53,16 @@ public:
     // Forget this table: the account and its private part go, and what the bot saw here so far is let go. GM.
     Json::Value forgetTable(const ChannelAccess& a, const std::string& botId);
 
+    // Private chats (docs/BOTS.md): one person and one of the server's bots in a hidden channel of its own (kind
+    // 'bot_chat', one window, every AI feature but the bot off), never listed, spectated or open to anyone else.
+    // openChat finds or makes the caller's chat with the bot (any member but a guest, while the bots feature is on and
+    // the bot is switched on): {channel_id, window_id, bot_id, bot_name, bot_user_id, created}.
+    Json::Value openChat(const Principal& p, const std::string& serverId, const std::string& botId);
+    // The caller's private chats on this server, latest first: [{channel_id, window_id, bot_id, bot_name, bot_user_id,
+    // last_message_at}] (bots retired since are left out).
+    Json::Value chats(const Principal& p, const std::string& serverId);
+    static constexpr int kChatTurnsPerHour = 30;   // a person's bots' turns in private chats, all together
+
     static constexpr int kInvitesPerHour = 10;   // a member's invitations, all channels together
 
 private:

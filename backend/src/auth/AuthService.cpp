@@ -239,7 +239,7 @@ Principal AuthService::principalOf(const Json::Value& row) const {
 
 ChannelAccess AuthService::channelAccess(const std::string& userId, const std::string& channelId) {
     auto row = db_.queryOne(
-        "SELECT c.id, c.server_id, c.knowledge_mode, m.role, s.suspended_at FROM channels c JOIN servers s ON s.id=c.server_id "
+        "SELECT c.id, c.server_id, c.knowledge_mode, c.kind, m.role, s.suspended_at FROM channels c JOIN servers s ON s.id=c.server_id "
         "JOIN channel_members m ON m.channel_id=c.id AND m.user_id=$2 WHERE c.id=$1", {channelId, userId});
     if (row.isNull()) {
         auto exists = db_.queryOne("SELECT id FROM channels WHERE id=$1", {channelId});
@@ -251,6 +251,7 @@ ChannelAccess AuthService::channelAccess(const std::string& userId, const std::s
     a.channelId = channelId; a.serverId = row["server_id"].asString(); a.userId = userId;
     a.isGm = row["role"].asString() == "gm";
     a.knowledgeMode = row["knowledge_mode"].asString();
+    a.botChat = row["kind"].asString() == "bot_chat";
     auto chars = db_.queryJson("SELECT id FROM characters WHERE channel_id=$1 AND user_id=$2 AND kind='pc' ORDER BY created_at", {channelId, userId});
     for (auto& c : chars) a.characterIds.push_back(c["id"].asString());
     if (!a.characterIds.empty()) a.primaryCharacterId = a.characterIds.front();

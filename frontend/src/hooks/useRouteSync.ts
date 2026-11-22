@@ -1,3 +1,4 @@
+import { useBotChats } from '../store/botChats';
 import { useEffect } from 'react';
 import { t as tr } from '../i18n';
 import { useNav } from '../store/nav';
@@ -54,7 +55,8 @@ async function applyRoute(r: Route): Promise<boolean> {
     if (!nav().spectatable.some((c) => c.id === r.channel)) return false;
     nav().openSpectate(r.channel!); return true;
   }
-  if (!nav().channels.some((c) => c.id === r.channel)) return false;
+  // A private chat with a bot is in no channel list: the person's chats on this server say whether it is theirs.
+  if (!nav().channels.some((c) => c.id === r.channel) && !(await useBotChats.getState().load(r.server)).some((c) => c.channel_id === r.channel)) return false;
   if (nav().channelId !== r.channel) await nav().selectChannel(r.channel!, r.window);
   const s = nav();
   if (s.channelId !== r.channel) return false;

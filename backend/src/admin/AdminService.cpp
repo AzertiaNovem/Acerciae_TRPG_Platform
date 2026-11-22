@@ -163,7 +163,7 @@ Json::Value AdminService::server(const Principal& p, const std::string& serverId
         " SELECT c.id, c.name, c.rule_system, c.created_at, c.story_status, coalesce(u.bytes,0) AS bytes, coalesce(u.objects,0) AS objects, coalesce(u.images,0) AS images, "
         " (SELECT count(*) FROM channel_members cm WHERE cm.channel_id=c.id) AS member_count, (SELECT count(*) FROM messages m WHERE m.channel_id=c.id) AS message_count, "
         " (SELECT max(created_at) FROM messages m WHERE m.channel_id=c.id) AS last_message_at "
-        "FROM channels c LEFT JOIN channel_use u ON u.channel_id=c.id WHERE c.server_id=$1 ORDER BY bytes DESC, c.created_at", {serverId});
+        "FROM channels c LEFT JOIN channel_use u ON u.channel_id=c.id WHERE c.server_id=$1 AND c.kind='campaign' ORDER BY bytes DESC, c.created_at", {serverId});   // private chats count toward the totals, never listed
     out["members"] = db_.queryJson(
         "SELECT u.id, u.username, u.display_name, m.role, m.joined_at, u.suspended_at IS NOT NULL AS suspended FROM server_members m JOIN users u ON u.id=m.user_id "
         "WHERE m.server_id=$1 ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 WHEN 'member' THEN 2 ELSE 3 END, m.joined_at LIMIT 500", {serverId});

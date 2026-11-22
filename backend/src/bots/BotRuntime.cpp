@@ -2,6 +2,7 @@
 #include "BotPacing.h"
 #include "BotCards.h"
 #include "BotMemory.h"
+#include "BotService.h"
 #include "../auth/AuthService.h"
 #include "../chat/ChatService.h"
 #include "../inspiration/InspirationService.h"
@@ -36,6 +37,7 @@ How to play:
 - "kind": "ic" for what your character says and does (first person, one or two short paragraphs, at most two messages); "ooc" only for a short remark to the table out of character.)";
 
 const char* kOutside = R"(Here you have no character: you talk as yourself, out of character, with the people at this online table of {GAME}. Be the person described below: friendly, brief and natural, like a regular at the table. Answer what was said to you; do not run the game, narrate the story or speak for anyone's character. "kind" is always "ooc"; one or two short messages.)";
+const char* kPrivate = R"(This is a private chat between you and {PERSON}, one of the people you play with on this server: just the two of you, out of character. Be the person described below: a friend they can talk to about anything, the games you played together included. Answer what they said; keep it natural and not too long. "kind" is always "ooc"; one or two short messages.)";
 const char* kMayMake = R"(You have no character at this table yet. If someone asks you to make (create, roll up) your character, answer with "action": "make_character", a one-line "concept" of whom you would like to play (your taste, in keeping with who you are) and, if you like, a short message. If the {GM} offers to make your character for you, accept gladly and wait for it instead.)";
 
 const char* kReply = R"(Reply with only one JSON object: {"action": "speak" | "roll" | "pass", "kind": "ic" | "ooc", "messages": ["..."], "command": ""}. "speak": the messages, in order. "roll": the dice command in "command", with what your character does in "messages" (may be empty). "pass": nothing to add now.)";
@@ -156,7 +158,7 @@ std::vector<BotRuntime::Claim> BotRuntime::scan() {
              "WHERE b.deleted_at IS NULL AND cw.archived_at IS NULL ON CONFLICT DO NOTHING");
     auto rows = db_.queryJson(
         "SELECT s.bot_id, s.chat_window_id FROM bot_window_state s JOIN server_bots b ON b.id=s.bot_id JOIN servers sv ON sv.id=b.server_id "
-        "JOIN server_settings ss ON ss.server_id=b.server_id AND ss.feature_bots JOIN channels c ON c.id=s.channel_id AND c.ai_enabled "
+        "JOIN server_settings ss ON ss.server_id=b.server_id AND ss.feature_bots JOIN channels c ON c.id=s.channel_id AND (c.ai_enabled OR c.kind='bot_chat') "
         "JOIN chat_window_members wm ON wm.chat_window_id=s.chat_window_id AND wm.user_id=b.user_id JOIN chat_windows cw ON cw.id=s.chat_window_id AND cw.archived_at IS NULL "
         "WHERE b.deleted_at IS NULL AND b.enabled AND sv.suspended_at IS NULL AND (s.lease_until IS NULL OR s.lease_until < now()) "
         "AND (s.retry_after IS NULL OR s.retry_after < now()) "
@@ -168,7 +170,7 @@ std::vector<BotRuntime::Claim> BotRuntime::scan() {
             auto st = Db::queryOne(w,
                 "SELECT s.*, coalesce(extract(epoch FROM s.owed_at), 0) AS owed_at_s, coalesce(extract(epoch FROM s.last_line_at), 0) AS last_line_s, extract(epoch FROM now()) AS now_s, "
                 "extract(epoch FROM s.last_eval_at) AS last_eval_s, b.user_id, b.turns_per_hour, b.unprompted_per_hour, c.bot_chatter_enabled, "
-                "u.display_name AS name, coalesce(c.bot_pacing_until > now(), false) AS agent_pacing, cw.purpose, c.story_status "
+                "u.display_name AS name, coalesce(c.bot_pacing_until > now(), false) AS agent_pacing, cw.purpose, c.story_status, c.kind AS channel_kind, c.chat_user_id "
                 "FROM bot_window_state s JOIN server_bots b ON b.id=s.bot_id JOIN users u ON u.id=b.user_id JOIN channels c ON c.id=s.channel_id "
                 "JOIN chat_windows cw ON cw.id=s.chat_window_id WHERE s.bot_id=$1 AND s.chat_window_id=$2 AND (s.lease_until IS NULL OR s.lease_until < now()) "
                 "FOR UPDATE OF s SKIP LOCKED", {botId, windowId});
@@ -176,6 +178,7 @@ std::vector<BotRuntime::Claim> BotRuntime::scan() {
             const auto user = st["user_id"].asString();
             bots::Self me; me.userId = user; me.names = {st["name"].asString()};
             me.agentPacing = st["agent_pacing"].asBool();
+            me.direct = st["channel_kind"] == "bot_chat";
             std::vector<std::string> mine;
             for (const auto& c : Db::queryJson(w, "SELECT id, name FROM characters WHERE channel_id=$1 AND user_id=$2 AND kind='pc'", {st["channel_id"].asString(), user})) {
                 mine.push_back(c["id"].asString()); me.names.push_back(c["name"].asString());
@@ -214,6 +217,12 @@ std::vector<BotRuntime::Claim> BotRuntime::scan() {
             }
             // Someone is writing: let them finish (but not for ever).
             if (claim && st["now_s"].asDouble() - s.owedAt < 45 && WsGateway::instance().someoneTyping(windowId, user)) claim = false;
+            // Private chats: a person's turns from all the bots together are capped too.
+            if (claim && me.direct && Db::queryOne(w, "SELECT count(*) AS n FROM bot_turns t JOIN channels c ON c.id=t.channel_id WHERE c.kind='bot_chat' AND c.chat_user_id=$1 "
+                                                     "AND t.started_at > now() - interval '1 hour'", {st["chat_user_id"].asString()})["n"].asInt64() >= BotService::kChatTurnsPerHour) {
+                ALOG_INFO << "bots: private chats reached their turns for this hour; a turn is skipped";
+                s.owed.clear(); claim = false;
+            }
             if (claim && Db::queryOne(w, "SELECT count(*) AS n FROM bot_turns WHERE bot_id=$1 AND started_at > now() - interval '1 hour'", {botId})["n"].asInt64() >= st["turns_per_hour"].asInt64()) {
                 ALOG_INFO << "bots: " << st["name"].asString() << " reached its turns for this hour; a turn is skipped";
                 s.owed.clear(); claim = false;
@@ -254,7 +263,8 @@ int BotRuntime::tick(bool inlineTurns) {
 
 void BotRuntime::runTurn(const Claim& c) {
     auto st = db_.queryOne(
-        "SELECT s.*, b.user_id, b.persona, b.speaking_style, u.display_name AS name, c.rule_system, c.description, c.bot_brief, c.story_status, cw.purpose "
+        "SELECT s.*, b.user_id, b.persona, b.speaking_style, u.display_name AS name, c.rule_system, c.description, c.bot_brief, c.story_status, cw.purpose, c.kind AS channel_kind, "
+        "(SELECT pu.display_name FROM users pu WHERE pu.id=c.chat_user_id) AS chat_person "
         "FROM bot_window_state s JOIN server_bots b ON b.id=s.bot_id JOIN users u ON u.id=b.user_id JOIN channels c ON c.id=s.channel_id "
         "JOIN chat_windows cw ON cw.id=s.chat_window_id WHERE s.bot_id=$1 AND s.chat_window_id=$2 AND s.lease_token=$3", {c.botId, c.windowId, c.token});
     if (st.isNull()) return;   // the lease was lost
@@ -280,7 +290,8 @@ void BotRuntime::runTurn(const Claim& c) {
     try {
         std::vector<std::string> mine;
         for (const auto& r : db_.queryJson("SELECT id FROM characters WHERE channel_id=$1 AND user_id=$2", {channelId, user})) mine.push_back(r["id"].asString());
-        const bool canMake = mine.empty();   // no character in this channel yet: it may make one when asked
+        const bool direct = st["channel_kind"] == "bot_chat";
+        const bool canMake = mine.empty() && !direct;   // no character in this channel yet: it may make one when asked
         auto log = db_.queryJson(
             "SELECT m.seq, m.kind, m.content, m.visibility, m.author_id, m.author_role, m.dice, u.display_name AS author_name, coalesce(u.is_bot, false) AS is_bot, ch.name AS character_name "
             "FROM messages m LEFT JOIN users u ON u.id=m.author_id LEFT JOIN characters ch ON ch.id=m.character_id WHERE m.chat_window_id=$1 AND m.recalled_at IS NULL "
@@ -289,8 +300,9 @@ void BotRuntime::runTurn(const Claim& c) {
         const auto& profile = rules::profile(rs);
         std::string system = "You are " + name + ", a member of an online tabletop roleplaying community.\n\nWHO YOU ARE:\n" +
             (json::str(st, "persona").empty() ? "(no description: a friendly, curious regular)" : json::str(st, "persona")) +
-            (json::str(st, "speaking_style").empty() ? "" : "\n\nHOW YOU WRITE:\n" + json::str(st, "speaking_style")) + "\n\n" + (table ? kAtTable : kOutside) + (canMake && !table ? std::string("\n\n") + kMayMake : std::string()) + "\n\n" + kReply;
+            (json::str(st, "speaking_style").empty() ? "" : "\n\nHOW YOU WRITE:\n" + json::str(st, "speaking_style")) + "\n\n" + (table ? kAtTable : direct ? kPrivate : kOutside) + (canMake && !table ? std::string("\n\n") + kMayMake : std::string()) + "\n\n" + kReply;
         replaceAll(system, "{PC}", table ? pc["name"].asString() : "");
+        replaceAll(system, "{PERSON}", json::str(st, "chat_person", "a friend"));
         replaceAll(system, "{DICE}", InspirationService::diceShape(rs));
         std::vector<std::string> parts;
         if (!json::str(st, "description").empty()) parts.push_back("THE CAMPAIGN:\n" + json::str(st, "description"));

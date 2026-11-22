@@ -452,3 +452,66 @@
         S.cfg.botSettleMs = 6000; S.cfg.botChatterGapMs = 300000; S.cfg.botChatterQuietMs = 20000;
     });
 
+    test("private chats: one per person and bot, never listed, spectated or joined; every line is for the bot; its memory stays there", [&] {
+        S.cfg.botSettleMs = 0;
+        for (int i = 0; i < 20 && S.botRuntime->memoryTick(true) > 0; ++i) {}
+        const auto sid = server["id"].asString();
+        auto outcome = [](const std::function<void()>& fn) { try { fn(); return std::string("ok"); } catch (const ApiError& e) { return e.code(); } };
+        Json::Value b; b["name"] = "Quill"; b["share_tables"] = true;
+        auto bot = S.bots->create(gmP, sid, b);
+        const auto botId = bot["id"].asString(), botUser = bot["user_id"].asString();
+        Principal p1P{p1User, "p1" + suffix, "P1"}, p2P{p2User, "p2" + suffix, "P2"};
+        auto chat = S.bots->openChat(p1P, sid, botId);
+        CHECK(chat["created"].asBool()); CHECK(chat["bot_name"] == "Quill");
+        const auto ch = chat["channel_id"].asString(), win = chat["window_id"].asString();
+        auto again = S.bots->openChat(p1P, sid, botId);
+        CHECK(!again["created"].asBool()); CHECK(again["channel_id"].asString() == ch);
+        CHECK(S.bots->chats(p1P, sid).size() >= 1); CHECK(S.bots->chats(p2P, sid).empty());
+        // Hidden everywhere else.
+        for (const auto& c : S.chat->listChannels(p1P, sid)) CHECK(c["id"].asString() != ch);
+        for (const auto& c : S.chat->allChannels(gmP, sid)) CHECK(c["id"].asString() != ch);
+        for (const auto& c : S.chat->spectatableChannels(p2P, sid)) CHECK(c["id"].asString() != ch);
+        CHECK(!S.chat->canSpectate(p2User, ch));
+        for (const auto& c : S.bots->list(gmP, sid)) if (c["id"].asString() == botId) CHECK(c["channels"].empty());
+        auto mine = S.auth->channelAccess(p1User, ch);
+        CHECK(mine.botChat);
+        Json::Value pc; pc["name"] = "Stray";
+        CHECK(outcome([&] { S.chat->createCharacter(mine, pc); }) == "forbidden");
+        CHECK(outcome([&] { S.bots->invite(mine, botId); }) == "forbidden");
+        CHECK(outcome([&] { S.chat->addChannelMember(mine, "p2" + suffix, "player"); }) == "forbidden");
+        CHECK(outcome([&] { S.auth->channelAccess(p2User, ch); }) == "forbidden");
+        // Every line of theirs is for the bot.
+        S.botRuntime->tick(true);
+        Json::Value hi; hi["content"] = "Rainy day here."; hi["kind"] = "ooc";
+        S.chat->postMessage(mine, win, hi);
+        CHECK(S.botRuntime->tick(true) == 1);
+        auto answer = S.db->queryOne("SELECT content FROM messages WHERE chat_window_id=$1 AND author_id=$2 ORDER BY seq DESC LIMIT 1", {win, botUser});
+        CHECK(answer["content"].asString().find("Rainy day here.") != std::string::npos);
+        // Its memory of the chat: never elsewhere (sharing on or not), and no notes on people.
+        S.botRuntime->memory().flushChannel(ch);
+        CHECK(S.botRuntime->memoryTick(true) == 1);
+        CHECK(!S.db->queryOne("SELECT 1 AS ok FROM bot_memories WHERE bot_id=$1 AND kind='table' AND channel_id=$2", {botId, ch}).isNull());
+        CHECK(S.db->queryOne("SELECT count(*) AS n FROM bot_memories WHERE bot_id=$1 AND kind='person'", {botId})["n"].asInt() == 0);
+        CHECK(S.botRuntime->memory().recall(botId, ch, win, false).find("Rainy day") != std::string::npos);
+        Json::Value cb; cb["name"] = "Quill's table"; cb["knowledge_mode"] = "isolated";
+        auto table = S.chat->createChannel(gmP, sid, cb)["id"].asString();
+        auto keeper = S.auth->channelAccess(gmUser, table);
+        S.chat->addChannelMember(keeper, "p1" + suffix, "player");
+        S.bots->invite(keeper, botId);
+        auto tableWin = S.chat->listWindows(keeper)[0]["id"].asString();
+        CHECK(S.botRuntime->memory().recall(botId, table, tableWin, false).find("Rainy day") == std::string::npos);
+        for (const auto& m : S.bots->memories(gmP, sid, botId)["memories"]) CHECK(m["channel_id"].asString() != ch);
+        // A person's private chats share an hourly allowance of the bots' turns.
+        S.db->exec("INSERT INTO bot_turns(bot_id, channel_id, chat_window_id, trigger, trigger_seq, mode, status) "
+                   "SELECT $1, $2, $3, 'mention', -g, 'self', 'posted' FROM generate_series(1, 30) g", {botId, ch, win});
+        Json::Value more; more["content"] = "Still there?"; more["kind"] = "ooc";
+        S.chat->postMessage(mine, win, more);
+        CHECK(S.botRuntime->tick(true) == 0);
+        // Only its person deletes it, without a phrase.
+        CHECK(outcome([&] { S.deletion->deleteChannel(p2P, ch, Json::Value(Json::objectValue)); }) == "not_found");
+        CHECK(outcome([&] { S.deletion->deleteChannel(gmP, ch, Json::Value(Json::objectValue)); }) == "not_found");
+        CHECK(S.deletion->deleteChannel(p1P, ch, Json::Value(Json::objectValue))["ok"].asBool());
+        CHECK(S.db->queryOne("SELECT id FROM channels WHERE id=$1", {ch}).isNull());
+        S.cfg.botSettleMs = 6000;
+    });
+

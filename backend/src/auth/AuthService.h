@@ -28,6 +28,7 @@ struct ChannelAccess {
     std::string playerGroupId;                       // empty = GM, or an unassigned player (fail closed)
     int playerGroupVersion = 0;
     std::string primaryCharacterId;                   // first PC, used as default viewpoint
+    bool botChat = false;                             // a private chat with a bot (channels.kind 'bot_chat')
 };
 
 class AuthService {

@@ -18,6 +18,8 @@ import { studioAccess } from './studio/access';
 import { CachedImg } from './CachedImg';
 import { BotTag } from './BotTag';
 import ChannelBots from './ChannelBots';
+import BotChats from './BotChats';
+import { useBotChats } from '../store/botChats';
 import { CharacterVitals, TypingMark, useIsTyping } from './CharacterStatus';
 
 // A character's entry: avatar, name (with a pen while being written as), who plays it, and the vital numbers below.
@@ -128,7 +130,18 @@ export default function ChannelSidebar({ open, onClose }: { open: boolean; onClo
             </div>
           ))}
         </>)}
-        {nav.channelId && (
+        <BotChats onPick={onClose} />
+        {nav.channelId && nav.channel?.kind === 'bot_chat' && (
+          <>
+            <div className="section"><span>{tr("Private chat")}</span></div>
+            <div className="item" {...activate(async () => {
+              if (!confirm(tr('Delete this private chat? Its lines are deleted for good; the bot still remembers what it wrote down.'))) return;
+              const id = nav.channelId!;
+              try { await useBotChats.getState().remove(id); await nav.forgetChannel(id); } catch (e: any) { useUi.getState().toast(e.message, 'error'); }
+            })}><span>🗑</span><span className="name">{tr("Delete this chat")}</span></div>
+          </>
+        )}
+        {nav.channelId && nav.channel?.kind !== 'bot_chat' && (
           <>
             <div className="section"><span>{tr("Chat windows")}</span>{isGm && <button className="ghost small" title={tr("New chat window")} onClick={() => setDialog('window')}>+</button>}</div>
             {nav.windows.filter(w => !w.archived_at || showArchived).sort((a, b) => Number(!!a.archived_at) - Number(!!b.archived_at)).map((w) => (

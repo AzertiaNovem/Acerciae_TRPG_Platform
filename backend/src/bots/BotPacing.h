@@ -42,6 +42,7 @@ struct Self {
     std::vector<std::string> names;   // the bot's name and its characters' names here
     bool table = false;               // it plays a character in this window
     bool agentPacing = false;         // a GM agent paces the bots of this channel: players' and GM lines owe nothing
+    bool direct = false;              // a private chat with one person: every line of theirs is addressed to the bot
 };
 
 struct Timing { double settle = 6, gmWait = 90; };

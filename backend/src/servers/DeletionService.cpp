@@ -85,15 +85,19 @@ Json::Value DeletionService::deleteServer(const Principal& p, const std::string&
 
 Json::Value DeletionService::deleteChannel(const Principal& p, const std::string& channelId, const Json::Value& body) {
     if (!Visibility::isUuid(channelId)) throw notFound("channel not found");
-    auto c = db_.queryOne("SELECT c.server_id, sm.role FROM channels c LEFT JOIN server_members sm ON sm.server_id=c.server_id AND sm.user_id=$2 WHERE c.id=$1", {channelId, p.userId});
+    auto c = db_.queryOne("SELECT c.server_id, c.kind, c.chat_user_id, sm.role FROM channels c LEFT JOIN server_members sm ON sm.server_id=c.server_id AND sm.user_id=$2 WHERE c.id=$1", {channelId, p.userId});
     if (c.isNull() || c["role"].isNull()) throw notFound("channel not found");
+    // A private chat with a bot is its person's to delete, and nobody else's to know of.
+    const bool chat = c["kind"] == "bot_chat";
+    if (chat && c["chat_user_id"].asString() != p.userId) throw notFound("channel not found");
     auto role = c["role"].asString();
-    if (role != "owner" && role != "admin") throw forbidden("only server maintainers can delete channels");
-    requirePhrase(body, kChannelPhrase);
+    if (!chat && role != "owner" && role != "admin") throw forbidden("only server maintainers can delete channels");
+    if (!chat) requirePhrase(body, kChannelPhrase);
     auto serverId = c["server_id"].asString();
     std::vector<std::string> members, keys;
     retryOnDeadlock([&] { db_.tx([&](pqxx::work& w) {
-        members = column(Db::queryJson(w, "SELECT sm.user_id FROM server_members sm JOIN users u ON u.id=sm.user_id WHERE sm.server_id=$1 AND NOT u.is_bot", {serverId}), "user_id");
+        members = chat ? std::vector<std::string>{p.userId}
+                       : column(Db::queryJson(w, "SELECT sm.user_id FROM server_members sm JOIN users u ON u.id=sm.user_id WHERE sm.server_id=$1 AND NOT u.is_bot", {serverId}), "user_id");
         keys = objectKeys(w, "= $1::uuid", channelId);
         Db::exec(w, "DELETE FROM channels WHERE id=$1", {channelId});
     }); });

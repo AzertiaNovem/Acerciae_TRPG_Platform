@@ -25,14 +25,14 @@ export default function ChatWindow() {
     <>
       <div className="chat-header">
         <h2>{win.name}</h2>
-        <span className="pill">{tr(win.kind)}</span>
+        {channel?.kind !== 'bot_chat' && <span className="pill">{tr(win.kind)}</span>}
         {scene && <span className="scene-chip" title={scene.summary || scene.location}>{scene.title}{scene.location && scene.location !== scene.title ? ` · ${scene.location}` : ''}{scene.narrative_time ? ` · ${scene.narrative_time}` : ''}</span>}
         {channel.story_status === 'ended' && <span className="pill ok" title={tr("Every member can read the whole story in the Log Studio.")}>{tr("Story ended")}</span>}
         <span className="grow" />
         {channel.my_role === 'gm' && <WindowTools key={win.id} win={win} />}
         <ReadAloudButton />
         <span className="tiny muted" title={tr("Participants")}>{(win.members ?? []).filter(m => !m.visibility_paused).map((m) => m.character_name ?? m.display_name).join(' · ')}</span>
-        <span className="pill" title={tr("Knowledge mode")}>{channel.my_role === 'gm' ? tr("GM only") : `${tr("Player group")}: ${channel.player_group_name ?? "…"}`}</span>
+        {channel?.kind !== 'bot_chat' && <span className="pill" title={tr("Knowledge mode")}>{channel.my_role === 'gm' ? tr("GM only") : `${tr("Player group")}: ${channel.player_group_name ?? "…"}`}</span>}
       </div>
       {channel.rule_system === 'dnd2024' && <InitiativePanel key={win.id} channelId={channel.id} windowId={win.id} isGm={channel.my_role === 'gm'} />}
       <div className="chat-body">
