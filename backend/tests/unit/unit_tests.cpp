@@ -1943,13 +1943,17 @@ int main() {
             ingest(atTable, player, line(1, 100, "alice", false, false, "We go in."));
             CHECK(atTable.heard == 0);
         });
-        test("bots: while a GM agent paces the bots, players' lines owe nothing; system lines are ignored", [&] {
+        test("bots: while a GM agent paces the bots, players' and GM lines owe nothing; system lines are ignored", [&] {
             Self me = mina; me.agentPacing = true;
             State s;
             ingest(s, me, line(1, 100, "alice", false, false, "We go in."));
             CHECK(s.owed.empty());
             ingest(s, me, line(2, 101, "gm", false, true, "Ada invited Ken (bot) to the table.", "system"));
             CHECK(s.lastLineAt == 100);
+            ingest(s, me, line(3, 102, "gm", false, true, "Harriet, what do you do?", "narration"));
+            CHECK(s.owed.empty());   // the agent calls the bots itself after its turn
+            ingest(s, me, line(4, 103, "ken", true, false, "Harriet, look!"));
+            CHECK(s.owed == "addressed");   // another bot naming it still does, within the run
         });
     }
     std::cout << passed << " checks passed, " << failures << " failed\n";

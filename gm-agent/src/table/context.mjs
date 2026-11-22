@@ -45,10 +45,16 @@ export function state(table, windowId) {
   }
 
 // A person's line, not this client's. A line one of this client's interactive messages posted as this account (a card's
-// reply) belongs to the reader who acted (`via_user_id`): it counts as that person's.
+// reply) belongs to the reader who acted (`via_user_id`): it counts as that person's. A platform bot's line is not a
+// person's (isBot): it is a player's line in the story, never presence, a wish or a command.
 export function isHuman(table, m) {
     if (m.via_hypertext_id && m.via_user_id && m.via_user_id !== table.me?.id) return true;
-    return m.author_id !== table.me?.id && !table.botMessageIds.has(m.id);
+    return m.author_id !== table.me?.id && !table.botMessageIds.has(m.id) && !m.author_is_bot;
+  }
+
+// A line of one of the platform's bots (docs/BOTS.md): an AI member of the server playing its own character here.
+export function isBot(table, m) {
+    return Boolean(m?.author_is_bot) && m.author_id !== table.me?.id;
   }
 
 export function noteSeq(table, windowId, seq) {

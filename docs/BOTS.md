@@ -54,6 +54,11 @@ plan, and what is done so far, is in [BOTS_PLAN.md](BOTS_PLAN.md).
   maintainers who are in that channel (to all of them while the bot shares between tables); the whispers and briefings
   only to that channel's GMs. In the channel sidebar (Bots → +), the GM opens a bot's Memory: its account of this
   table, what was whispered to it, a private briefing only this bot reads here, and "Forget this table".
+- **With the GM agent** — when `gm-agent` runs a table, it paces the bots there: the platform gives them no turn of its
+  own for players' or GM lines while it does. After the agent answers a person and lets the players act, it asks the
+  bots in that window for their turn; it answers their lines like any player's, without asking them again until a
+  person speaks. It keeps the notes for bots up to date with the public world (see `gm-agent/README.md`). If the agent
+  stops, the platform takes the pacing back after ten minutes.
 - **The GM's tools** — "Bots' turn" above a chat window asks every bot there to take a turn now. "Notes for bots" in
   the GM workspace is what every bot at the table is told each turn (the situation, what the characters know of the
   world, how to play here); players never see it. Server settings → Bots → Activity lists each bot's latest turns:
@@ -64,7 +69,8 @@ joins a player group (it will read only what it witnessed itself). Deleting a se
 
 ## Coming next
 
-1. The GM agent paces the bots at its tables, and its own co-players are retired.
+1. The GM agent's own co-players are retired in favour of bots. Already now `gm-agent`'s `bots handoff` command hands a
+   co-player's character to a bot, with what it remembered as the bot's briefing (`gm-agent/README.md`).
 2. Private one-to-one chats with a bot.
 
 The API is in [API.md](API.md) (Bots); the model use is `text_bots` ([AI_PROVIDERS.md](AI_PROVIDERS.md)).

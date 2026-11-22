@@ -21,7 +21,8 @@ export function cancelTimer(table, windowId) {
 
 export function isTrigger(table, m) {
     if (!m || m.channel_id !== table.channelId) return false;
-    if (!table.isHuman(m)) return false;
+    // A person's line, or a platform bot's: the GM answers players, AI or not.
+    if (!table.isHuman(m) && !table.isBot(m)) return false;
     // Only lines the whole window reads wake the table, those an interactive message posted included: the answer a
     // whisper card let its reader post, a card's GM-only reply or a hidden roll's notice does not. A card itself
     // (kind hypertext) never does.
@@ -115,6 +116,8 @@ export function onMessage(table, m) {
     if (m && m.chat_window_id && m.chat_window_id === table.casual.log) return undefined;   // the GM's own phone log
     if (m && table.isPhone(m.chat_window_id)) return table.onPhoneLine(m);   // a phone never starts a scene turn
     if (!table.isTrigger(m)) return undefined;
+    // Keep the platform's bots this client's to pace while it plays (a call every few minutes at most).
+    Promise.resolve(table.paceBots()).catch(() => {});
     return table.schedule(m.chat_window_id);
   }
 

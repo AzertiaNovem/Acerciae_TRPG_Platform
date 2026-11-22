@@ -43,6 +43,9 @@ export class FakeApi {
   async dndRules() { return DND_RULES; }
   async pbtaRules() { return PBTA_RULES; }
   async pbtaRulings() { return []; }
+  // Platform bots: every call and the notes for bots, as sent.
+  async botTurns(_ch, w, body) { (this.botCalls ??= []).push({ window: w, ...body }); return { called: (body.character_ids ?? []).map((id) => ({ id: `b-${id}`, name: this.characters_.find((c) => c.id === id)?.player_name ?? id })) }; }
+  async setBotBrief(_ch, text) { (this.botBriefs ??= []).push(text); return { bot_brief: text }; }
   async initiative(_ch, w) { this.initiativeReads++; return w === "w-main" && this.initiative_ ? structuredClone(this.initiative_) : { round: 0, turn: 0, entries: [] }; }
   async initiativeAction(_ch, w, body) { (this.initiativeActions ??= []).push({ window: w, ...body }); return this.initiative(_ch, w); }
   async channelMembers() { return this.channelUsers.map((id) => ({ id, role: id === "u-bot" ? "gm" : "player", display_name: id.slice(2) })); }

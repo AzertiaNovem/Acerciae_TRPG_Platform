@@ -87,6 +87,10 @@ export class Api {
   previewPbta(ch, pack) { return this.post(`/api/channels/${ch}/pbta/preview`, pack); }
   pbtaRulings(ch, w, before = 0) { return this.get(`/api/channels/${ch}/windows/${w}/pbta-rulings?before_seq=${before}`); }
   pbtaRuling(ch, w, body) { return this.post(`/api/channels/${ch}/windows/${w}/pbta-rulings`, body); }
+  // Platform bots (docs/BOTS.md): the bots playing `character_ids` in the window take a turn now; `pace` leaves their
+  // turns after players' and GM lines to this client for ten minutes. And what every bot at the table is told.
+  botTurns(ch, w, body = {}) { return this.post(`/api/channels/${ch}/windows/${w}/bot-turns`, body); }
+  setBotBrief(ch, text) { return this.put(`/api/channels/${ch}/bot-brief`, { text }); }
   previewCard(ch, body) { return this.post(`/api/channels/${ch}/characters/preview`, body); }
   putCard(ch, cid, body) { return this.put(`/api/channels/${ch}/characters/${cid}/card`, body); }
   putAppearance(ch, cid, body) { return this.put(`/api/channels/${ch}/characters/${cid}/appearance`, body); }
