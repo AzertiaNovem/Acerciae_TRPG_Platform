@@ -1,4 +1,3 @@
-import { parseClock, formatClock } from "../calendar.mjs";
 // windows: table is the explicit runtime context supplied by Table; no service singleton.
 import { sceneForks } from "../sceneForks.mjs";
 import { randomUUID } from "node:crypto";
@@ -44,7 +43,7 @@ export function presenceThreads(table) {
         .filter(m => m.visibility === "window" && !hidden.has(m.id) && ["ic", "narration", "ooc"].includes(m.kind) &&
           (!m.character_id || table.timelines.timelineAt(m.character_id, m.seq).id === t.id))
         .slice(-40).map(m => ({ seq: m.seq, actor: m.character_id || null, kind: m.kind,
-          keeper: m.author_role === "gm" && !m.character_id && m.kind === "narration", standIn: Boolean(m.stand_in),
+          keeper: m.author_role === "gm" && !m.character_id && m.kind === "narration",
           speaker: m.character_name || m.author_name || "GM", text: m.content }));
       return { key: "T" + t.handle, location: t.location, time: t.narrativeTime,
         members: t.members.map(id => ({ id, name: table.nameOf(id), coplayer: table.roster.isCoplayer(id), since: table.guard.rec(id).changedSeq })), lines };
@@ -53,7 +52,7 @@ export function presenceThreads(table) {
 
 export async function reconcilePresence(table, windowId, turn) {
     const activeTurn = table.turnScope.getStore();
-    if (table.generation.paused || table.sparkCancelled() || ((["spark", "quiet", "side", "attention"].includes(activeTurn?.mode) || activeTurn?.gentle) && table.overBudget())) return;
+    if (table.generation.paused || (["quiet", "side", "attention"].includes(activeTurn?.mode) && table.overBudget())) return;
     const scene = table.scene(windowId);
     const threads = table.presenceThreads();
     if (!scene || !threads.length) return;
@@ -64,7 +63,7 @@ export async function reconcilePresence(table, windowId, turn) {
     try { placements = await readPresence(table.llm, { current, threads }); }
     catch (e) { table.generation.signal.throwIfAborted(); table.log("scene presence: " + e.message); return; }
     table.generation.signal.throwIfAborted();
-    if (table.sparkCancelled() || ((["spark", "quiet", "side", "attention"].includes(activeTurn?.mode) || activeTurn?.gentle) && table.overBudget())) return;
+    if (["quiet", "side", "attention"].includes(activeTurn?.mode) && table.overBudget()) return;
     // A newer correction/departure received while the model was thinking invalidates its snapshot.
     if (hashText(JSON.stringify(table.presenceThreads())) !== digest) return;
     (table.presenceChecked ??= new Map()).set(current, digest);
@@ -105,7 +104,7 @@ export async function checkDestinations(table, windowId, reports, scope, batch, 
       const pc = table.isPc(id);
       if (pc && !["relay", "human"].includes(mode)) continue;
       const sources = pc ? batch.filter(l => l.id === id).map(l => l.seq) : messages.filter(m =>
-        m.character_id === id && m.kind === "ic" && !m.stand_in && m.seq > table.guard.rec(id).changedSeq &&
+        m.character_id === id && m.kind === "ic" && m.seq > table.guard.rec(id).changedSeq &&
         table.timelines.timelineAt(id, m.seq).id === table.timelines.of(id).id).map(m => m.seq);
       for (const l of batch.filter(l => l.id === id)) {
         if (!lines.some(m => m.seq === l.seq)) lines.push({ seq: l.seq, speaker: table.nameOf(id), text: l.content, kind: "ic" });
@@ -151,12 +150,7 @@ export async function checkDestinations(table, windowId, reports, scope, batch, 
     let disputed = false;
     for (const [key, r] of options) {
       const who = decisions.filter(m => m.destination === key).map(m => table.nameOf(m.id));
-      if (table.dailyOn() && table.turnScope.getStore()?.mode !== "attention" && !table.turnScope.getStore()?.gentle) {
-        for (const name of r.who ?? []) {
-          const id = table.investigatorByName(name);
-          if (id && table.isPassive(id) && who.some(n => { const companion = table.investigatorByName(n); return companion !== id && !table.isPassive(companion) && table.timelines.of(companion).id === table.timelines.of(id).id; })) who.push(table.nameOf(id));
-        }
-      }
+
       const proposed = reports.filter(other => other.thread === r.thread && (r.thread !== "NEW" || placeKey(other.place) === placeKey(r.place))).flatMap(other => other.who);
       const target = r.thread === "NEW" ? table.timelines.atPlace(r.place) : table.timelines.byHandle(r.thread);
       const missing = proposed.map(n => table.investigatorByName(n)).filter(id => id &&
@@ -304,17 +298,7 @@ export async function applyPlan(table, result, { windowId, mode, turn, autonomou
     const dropped = [];
     if (!table.forks) for (const o of ops) if (o.op === "split" && (table.guard.retries[factOf(o)] ?? 0) >= 3) { o.skip = true; dropped.push(...o.ids.map((id) => ({ id, why: "the platform failed to open this scene three times" }))); }
     if (!ops.some(o => !o.skip)) { table.guard.apply(result.guard); const ig = [...(result.ignored ?? []), ...dropped]; if (ig.length) table.noteIgnored(windowId, ig); return null; }
-    if (table.dailyOn()) for (const o of ops) {
-      const source = o.timeline ? table.timelines.get(o.timeline) : table.timelines.of(o.ids?.[0]);
-      const old = source?.clock ?? table.calendar.clock ?? parseClock(table.cfg.daily.night_end);
-      const field = o.op === "relocate" ? "narrativeTime" : "time";
-      if (!["relocate", "split", "fork_main"].includes(o.op)) continue;
-      const minute = parseClock(o[field]);
-      if (minute === null || minute < old) {
-        if (o[field]) await table.post(windowId, { kind: "narration", visibility: "gm_only", content: "Time kept: whereabouts need a forward HH:MM time." }, { count: false });
-        o[field] = formatClock(old);
-      }
-    }
+
     const lastSeq = table.lastSeq;
     const windowFor = table.forks
       ? await table.forkScenes(ops, { opId, mode, correctionSeq, result, windowId })
@@ -341,10 +325,7 @@ export async function applyPlan(table, result, { windowId, mode, turn, autonomou
     }
     for (const o of ops) if (o.op === "merge") table.timelines.merge(o.from, o.into, fromSeq);
     for (const o of ops) if (o.op === "relocate") table.timelines.relocate(o.timeline, { location: o.location, narrativeTime: o.narrativeTime });
-    if (table.dailyOn()) {
-      for (const t of table.timelines.active()) if (parseClock(t.narrativeTime) !== null) t.clock = parseClock(t.narrativeTime);
-      table.calendar.clock = table.timelines.main().clock ?? table.calendar.clock;
-    }
+
     for (const o of ops) if (o.op === "bind_main") table.timelines.bind(MAIN, o.windowId);
     for (const o of ops.filter(o => o.op === "fork_main")) {
       table.timelines.bind(MAIN, windowFor.get(o));
@@ -395,7 +376,7 @@ export async function applyPlan(table, result, { windowId, mode, turn, autonomou
       if (!reconciling) {
         const continuing = op.op === "fork_main" && !ops.some(o => o.op === "relocate" && o.timeline === MAIN);
         if (continuing && !table.deferArrivals) { t.opened = true; table.schedule(w, { mode: "followup", delay: 0 }); }
-        else if (mode !== "daily") table.scheduleArrival(w, { names: op.ids.map((id) => table.nameOf(id)), place: t.location, opening: op.opening, reunion: false }, { autonomous, mode });
+        else table.scheduleArrival(w, { names: op.ids.map((id) => table.nameOf(id)), place: t.location, opening: op.opening, reunion: false }, { autonomous, mode });
       }
     }
     // Reunions: everyone who ended in an existing thread, grouped by where they ended, one arrival per window.
@@ -418,12 +399,12 @@ export async function applyPlan(table, result, { windowId, mode, turn, autonomou
       const target = went.sort((a, b) => went.filter((x) => x === b).length - went.filter((x) => x === a).length)[0];
       if (target && target !== old.windowId) await table.post(old.windowId, { content: `→ "${table.windowName(target)}"`, kind: "narration" }, { count: false });
       // Its scene is over: what happened there becomes a chapter of the GM's memory.
-      if (mode !== "daily") table.memory.maintainGm(old.windowId, table.history.lines(old.windowId).filter((m) => !table.hiddenLines().has(m.id)), (m) => table.renderForGm(m), { windowName: table.windowName(old.windowId), whole: true });
+      table.memory.maintainGm(old.windowId, table.history.lines(old.windowId).filter((m) => !table.hiddenLines().has(m.id)), (m) => table.renderForGm(m), { windowName: table.windowName(old.windowId), whole: true });
     }
     for (const [w, { dest, ids }] of byWindow) {
       summary.push(`${ids.map((id) => table.nameOf(id)).join(", ")} → ${dest.name}`);
       const arrival = { names: ids.map((id) => table.nameOf(id)), place: dest.location, reunion: true };
-      if (reconciling || mode === "daily") continue;
+      if (reconciling) continue;
       if (w === windowId) here = arrival;
       else table.scheduleArrival(w, arrival, { autonomous, mode });
     }

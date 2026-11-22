@@ -3,7 +3,6 @@ import { test } from "node:test";
 import { directTurn } from "../src/director.mjs";
 import { coplayerTurn } from "../src/coplayer.mjs";
 import { coplayerPhoneReply } from "../src/casual.mjs";
-import { standinTurn } from "../src/standin.mjs";
 import { DEFAULT_WRITING } from "../src/writing.mjs";
 
 const gm = { language: "简体中文", context: [{ text: "UNRELATED-GM-SECRET and the whole table history", cache: true }], casual: true };
@@ -54,19 +53,15 @@ test("co-player prose can be one long message or several short messages", async 
   }
 });
 
-test("phone and stand-in presentation guidance stays out of the creative request", async () => {
-  for (const role of ['phone', 'standin']) {
-    const calls = [], formatting = 'LAYOUT-ONLY: 保留完整句子。';
-    const llm = { async complete(r) {
-      calls.push(r);
-      if (r.purpose !== 'chat_format') return '好，我知道了。';
-      return JSON.stringify(role === 'phone' ? { reply: 1 } : { action: 'speak', text: 1 });
-    } };
-    if (role === 'phone') await coplayerPhoneReply(llm, { language: 'Chinese', name: '江念', maxDelay: 30, formatting });
-    else await standinTurn(llm, { language: 'Chinese', formatting });
-    assert.ok(!calls[0].system.includes(formatting));
-    assert.ok(calls[1].system.includes(formatting));
-  }
+test("phone presentation guidance stays out of the creative request", async () => {
+  const calls = [], formatting = 'LAYOUT-ONLY: 保留完整句子。';
+  const llm = { async complete(r) {
+    calls.push(r);
+    return r.purpose !== 'chat_format' ? '好，我知道了。' : JSON.stringify({ reply: 1 });
+  } };
+  await coplayerPhoneReply(llm, { language: 'Chinese', name: '江念', maxDelay: 30, formatting });
+  assert.ok(!calls[0].system.includes(formatting));
+  assert.ok(calls[1].system.includes(formatting));
 });
 
 test("a GM draft becomes ordered messages without sharing context or rewriting prose", async () => {
@@ -135,10 +130,10 @@ test("co-player prose stays intact and only an explicitly drafted command can ro
   } }, player), /operation must be stated/);
 });
 
-test("an unattended turn that spends its budget drafting does not call the formatter", async () => {
+test("an autonomous turn that spends its budget drafting does not call the formatter", async () => {
   const calls = [];
   const plan = await directTurn({ async complete(r) { calls.push(r.purpose); return "茶凉了。"; } },
-    { ...gm, mode: "spark", canFormat: () => calls.length === 0 });
+    { ...gm, mode: "quiet", canFormat: () => calls.length === 0 });
   assert.deepEqual(calls, ["director"]);
   assert.deepEqual(plan.actions, []);
   assert.equal(plan.coplayersMayAct, false);

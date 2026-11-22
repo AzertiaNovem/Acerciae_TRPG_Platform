@@ -45,7 +45,7 @@ import { rulesProfile, ruleSystemOf } from "./rules/index.mjs";
 // writer's last heartbeat and a reconnect brings a fresh snapshot, so this only matters when that event was lost; it
 // is long enough that nobody composing a long paragraph is cut off.
 const TYPING_STALE_MS = 10 * 60000;
-import * as daily from "./table/daily.mjs";
+
 import * as book from "./table/worldbook.mjs";
 import { intentionOf } from "./table/intentions.mjs";
 import * as context from "./table/context.mjs";
@@ -65,7 +65,7 @@ export { languageName } from "./table/shared.mjs";
 
 export class Table {
   // `deferArrivals`: a short-lived CLI process records arrivals in the state file for the `run` process to play.
-  constructor({ api, llm, cfg, channelId, roster, timelines, guard, store = null, scenario = null, improv = null, worldState = null, casual = null, planner = null, plannerLlm = null, calendar = null, daily: dailyData = null, bonds = null, journal = null, owedArrivals = [], rollCards = [], deferArrivals = false, persist = () => {}, log = () => {}, sleep, now = Date.now, random = Math.random, operatorDir = null }) {
+  constructor({ api, llm, cfg, channelId, roster, timelines, guard, store = null, scenario = null, improv = null, worldState = null, casual = null, planner = null, plannerLlm = null, calendar = null, bonds = null, journal = null, owedArrivals = [], rollCards = [], deferArrivals = false, persist = () => {}, log = () => {}, sleep, now = Date.now, random = Math.random, operatorDir = null }) {
     this.api = api;
     // The client's own store (store.mjs): the chat's local copy, compacted chapters, token usage. In memory when none
     // is given (tests, read-only commands).
@@ -83,7 +83,7 @@ export class Table {
     this.startedAt = now();
     this.random = random;
     this.operatorDir = operatorDir;   // the state directory: the worldbook and intentions files the host's Web UI edits
-    this.daily = daily.dailyState(dailyData, 0);
+
     this.timelines = timelines ?? new Timelines([], { now });
     this.guard = guard ?? new Guard();
     this.scenario = scenario;            // {id, since}: when the client saw the current scenario begin
@@ -105,7 +105,7 @@ export class Table {
     this.memory = new Memory({ store: this.store, llm: this.llm, gmBudget: cfg.gmContextTokens ?? 60000, coplayerBudget: cfg.coplayerContextTokens ?? 24000, log });
     this.gm = new GmContext(api, channelId, { history: this.history, memory: this.memory, budget: cfg.gmContextTokens ?? 60000, recallTokens: cfg.recallTokens ?? 1200, log });
     this.botMessageIds = new Set();
-    this.handledMessages = new Set();   // daily life: ids of human chat events already taken in, so a repeat is skipped
+
     // Recall rollback (rollback.mjs): each turn's checkpoint, the turn a post belongs to, and the copies a player's
     // text left in another player's phone.
     this.checkpoints = [];
@@ -162,7 +162,7 @@ export class Table {
     this.memberCache = null;
   }
 
-  async init({ heal = false, dailyStart = true } = {}) {
+  async init({ heal = false, syncWorld = true } = {}) {
     this.me = this.api.user ?? (await this.api.me());
     this.channel = await this.api.channel(this.channelId);
     if (this.channel.my_role !== "gm") throw new Error(`the client's account is not the GM of channel ${this.channelId}`);
@@ -190,7 +190,7 @@ export class Table {
       await world.refreshWorldInventory(this);
       if (heal) { await world.recoverWorldRecall(this); await world.recoverWorldState(this); }
     }
-    if (dailyStart) this.syncWorldbook();   // before anything reads the world: a newer world in the state may win
+    if (syncWorld) this.syncWorldbook();   // before anything reads the world: a newer world in the state may win
     this.speakers.clear();                 // history never authorises a move
     if (this.channel.current_scene_id && this.scenario?.id !== this.channel.current_scene_id) {
       const scenes = (await this.api.scenes(this.channelId).catch(() => [])) ?? [];
@@ -202,7 +202,6 @@ export class Table {
     if (heal) await this.seedWorld();
     this.ready = true;
     if (heal) await this.ensureTableWindows();
-    if (dailyStart) await this.initDaily();
     return this;
   }
 
@@ -277,28 +276,6 @@ export class Table {
     if (newcomers.length) this.welcomeNewcomers(newcomers);
   }
 
-  budgetPressure(...args) { return scheduling.budgetPressure(this, ...args); }
-  sparkTick(...args) { return daily.sparkTick(this, ...args); }
-  sparkCancelled(...args) { return daily.sparkCancelled(this, ...args); }
-  sparkNote(...args) { return daily.sparkNote(this, ...args); }
-  finishSpark(...args) { return daily.finishSpark(this, ...args); }
-  isPassive(...args) { return daily.isPassive(this, ...args); }
-  setPassiveMark(...args) { return daily.setPassiveMark(this, ...args); }
-  reconcilePassive(...args) { return daily.reconcilePassive(this, ...args); }
-  passiveNote(...args) { return daily.passiveNote(this, ...args); }
-  onAwayCommand(...args) { return daily.onAwayCommand(this, ...args); }
-  standinAct(...args) { return daily.standinAct(this, ...args); }
-  standinReplies(...args) { return daily.standinReplies(this, ...args); }
-  dayTurn(...args) { return daily.dayTurn(this, ...args); }
-  flushDayTurns(...args) { return daily.flushDayTurns(this, ...args); }
-  dailyOn(...args) { return daily.dailyOn(this, ...args); }
-  dailyMode(...args) { return daily.dailyMode(this, ...args); }
-  noteDailyLine(...args) { return daily.noteDailyLine(this, ...args); }
-  initDaily(...args) { return daily.initDaily(this, ...args); }
-  clockTick(...args) { return daily.clockTick(this, ...args); }
-  beforeDailyMessage(...args) { return daily.beforeDailyMessage(this, ...args); }
-  readClock(...args) { return daily.readClock(this, ...args); }
-  dailyStatus(...args) { return daily.dailyStatus(this, ...args); }
 
   mainWindow(...args) { return context.mainWindow(this, ...args); }
   windowName(...args) { return context.windowName(this, ...args); }
@@ -406,31 +383,13 @@ export class Table {
     const parent = this.turnScope.getStore() ?? null;     // the turn that scheduled this one, if any
     const cp = this.openCheckpoint(windowId, opts.mode ?? "human");
     cp.parent = parent;
-    cp.standinActed = new Set();
-    cp.gentle = Boolean(opts.gentle ?? (!["human", "relay"].includes(opts.mode ?? "human") && parent?.gentle));
-    if (cp.gentle) {
-      cp.dailyEpoch = opts.dailyEpoch ?? parent?.dailyEpoch ?? this.dailyInterrupt ?? 0;
-      const allowance = this.budgetPressure() === "tight" ? Math.max(2, Math.floor(this.cfg.daily.spark_max_lines / 2)) : this.cfg.daily.spark_max_lines;
-      cp.dailyBudget = parent?.gentle ? parent.dailyBudget : { limit: Math.min(this.cfg.maxActionsPerTurn, allowance), posted: 0 };
-    }
-    if (opts.mode === "spark") {
-      cp.dailyEpoch = opts.dailyEpoch ?? this.dailyInterrupt ?? 0;
-      cp.lineLimit = this.budgetPressure() === "tight" ? Math.max(2, Math.floor(this.cfg.daily.spark_max_lines / 2)) : this.cfg.daily.spark_max_lines;
-      cp.dailyPosted = 0;
-    }
     const signal = AbortSignal.any([this.generation.signal, cp.abort.signal]);
-    try { return await this.turnScope.run(cp, () => this.generation.tasks.run(signal, async () => {
-      const result = await this.playTurn(windowId, opts);
-      if (opts.mode === "attention" && cp.gentle && !this.sparkCancelled()) await this.finishSpark(windowId, { state: "ended" }, false);
-      return result;
-    })); }
-    finally { await this.flushDayTurns(); this.closeCheckpoint(cp); }
+    try { return await this.turnScope.run(cp, () => this.generation.tasks.run(signal, () => this.playTurn(windowId, opts))); }
+    finally { this.closeCheckpoint(cp); }
   }
 
   async playTurn(windowId, { kickoff = false, mode = "human", ...extra } = {}) {
-    if (this.generation.signal.aborted || this.sparkCancelled()) return;
-    const gentle = Boolean(this.turnScope.getStore()?.gentle);
-    if (gentle && (this.overBudget() || this.turnScope.getStore().dailyBudget.posted >= this.turnScope.getStore().dailyBudget.limit)) return;
+    if (this.generation.signal.aborted) return;
     if (this.journal) await this.heal();
     await this.adoptPlan();
     if (mode === "phone") { this.turns++; await this.refresh(); return this.phoneTurn(windowId, extra.phone ?? {}); }
@@ -497,8 +456,7 @@ export class Table {
     const speakerIds = new Set(batch.map((l) => l.id));
     const visitorsIn = scene ? [...speakerIds].filter((id) => !scene.members.includes(id)) : [];
 
-    let budget = mode === "spark" ? this.turnScope.getStore().lineLimit : this.cfg.maxActionsPerTurn;
-    if (gentle) budget = Math.min(budget, checkpoint.dailyBudget.limit - checkpoint.dailyBudget.posted);
+    let budget = this.cfg.maxActionsPerTurn;
     let reviewed = null, reviewDecision = null;
     const reviewInvite = () => reviewed && reviewDecision?.decision !== "rest" && this.scene(windowId)?.members.includes(reviewed.id);
     const timeline = this.timelines.ofWindow(windowId);
@@ -530,13 +488,13 @@ export class Table {
       scene = this.scene(windowId);
       if (roundMode === mode && ["human", "relay", "quiet", "side", "attention"].includes(mode) && budget >= 2 && (!autonomous || !this.overBudget())) reviewed = attentionCandidates(this, windowId)[0] ?? null;
       if (roundMode === "attention" && !reviewed) return { actions: [], coplayersMayAct: false, spotlight: [], whereabouts: [] };
-      let worldDraft = await world.beginWorldDraft(this, windowId, { gentle: gentle || mode === 'spark' });
+      let worldDraft = await world.beginWorldDraft(this, windowId);
       const ctx = await this.buildGm(windowId, { storyPlan: this.storyPlanSection() });
       lastCtx = ctx;
       // Compaction runs beside the turn: this round's prompt is already built.
-      if (mode !== "spark") this.memory.maintainGm(windowId, ctx.lines(windowId), ctx.render, { windowName: this.windowName(windowId) });
+      this.memory.maintainGm(windowId, ctx.lines(windowId), ctx.render, { windowName: this.windowName(windowId) });
       const scope = new Set([...(scene?.members ?? []), ...visitorsIn]);
-      const mayMove = [...scope].filter(id => this.isPc(id) ? (this.dailyOn() && mode !== "attention" && !gentle && this.isPassive(id)) || (["human", "relay"].includes(roundMode) && speakerIds.has(id)) : MOVE_MODES.has(roundMode));
+      const mayMove = [...scope].filter(id => this.isPc(id) ? ["human", "relay"].includes(roundMode) && speakerIds.has(id) : MOVE_MODES.has(roundMode));
       const whereabouts = this.cfg.timelineAuto && scene
         ? whereaboutsBrief({ timelines: this.timelines, scene: { timeline: scene }, nameOf: (id) => this.nameOf(id), windowName: (id) => this.windowName(id), isPc: (id) => this.isPc(id), mayMove, capReached: this.timelines.active().length >= this.cfg.timelineMaxActive, forks: this.forks })
         : "";
@@ -558,22 +516,21 @@ export class Table {
       // A public handoff or seat correction just posted by the table must not replace the player's question.
       const newest = roundMode === "human" && ctx.newest && !this.isHuman(ctx.newest)
         ? ctx.lines(windowId).findLast(m => this.isTrigger(m)) ?? ctx.newest : ctx.newest;
-      const request = { language: this.language, profile: this.profile, context: ctx.parts, pbta, newest, mode: roundMode, kickoff: roundMode === "kickoff", timeline, whereabouts, scenario, auto: this.cfg.timelineAuto, forks: this.forks, illustrate: this.illustrationsOn() && (this.cfg.illustrations?.maxPerHour ?? 0) > 0, improv: this.improv.on, casual: this.casualOn(), planner: this.plannerVerdict(), between, calendar: this.calendarOn(), daily: this.dailyOn(), ...roundExtra, gentle, attentionNote: roundMode === mode ? attentionBrief(reviewed, { gentle }) : '', dailyNote: [this.passiveNote(windowId), roundExtra.dailyNote].filter(Boolean).join("\n") };
-      request.canFormat = () => !this.sparkCancelled() && !((mode === "spark" || gentle || autonomous) && this.overBudget());
+      const request = { language: this.language, profile: this.profile, context: ctx.parts, pbta, newest, mode: roundMode, kickoff: roundMode === "kickoff", timeline, whereabouts, scenario, auto: this.cfg.timelineAuto, forks: this.forks, illustrate: this.illustrationsOn() && (this.cfg.illustrations?.maxPerHour ?? 0) > 0, improv: this.improv.on, casual: this.casualOn(), planner: this.plannerVerdict(), between, calendar: this.calendarOn(), ...roundExtra, attentionNote: roundMode === mode ? attentionBrief(reviewed) : '' };
+      request.canFormat = () => !(autonomous && this.overBudget());
       request.writing = this.cfg.writing?.gm;
       request.formatting = this.cfg.writing?.formatting;
       request.toolkit = this.withWorldbookTool(windowId, worldDraft?.toolkit);
       request.worldToolRules = worldDraft ? [world.WORLD_TOOL_RULES, this.worldbookToolRule()].filter(Boolean).join('\n') : '';
       if (!request.canFormat()) return { actions: [], coplayersMayAct: false, spotlight: [], whereabouts: [] };
       let plan = await directTurn(this.llm, request);
-      if (this.sparkCancelled()) return { actions: [], coplayersMayAct: false, spotlight: [], whereabouts: [] };
       const moves = MOVE_MODES.has(roundMode) && !(roundMode === "followup" && (mode === "arrival" || mode === "kickoff"));
       let placements;
       const newActorLine = batch.length || this.history.lines(windowId, { after: checkpoint?.startSeq ?? this.lastSeq }).some(m => m.kind === "ic" && this.roster.isCoplayer(m.character_id));
       if (this.cfg.timelineAuto && scene && moves && (plan.whereabouts.length || newActorLine) && (!autonomous || !this.overBudget())) {
         const checked = await this.checkDestinations(windowId, plan.whereabouts, scope, batch, roundMode);
         placements = planWhereabouts({
-          timelines: this.timelines, scene: { timeline: scene, windowId }, reports: checked.reports, scopeIds: scope, speakers: speakerIds, verifiedCompanions: true, decisionSeqs: checked.decisionSeqs, passiveFollowers: new Set(this.dailyOn() && mode !== "attention" && !gentle ? [...scope].filter(id => this.isPassive(id)) : []), mode: roundMode,
+          timelines: this.timelines, scene: { timeline: scene, windowId }, reports: checked.reports, scopeIds: scope, speakers: speakerIds, verifiedCompanions: true, decisionSeqs: checked.decisionSeqs, mode: roundMode,
           resolve: n => this.investigatorByName(n), isPc: id => this.isPc(id), userOf: id => this.userOf(id), windowUsers: w => this.windowUsers(w),
           guard: this.guard, turn: turnNo, now: this.now(), cfg: this.cfg,
         });
@@ -582,7 +539,7 @@ export class Table {
         if ((checked.disputed || blocked.size) && plan.actions.length) {
           // Drafted dialogue/opening may already put the wrong person in the other room.
           const verified = checked.reports.map(r => ({ who: r.who.filter(n => !blocked.has(this.investigatorByName(n))), destination: r.place || r.thread })).filter(r => r.who.length);
-          worldDraft = await world.beginWorldDraft(this, windowId, { gentle: gentle || mode === 'spark' });
+          worldDraft = await world.beginWorldDraft(this, windowId);
           plan = await directTurn(this.llm, { ...request, toolkit: this.withWorldbookTool(windowId, worldDraft?.toolkit), whereabouts: whereabouts + "\nVerified departures for this round: " + JSON.stringify(verified) + ". Everyone else stays. Redraft actions to respect these placements; do not report new moves." });
         }
       }
@@ -590,7 +547,6 @@ export class Table {
       // Resolve the current mechanical decision before spending a turn on an unrelated opportunity.
       if (roundMode === mode && reviewed && plan.actions.some(a => ["request_roll", "move", "ask"].includes(a.type))) reviewed = null;
       if (roundMode === mode && reviewed) reviewDecision = plan.attentionReview;
-      if (this.sparkCancelled() || (gentle && this.overBudget())) return { actions: [], coplayersMayAct: false, spotlight: [], whereabouts: [] };
       if (this.forks && placements?.ops.some(o => ["split", "move", "merge", "fork_main"].includes(o.op))) {
         const out = await this.applyPlan(placements, { windowId, mode: roundMode, turn: turnNo, autonomous });
         placements = null;
@@ -613,7 +569,7 @@ export class Table {
       for (const [actionIndex, action] of plan.actions.entries()) {
         this.generation.signal.throwIfAborted();
         const reserve = roundMode === mode && reviewInvite() ? Math.min(2, this.cfg.maxActionsPerTurn - 1) : 0;
-        if (budget <= reserve || (gentle && this.overBudget())) break;
+        if (budget <= reserve) break;
         if (this.pbta && action.type === "move" && !intents.some(m => m.id === action.source_id && m.character_id === action.character_id)) continue;
         const newNpc = action.type === "new_npc" && !this.roster.npcByName(action.name);
         budget -= await world.runWorldAction(this, windowId, worldGroups?.get(actionIndex), action, () => this.act(windowId, action, ctx, { mode: roundMode, parent: mode, scope, evidenceThrough }));
@@ -643,56 +599,16 @@ export class Table {
       if (roundMode === mode && reviewed && (reviewDecision?.decision === "rest" || !this.scene(windowId)?.members.includes(reviewed.id))) noteAttention(this, reviewed, reviewDecision);
       return plan;
     };
-    if (mode === "spark") {
-      // Repair an already-established separation before selecting this window's speakers.
-      // This only updates scene membership; unattended play still cannot invent travel.
-      if (this.cfg.timelineAuto) await this.reconcilePresence(windowId, turnNo);
-      const note = this.sparkNote(windowId);
-      const sparker = extra.sparker;
-      if (!sparker || this.sparkCancelled() || this.overBudget()) return;
-      if (!this.scene(windowId)?.members.includes(sparker.id)) return;
-      const peers = this.roster.coplayersIn(windowId).filter(c => c.characterId !== sparker.id);
-      const peer = peers[Math.floor(this.random() * peers.length)];
-      const dailyNote = [note.text, `THIS SMALL EXCHANGE: ${this.nameOf(sparker.id)}${peer ? ` and ${peer.name}` : ''}. Follow their own ordinary interests with each other or an already-present NPC; do not invent someone being here. Other characters need not join in. A passive character is not the default listener. Passing or ending the conversation is fine.`].filter(Boolean).join("\n");
-      const n = sparker.coplayer ? await this.coplayerAct(windowId, sparker.coplayer, true, { spark: true, dailyNote }) : this.standinAct ? await this.standinAct(windowId, sparker.id, { spark: true }) : 0;
-      budget -= n;
-      if (!n) {
-        if (!this.sparkCancelled()) await this.finishSpark(windowId, { state: "ended", title: "" }, note.urge);
-        return;
-      }
-      if (peer && budget > 1 && !this.sparkCancelled() && !this.overBudget()) budget -= await this.coplayerAct(windowId, peer, false, { whistle: true, dailyNote });
-      if (this.standinReplies && budget > 1 && !this.sparkCancelled()) budget -= await this.standinReplies(windowId, [], checkpoint.startSeq, budget - 1, { spark: true, except: sparker.id });
-      if (this.sparkCancelled() || this.overBudget()) return;
-      const plan = budget > 0 ? await round("spark", { dailyNote }) : null;
-      await this.finishSpark(windowId, plan?.topic, note.urge);
-      return;
-    }
     // Players back after being away are welcomed back in this turn.
     const returning = takesLines ? [...new Set(batch.map((l) => l.id))].filter((id) => this.returning.has(id)).map((id) => ({ name: this.nameOf(id), away: duration(this.returning.get(id)) })) : [];
-    if (this.dailyOn() && takesLines) {
-      for (const id of new Set(batch.map(l => l.id))) {
-        const record = this.dailyReturns?.get(id);
-        if (!record) continue;
-        const at = returning.findIndex(r => r.name === record.name);
-        if (at >= 0) returning.splice(at, 1);
-        returning.push(record); this.dailyReturns.delete(id);
-      }
-    }
+
     for (const l of batch) this.returning.delete(l.id);
     let plan = await round(kickoff ? "kickoff" : mode, returning.length ? { ...extra, returning } : extra);
     if (!kickoff && mode !== "arrival") this.noteStall(windowId, lastCtx);
     if (here) { const arrival = here; here = null; plan = await round("arrival", { arrival }); }
     if (!this.scene(windowId) && sceneThread) return;                    // this window's scene just ended
     const side = mode === "side" || (mode === "arrival" && !this.presentPlayers(windowId).length);
-    const passiveReplies = mode === "attention" || gentle ? 0 : await this.standinReplies(windowId, plan.spotlight, checkpoint.startSeq, Math.max(0, budget - (reviewInvite() ? 2 : 0)), { autonomous });
-    budget -= passiveReplies;
-    if (!plan.coplayersMayAct && !side && !reviewInvite()) {
-      if (passiveReplies && budget > 0) {
-        const followup = await round("followup", {});
-        if (budget > 0) budget -= await this.standinReplies(windowId, followup.spotlight, checkpoint.startSeq, budget, { autonomous });
-      }
-      return;
-    }
+    if (!plan.coplayersMayAct && !side && !reviewInvite()) return;
     // Pace: in a quiet turn a co-player acts only if it has not since the last human line, so slow humans are not
     // drowned out by the AI side of the table.
     const st2 = this.state(windowId);
@@ -708,19 +624,16 @@ export class Table {
       .sort((a, b) => Number(b.characterId === reviewed?.id) - Number(a.characterId === reviewed?.id));
     let acted = 0;
     for (const c of [...first, ...seated.filter((x) => !first.includes(x))]) {
-      if (budget <= 0 || (reviewed && acted > 0 && budget <= 1) || (autonomous && this.overBudget()) || this.sparkCancelled()) break;
-      const n = await this.coplayerAct(windowId, c, first.includes(c), { side, gentle, maxMessages: Math.max(1, budget - (reviewed ? 1 : 0)), attentionNote: attentionChoice(c.characterId === reviewed?.id ? reviewed : null) });
+      if (budget <= 0 || (reviewed && acted > 0 && budget <= 1) || (autonomous && this.overBudget())) break;
+      const n = await this.coplayerAct(windowId, c, first.includes(c), { side, maxMessages: Math.max(1, budget - (reviewed ? 1 : 0)), attentionNote: attentionChoice(c.characterId === reviewed?.id ? reviewed : null) });
       if (c.characterId === reviewed?.id) noteAttention(this, reviewed, reviewDecision);
       if (n) (st2.coplayersActed ??= new Set()).add(c.characterId);
       acted += n; budget -= n;
     }
     // Co-players are players too: their choices get the GM's answer now, not at the next human line.
-    if (budget > 0 && mode !== "attention" && !gentle) { const n = await this.standinReplies(windowId, [], checkpoint.startSeq, Math.max(0, budget - (reviewed ? 1 : 0)), { autonomous }); acted += n; budget -= n; }
-    acted += passiveReplies;
-    if (acted > 0 && budget > 0 && !this.sparkCancelled() && (!autonomous || !this.overBudget())) {
-      let followup = await round("followup", {});
-      if (here) { const arrival = here; here = null; followup = await round("arrival", { arrival }); }
-      if (budget > 0 && mode !== "attention" && !gentle) budget -= await this.standinReplies(windowId, followup.spotlight, checkpoint.startSeq, budget, { autonomous });
+    if (acted > 0 && budget > 0 && (!autonomous || !this.overBudget())) {
+      await round("followup", {});
+      if (here) { const arrival = here; here = null; await round("arrival", { arrival }); }
     }
   }
 
@@ -875,7 +788,7 @@ export class Table {
     if (cmd.cmd === "casual") return this.setCasual(cmd.on);
     if (cmd.cmd === "plan") return this.planCommand(cmd.action);
     if (cmd.cmd === "date" && !this.calendarOn()) throw new Error("date: the story keeps a calendar only in a casual game (casual on)");
-    if (cmd.cmd === "date") { const r = this.moveCalendar({ days: cmd.days, date: cmd.date, time: cmd.time, why: cmd.why ?? "by the operator", by: "operator" }); if (r.refused) throw new Error(`date: ${r.refused}`); await this.flushDayTurns(); return r; }
+    if (cmd.cmd === "date") { const r = this.moveCalendar({ days: cmd.days, date: cmd.date, time: cmd.time, why: cmd.why ?? "by the operator", by: "operator" }); if (r.refused) throw new Error(`date: ${r.refused}`); return r; }
     if (cmd.cmd === "bond") {
       const [a, b] = [cmd.a, cmd.b].map((n) => this.characterByName(n)?.id);
       if (!a || !b) throw new Error(`bond: no character named ${!a ? cmd.a : cmd.b}`);

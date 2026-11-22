@@ -112,7 +112,6 @@ export function directorSources(plan, take, directions) {
 
 export function coplayerSources(move, take, directions) {
   if (move?.action === "roll") requireDirection(directions, move.command);
-  if (move?.needs_reply_from?.length) requireDirection(directions);
   if (move?.action === "speak") {
     const kind = move.kind === "ooc" ? "ooc" : "public";
     if (move.messages != null) {

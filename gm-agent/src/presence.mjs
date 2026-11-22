@@ -19,7 +19,7 @@ Return {"placements":[{"id":"actor id","thread":"destination handle","with":"inv
 export async function readPresence(llm, { current, threads }) {
   const here = threads.find(t => t.key === current);
   const canSeparate = here?.members.length > 1 && here.members.some(m => m.coplayer && here.lines.some(l =>
-    l.actor === m.id && l.kind === "ic" && !l.standIn && l.seq > (m.since ?? 0) &&
+    l.actor === m.id && l.kind === "ic" && l.seq > (m.since ?? 0) &&
     here.lines.some(next => next.keeper && next.kind === "narration" && next.seq > l.seq)));
   if (threads.filter(t => t.members.length && t.lines.length).length < 2 && !canSeparate) return [];
   const result = await completeJson(llm, { purpose: "scene_presence", system: SYSTEM, user: JSON.stringify({ current, threads }) }, x => {
@@ -43,7 +43,7 @@ export async function readPresence(llm, { current, threads }) {
   for (const p of result.departures ?? []) {
     const actor = here?.members.find(m => m.id === p?.id && m.coplayer);
     if (!actor || here.members.length < 2) continue;
-    const source = here.lines.find(l => l.seq === p.actor_seq && l.seq > (actor.since ?? 0) && l.actor === actor.id && l.kind === "ic" && !l.standIn);
+    const source = here.lines.find(l => l.seq === p.actor_seq && l.seq > (actor.since ?? 0) && l.actor === actor.id && l.kind === "ic");
     const confirmation = here.lines.find(l => l.seq === p.confirmation_seq && l.seq > (source?.seq ?? Infinity) && l.keeper && l.kind === "narration");
     const place = typeof p.place === "string" ? p.place.trim() : "";
     if (!source || !confirmation || !place || place.length > 120 || !confirmation.text.includes(place) || placeKey(place) === placeKey(here.location)) continue;

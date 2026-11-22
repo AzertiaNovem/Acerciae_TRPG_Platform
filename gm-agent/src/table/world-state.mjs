@@ -45,23 +45,19 @@ const context = (table, windowId) => ({
   scene: JSON.stringify([table.scenario?.id ?? '', table.scene(windowId)?.id ?? windowId, table.calendar.date ?? '', table.worldState.sceneEpoch?.[windowId] ?? 0]),
   canResolve: event => [event.subject, event.target].filter(Boolean).every(id => {
     if (!table.characters.some(c => c.id === id)) return false;
-    if (table.isPc(id) && table.dailyOn() && table.isPassive(id)) return false;
+
     if (table.isPc(id) || table.roster.isCoplayer(id)) return table.scene(windowId)?.members.includes(id);
     return true;
   }),
 });
 
-export async function beginWorldDraft(table, windowId, { gentle = false } = {}) {
+export async function beginWorldDraft(table, windowId) {
   if (!table.improv.on) return null;
   if (table.worldState.recallPending) await recoverWorldRecall(table);
   if (table.worldState.pending) await recoverWorldState(table);
   await refreshWorldInventory(table);
   const draft = new WorldDraft(table.worldState, { ...context(table, windowId), lines: table.sceneHistory(windowId).slice(-200),
-    inventory: table.worldInventory ?? [], inventoryAvailable: table.worldInventoryAvailable,
-    mayChange: op => {
-      const ids = [op.subject, op.target, op.owner, op.recipient].filter(Boolean);
-      if (gentle && ids.some(id => table.isPc(id) && table.isPassive(id))) throw Error('Unattended play cannot change a passive player’s state or relationships');
-    } });
+    inventory: table.worldInventory ?? [], inventoryAvailable: table.worldInventoryAvailable });
   return draft;
 }
 
@@ -134,8 +130,6 @@ function rememberMessage(table, message, windowId) {
   const cp = table.turnScope.getStore();
   if (cp?.running && !cp.posted.some(m => m.id === message.id)) {
     cp.posted.push({ id: message.id, seq: message.seq, kind: message.kind, windowId });
-    if (cp.mode === 'spark') cp.dailyPosted++;
-    if (cp.gentle) cp.dailyBudget.posted++;
   }
 }
 
@@ -194,10 +188,7 @@ export async function recoverWorldState(table) {
 
 export async function runWorldAction(table, windowId, entries, action, run) {
   if (!entries?.length) return run();
-  const cp = table.turnScope.getStore();
-  if (table.generation.signal.aborted || table.sparkCancelled()) return 0;
-  if (cp?.gentle && (table.overBudget() || cp.dailyBudget.posted >= cp.dailyBudget.limit)) return 0;
-  if (cp?.mode === 'spark' && cp.dailyPosted >= cp.lineLimit) return 0;
+  if (table.generation.signal.aborted) return 0;
   const posted = await commitWorldGroup(table, windowId, entries, action);
   if (table.worldState.pending) throw Error('World state commit remains pending');
   await table.sleep(table.cfg.postDelayMs);

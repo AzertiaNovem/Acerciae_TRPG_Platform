@@ -1,5 +1,5 @@
 // Participation is measured within the current seat, using actual public play.
-// A review rides on a normal GM turn or daily slot, without a separate model call.
+// A review rides on a normal GM turn, without a separate model call.
 export function attentionCandidates(table, windowId) {
   if (table.generation.paused || table.cfg.coplayerIdleLines === 0) return [];
   const scene = table.scene(windowId);
@@ -7,7 +7,7 @@ export function attentionCandidates(table, windowId) {
   const hidden = table.hiddenLines(), now = table.now();
   const minutes = table.cfg.coplayerIdleMinutes ?? 20, threshold = table.cfg.coplayerIdleLines ?? 12;
   const lines = table.history.lines(windowId).filter(m => m.visibility === 'window' && !hidden.has(m.id) &&
-    ['ic', 'narration', 'roll'].includes(m.kind) && !m.stand_in &&
+    ['ic', 'narration', 'roll'].includes(m.kind) &&
     (!(table.isPc(m.character_id) || table.roster.isCoplayer(m.character_id)) || table.timelines.timelineAt(m.character_id, m.seq).id === scene.id));
   return table.roster.coplayersIn(windowId).flatMap(cp => {
     if (!scene.members.includes(cp.characterId)) return [];
@@ -28,16 +28,16 @@ export function attentionCandidates(table, windowId) {
   }).sort((a, b) => b.lines - a.lines || b.minutes - a.minutes || a.since - b.since);
 }
 
-export function attentionBrief(candidate, { gentle = false } = {}) {
+export function attentionBrief(candidate) {
   if (!candidate) return '';
   return `PARTICIPATION REVIEW: ${JSON.stringify(candidate)}
 This AI co-player has been recorded in this window while other play moved on, without participating. Reconsider whether they belong here using their own latest actions and routine, not the seat label alone. Repair an already-established departure through whereabouts. Otherwise give this person one concrete, character-specific opportunity now: a task, interest, existing relationship or independent scene that can grow into their own story. They need not orbit the human protagonist. Do not merely mention their name, make them agree, or promise to give them a scene later. Put the opportunity first in your actions and give them the spotlight.
 Do not invent their decision or move companions by association. Let the co-player choose; their own departure will open the correct scene. If they deliberately sleep, rest, watch, wait for an agreed event, or cannot act during an unresolved situation, respect that instead of manufacturing a crisis. In the table directions say whether you are inviting them to act or letting them rest, and give a brief reason. Use rest only with a specific reason from established play. Silence alone is not a reason to leave them dormant. Review only this person this turn.
-${gentle ? 'UNATTENDED: offer only an ordinary personal activity or small independent daily-life scene. No secrets, danger, relationship escalation, player-owned plots or decisions requiring a human. Never summon, move or address a passive human to make this opportunity work.' : 'Respect player agency and pending rolls. Keep the existing scene moving for everyone else.'}`;
+Respect player agency and pending rolls. Keep the existing scene moving for everyone else.`;
 }
 
 export function noteAttention(table, candidate, decision) {
-  if (!candidate || table.generation.paused || table.sparkCancelled()) return;
+  if (!candidate || table.generation.paused) return;
   const cp = table.roster.coplayers.find(c => c.characterId === candidate.id);
   if (!cp) return;
   cp.attention = { windowId: candidate.windowId, fromSeq: candidate.fromSeq, seq: table.lastSeq, at: table.now(),

@@ -3,7 +3,6 @@ export const FEATURES = [
   { key: 'planner.enabled', title: '剧情规划', help: '即兴故事中规划长期线索与人物关系；模组故事中主要把握节奏。规划会增加模型调用。', children: ['planner.wish_window', 'planner.final_review'] },
   { key: 'autonomy.enabled', title: '自主推进', help: '允许 GM 在短暂冷场时推进，以及让 AI 队友独处的支线继续。玩家长期离开后，共享场景会停下。', children: ['autonomy.max_turns_per_hour', 'autonomy.idle_minutes'] },
   { key: 'timelines.scene_forks', title: '私有场景分叉', help: '适合多人分头行动：主聊天成为大厅，故事在各自的场景窗口进行。每位玩家还需分属独立玩家组。', children: ['timelines.max_active'] },
-  { key: 'daily.enabled', title: '日常托管与被动在场', help: '无人发言时推进故事时间，安排有限的日常闲聊。玩家角色的代答仍遵守玩家自己的离开规则。', children: ['daily.day_hours', 'daily.sparks_per_day', 'daily.passive_minutes', 'daily.summaries', 'daily.pc_sparks'] },
   { key: 'illustrations.enabled', title: '剧情插画', help: '为剧情中的时刻配图，也可让玩家请求回顾插画。需要平台配置图像服务，绘图费用另计。', children: ['illustrations.max_per_hour', 'illustrations.requests_per_hour', 'illustrations.allow_cloud'] },
 ];
 export const BASICS = ['table.language', 'table.coplayers', 'table.level'];
@@ -25,8 +24,7 @@ export function branches(draft, channel, defaults = {}) {
   const isolated = draft.source === 'new' ? casual || isOn(effective(draft, 'timelines.scene_forks', defaults)) : channel?.knowledge === 'isolated';
   const pendingForge = Boolean(channel?.saved?.forgePhase && channel.saved.forgePhase !== 'playing');
   const forge = draft.story === 'improv' && draft.world === 'forge' && !channel?.saved?.forgePhase;
-  const dailyReason = !improv ? '选择即兴故事后可开启。' : !casual ? '先在上一步开启日常模式。' : !isolated ? '手机需要隔离知识模式；请先在平台调整频道并刷新。' : channel?.hasModule ? '此频道仍绑定模组；请先在平台解除模组绑定。' : '';
-  return { improv, casual, isolated, forge, pendingForge, playedForge: channel?.saved?.forgePhase === 'playing', dailyReason,
+  return { improv, casual, isolated, forge, pendingForge, playedForge: channel?.saved?.forgePhase === 'playing',
     forksReason: draft.source === 'existing' && !isolated ? '此频道为公开知识模式，场景内容对所有玩家可见。先在平台改为隔离模式并刷新，才能配置私有场景。' : '' };
 }
 function featureChildren(feature, draft, channel, defaults) {
@@ -35,14 +33,14 @@ function featureChildren(feature, draft, channel, defaults) {
     .filter(k => k !== 'illustrations.requests_per_hour' || b.improv && isOn(effective(draft, 'planner.enabled', defaults)) && isOn(effective(draft, 'planner.wish_window', defaults)));
 }
 function phoneFields(draft, channel, defaults) {
-  const b = branches(draft, channel, defaults), daily = !b.dailyReason && isOn(effective(draft, 'daily.enabled', defaults));
-  return b.casual ? PHONE_FIELDS.filter(k => k === 'calendar.max_days' ? !daily : b.isolated) : [];
+  const b = branches(draft, channel, defaults);
+  return b.casual ? PHONE_FIELDS.filter(k => k === 'calendar.max_days' || b.isolated) : [];
 }
 export function availableKeys(draft, channel, defaults = {}) {
   const b = branches(draft, channel, defaults), keys = BASICS.filter(k => k !== 'table.level' || draft.rule === 'dnd2024');
   keys.push('context.daily_token_budget');
   for (const f of FEATURES) {
-    if ((f.key === 'daily.enabled' && b.dailyReason) || (f.key === 'timelines.scene_forks' && b.forksReason)) continue;
+    if (f.key === 'timelines.scene_forks' && b.forksReason) continue;
     keys.push(f.key);
     if (isOn(effective(draft, f.key, defaults))) keys.push(...featureChildren(f, draft, channel, defaults));
   }
@@ -64,7 +62,6 @@ export function creationSettings(draft, channel, defaults = {}) {
     if (secrets) settings['modes.secrets_file'] = secrets;
   }
   // Explicitly turn unavailable defaults off, rather than accidentally inheriting an enabled shared default.
-  if (b.dailyReason) settings['daily.enabled'] = false;
   if (b.forksReason) settings['timelines.scene_forks'] = false;
   return settings;
 }
@@ -206,7 +203,7 @@ export class CreateWizard {
     $('c-features-intro').textContent = `${b.improv ? '即兴故事' : '模组故事'}${b.casual ? ' · 日常模式' : ''}。开启功能后展开相关选项；返回上一步修改模式时，只会应用仍适用的设置。`;
     $('c-basics').replaceChildren(...BASICS.filter(k => k !== 'table.level' || this.draft.rule === 'dnd2024').map(k => this.field(k)).filter(Boolean));
     const cards = FEATURES.map(f => {
-      const reason = f.key === 'daily.enabled' ? b.dailyReason : f.key === 'timelines.scene_forks' ? b.forksReason : '';
+      const reason = f.key === 'timelines.scene_forks' ? b.forksReason : '';
       const on = !reason && isOn(this.get(f.key));
       return h('section', { class: `wizard-feature${reason ? ' unavailable' : ''}`, 'data-feature': f.key },
         h('div', { class: 'wizard-feature-head' }, h('h4', { text: f.title }), h('span', { class: `chip${on ? ' ok' : ''}`, text: reason ? '需先满足条件' : on ? '已开启' : '可选开启' })),
@@ -215,7 +212,7 @@ export class CreateWizard {
     });
     if (b.casual) cards.push(h('details', { class: 'wizard-feature wizard-phone', open: this.expanded.has('phone'), ontoggle: e => { if (e.target.isConnected) { if (e.target.open) this.expanded.add('phone'); else this.expanded.delete('phone'); } } }, h('summary', { text: b.isolated ? '调整短信和日历的节奏' : '调整故事日历的节奏' }), ...phoneFields(this.draft, this.channel(), this.defaults()).map(k => this.field(k))));
     $('c-features').replaceChildren(...cards);
-    $('c-budget').replaceChildren(h('h4', { text: '控制日常用量' }), this.field('context.daily_token_budget'), h('p', { text: '规划、托管闲聊、短信和插画会增加调用。更细的模型分配、写作风格与节奏可在创建后的“设置”中调整。' }));
+    $('c-budget').replaceChildren(h('h4', { text: '控制日常用量' }), this.field('context.daily_token_budget'), h('p', { text: '规划、短信和插画会增加调用。更细的模型分配、写作风格与节奏可在创建后的“设置”中调整。' }));
   }
   renderReview() {
     const { h } = this, $ = this.$, b = this.branch(), settings = creationSettings(this.draft, this.channel(), this.defaults());
@@ -229,14 +226,14 @@ export class CreateWizard {
       row('世界准备', b.pendingForge ? '继续已保留的开局共创' : b.forge ? '先共创开局，全体确认后再开始' : settings['modes.world_file'] || (b.improv ? '沿用本机已有世界' : '使用频道的模组知识')),
       row('日常模式', b.casual ? '开启' : '关闭'), row('知识可见性', b.isolated ? '隔离；手机和私有场景还需独立玩家组' : '公开'),
       ...BASICS.filter(k => k !== 'table.level' || this.draft.rule === 'dnd2024').map(k => row(this.getSchema().fields.find(f => f.key === k).label, String(this.get(k) ?? '跟随频道'))),
-      ...FEATURES.map(f => row(f.title, f.key === 'daily.enabled' && b.dailyReason || f.key === 'timelines.scene_forks' && b.forksReason ? '未开启（当前条件不适用）' : isOn(this.get(f.key)) ? '开启' : '关闭')),
+      ...FEATURES.map(f => row(f.title, f.key === 'timelines.scene_forks' && b.forksReason ? '未开启（当前条件不适用）' : isOn(this.get(f.key)) ? '开启' : '关闭')),
       row('每日令牌预算', Number(this.get('context.daily_token_budget')) === 0 ? '不限' : String(this.get('context.daily_token_budget'))),
     ];
     const notices = [];
-    if (b.forge || b.pendingForge) notices.push('启动后先进入或恢复开局共创。正式游戏、日常托管和普通自主推进会等到确认并开始游戏后再运行。');
+    if (b.forge || b.pendingForge) notices.push('启动后先进入或恢复开局共创。正式游戏和普通自主推进会等到确认并开始游戏后再运行。');
     if (this.draft.rule === 'pbta') notices.push(b.forge || b.pendingForge ? 'PbtA 的规则、职业与角色卡会随共创一起确认。' : 'PbtA 需要先在平台 GM 工作区审核规则草案；审核前主持会等待。');
     if (!b.improv) notices.push('模组内容在平台 GM 工作区管理；此向导不会自动选择或导入模组。');
-    if (this.channel()?.hasModule && b.improv) notices.push('频道仍绑定模组：即兴主持会忽略模组线索，但日常托管需先解除模组绑定。');
+    if (this.channel()?.hasModule && b.improv) notices.push('频道仍绑定模组：即兴主持会忽略模组线索。');
     $('c-review').replaceChildren(h('div', { class: 'wizard-review' }, ...items), ...notices.map(text => h('p', { class: 'wizard-note', text })));
     const preparing = $('c-prepare').checked;
     $('c-start-help').textContent = b.playedForge ? '直接恢复已经共创确认的故事与角色；无需重复准备。' : !preparing ? '跳过准备适合沿用已有模式的频道；不会补齐 AI 队友，也不会应用新的世界与日常模式。' : !$('c-start').checked ? '先保存主持任务；手动启动后才会准备频道或进入共创。' : b.forge || b.pendingForge ? '会启动共创准备窗口，等待玩家参与；不会直接替玩家开始正式故事。' : '创建后准备频道并开始监听消息。';

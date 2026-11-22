@@ -6,12 +6,12 @@
 // settings still name its route when `models.planner` does not.
 export const MODEL_FUNCTIONS = {
   director: ["director"],
-  coplayers: ["coplayer_turn", "coplayer_phone", "standin_turn"],
+  coplayers: ["coplayer_turn", "coplayer_phone"],
   formatting: ["chat_format", "forge_format"],
   forge: ["forge_interview", "forge_compile", "forge_review", "forge_secrets", "forge_seed", "forge_playtest"],
-  planner: ["planner", "planner_daily"],
-  memory: ["compact", "coplayer_memory", "day_summary"],
-  readers: ["scene_presence", "movement_evidence", "placement_correction", "scene_handoff", "away_rule"],
+  planner: ["planner"],
+  memory: ["compact", "coplayer_memory"],
+  readers: ["scene_presence", "movement_evidence", "placement_correction", "scene_handoff"],
   pictures: ["scenario_illustration", "event_illustration", "plot_search", "plot_illustration"],
   cards: ["coplayer_card", "npc_card", "coplayer_repair", "coplayer_points", "coplayer_build", "pbta_design", "pbta_card"],
 };

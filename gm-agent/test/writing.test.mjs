@@ -44,16 +44,16 @@ test('presentation guidance saves and resets independently of prose guidance', (
   assert.throws(() => applyChanges('', { 'writing.formatting': 'x'.repeat(WRITING_MAX_LENGTH + 1) }), /不超过/);
 });
 
-test('custom prose guidance replaces the original and leaves rules and unattended limits in the prompt', () => {
+test('custom prose guidance replaces the original and leaves the rules in the prompt', () => {
   const custom = 'Use spare prose for investigators.\nKeep $& exactly.';
-  const gm = directorSystem('Chinese', { profile: rulesProfile('dnd2024'), writing: custom, daily: true, unattended: true });
+  const gm = directorSystem('Chinese', { profile: rulesProfile('dnd2024'), writing: custom });
   assert.ok(gm.includes(custom), 'profile adaptation must not rewrite user guidance');
   assert.ok(!gm.includes(DEFAULT_WRITING.gm));
   assert.match(gm, /Never write words, thoughts or decisions for player characters or co-players/);
   assert.match(gm, /Write the turn as plain text/);
-  assert.match(gm, /Never aim confessions, quarrels/);
-  const cp = coplayerSystem('Chinese', { writing: custom, unattended: true });
+  assert.match(gm, /Players come and go/);
+  const cp = coplayerSystem('Chinese', { writing: custom });
   assert.ok(cp.includes(custom));
   assert.ok(!cp.includes(DEFAULT_WRITING.coplayer));
-  assert.match(cp, /No rolls or phone texts/);
+  assert.match(cp, /Play your own agenda/);
 });
