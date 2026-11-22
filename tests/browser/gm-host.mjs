@@ -14,12 +14,11 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
 const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gm-host-ui-')));
 const token = 'fixture-access-token-longer-than-24';
 const stores = new Map();
-let currentWindow = { id: 'harbour', name: '港口茶馆', status: 'active' };
-const cast = id => ({ coplayers: id === 'a' ? [
-  { characterId: 'lin', name: '林岚 <队友>', timeline: 0, windowDetails: [currentWindow] },
-  { characterId: 'zhou', name: '周宁', timeline: null, windowDetails: [] },
-  { characterId: 'anna', name: '安娜', timeline: 2, windowDetails: [{ id: 'archive', name: '旧码头', status: 'archived' }] },
-] : [] });
+let linTimeline = 0;
+const cast = id => (id === 'a' ? {
+  players: [{ id: 'lin', name: '林岚 <玩家>', player: 'lin', timeline: linTimeline }, { id: 'zhou', name: '周宁', player: 'zhou', timeline: null }],
+  npcs: ['船长'], npcCount: 1,
+} : { players: [], npcs: [], npcCount: 0 });
 const plan = { version: 7, updatedAt: new Date().toISOString(), trigger: 'interval', mode: 'full', throughline: '找到失踪的地图', played: '调查员到达港口',
   beat: { title: '港口的密信', purpose: '建立与船长的关系', exit: '船长提供线索', closed: false }, verdict: { moveOn: true, why: '调查员已找到突破口' },
   threads: [{ id: 'P1', title: '旧日航线', status: 'live', stakes: '失去船员的信任', hooks: ['一张潮湿的地图'], twist: '船长其实是竞争者', ripeWhen: '玩家提出航线问题', weaveWith: null }],
@@ -56,8 +55,8 @@ const start = async (port = 0) => {
 const stop = async () => { await manager?.close(); if (web) await new Promise(resolve => web.close(resolve)); web = null; };
 const open = () => chromium.launchPersistentContext(path.join(dir, 'browser'), { channel: process.env.CHROME_CHANNEL || 'chrome', viewport: { width: 1280, height: 900 } });
 try {
-  fs.writeFileSync(path.join(dir, 'a.yml'), 'table:\n  coplayers: 0\n');
-  fs.writeFileSync(path.join(dir, 'b.yml'), 'table:\n  coplayers: 0\n');
+  fs.writeFileSync(path.join(dir, 'a.yml'), 'table:\n  kickoff: false\n');
+  fs.writeFileSync(path.join(dir, 'b.yml'), 'table:\n  kickoff: false\n');
   fs.writeFileSync(path.join(dir, 'host.yml'), JSON.stringify({ llm: { provider: 'mock' }, webui: { enabled: true, token, port: 0 }, channels: ['a', 'b'].map(id => ({ id, config: id + '.yml' })) }));
   fs.mkdirSync(path.join(dir, '.state')); fs.writeFileSync(path.join(dir, '.state/a.json'), '{"retained":true}');
   fs.writeFileSync(path.join(dir, '.state/b.json'), JSON.stringify({ channelId: 'b', improv: { on: true, world: 'B 的世界', secrets: 'B 的秘密' }, coplayers: [{ characterId: 'hl', name: '哈丽特 <队友>' }] }));
@@ -86,17 +85,15 @@ try {
   assert.ok((await context.cookies()).some(c => c.name === cookie.name));
   await page.unroute(base + '/api/session'); await page.reload(); await page.locator('#session').waitFor({ state: 'visible' });
   await page.locator('#host-usage').getByRole('button', { name: '主持 A', exact: true }).click();
-  const locations = page.locator('#coplayer-locations'), lin = locations.locator('[data-character-id=lin]');
-  await lin.getByText('港口茶馆', { exact: true }).waitFor();
-  assert.equal(await lin.locator('strong').innerText(), '林岚 <队友>', 'names are rendered as text');
-  assert.equal(await lin.getByText('T0', { exact: true }).count(), 1);
-  assert.equal(await lin.getByText('港口茶馆', { exact: true }).getAttribute('title'), '窗口 ID：harbour');
-  assert.equal(await locations.getByText('当前不在任何对话窗口', { exact: true }).count(), 1);
-  assert.equal(await locations.getByText('窗口已归档', { exact: true }).count(), 1);
-  currentWindow = { id: 'library', name: '图书馆阅览室', status: 'active' };
-  await lin.getByText('图书馆阅览室', { exact: true }).waitFor();
-  assert.equal(await lin.getByText('港口茶馆', { exact: true }).count(), 0, 'polling replaces the previous location');
-  await locations.screenshot({ path: '/tmp/gm-host-coplayer-locations.png' });
+  // The cast: player characters (names rendered as text) with their timelines, and the NPCs; polling keeps it live.
+  const lin = page.locator('li').filter({ hasText: '林岚 <玩家>' });
+  await lin.getByText('T0', { exact: true }).waitFor();
+  assert.equal(await lin.locator('strong').innerText(), '林岚 <玩家>', 'names are rendered as text');
+  assert.equal(await page.getByText('玩家角色（2）', { exact: true }).count(), 1);
+  assert.equal(await page.getByText('船长', { exact: true }).count(), 1);
+  linTimeline = 2;
+  await lin.getByText('T2', { exact: true }).waitFor();
+  assert.equal(await lin.getByText('T0', { exact: true }).count(), 0, 'polling replaces the previous timeline');
   const usageCard = page.locator('#usage-card'); await usageCard.waitFor();
   assert.ok((await usageCard.locator('[data-usage-id=planner]').innerText()).includes('6,200'));
   assert.equal(await usageCard.locator('[data-usage-id=planner] svg rect.usage-fill').count(), 3);
@@ -123,21 +120,20 @@ try {
   assert.equal(await usageCard.locator('details').getAttribute('open'), '', 'chart detail remains expanded across polls');
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-  await locations.screenshot({ path: '/tmp/gm-host-coplayer-locations-mobile.png' });
   await manager.action('a', 'stop');
-  await locations.getByText(/上次记录/).waitFor();
+  await page.locator('#snapshot-note').getByText(/最后状态/).waitFor();
   await manager.action('a', 'start');
-  await page.waitForFunction(() => !document.querySelector('#coplayer-locations')?.textContent.includes('上次记录'));
+  await page.waitForFunction(() => !document.querySelector('#snapshot-note')?.textContent.includes('最后状态'));
   await page.screenshot({ path: '/tmp/gm-host-token-charts-mobile.png', fullPage: true });
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole('button', { name: '删除主持任务', exact: true }).waitFor();
   await page.screenshot({ path: '/tmp/gm-host-webui-desktop.png', fullPage: true });
   await page.getByRole('tab', { name: '设置', exact: true }).click();
-  await page.locator('#f-table-coplayers').fill('1');
+  await page.locator('#f-table-level').fill('3');
   assert.equal(await page.locator('#savebar').isVisible(), true);
   page.once('dialog', d => d.dismiss()); await page.getByRole('button', { name: '删除主持任务', exact: true }).click();
   assert.ok(manager.entry('a')); assert.equal(manager.status()[0].status, 'running');
-  assert.equal(await page.locator('#f-table-coplayers').inputValue(), '1', 'cancelling preserves the draft');
+  assert.equal(await page.locator('#f-table-level').inputValue(), '3', 'cancelling preserves the draft');
   page.once('dialog', d => d.accept()); await page.getByRole('button', { name: '删除主持任务', exact: true }).click();
   await page.getByText(/主持任务已删除。平台频道/).waitFor();
   assert.equal(await page.getByRole('button', { name: /主持 A/ }).count(), 0);
@@ -153,8 +149,8 @@ try {
   assert.ok(manager.entry('b')); assert.equal(await page.locator('#channel').isVisible(), true);
   await page.unroute(base + '/api/channels/b/remove');
   await page.getByRole('tab', { name: '概览', exact: true }).click();
-  await page.locator('#coplayer-locations').getByText('暂无 AI 队友', { exact: true }).waitFor();
-  // 世界书 and 队友意图: forms over the channel's files in the state directory.
+  await page.getByText('玩家角色（0）', { exact: true }).waitFor();
+  // 世界书: a form over the channel's file in the state directory.
   await page.getByRole('tab', { name: '世界书', exact: true }).click();
   assert.equal(await page.getByLabel('世界圣经').inputValue(), 'B 的世界', 'before the first save the state\u2019s world is the starting point');
   await page.getByRole('button', { name: '＋ 新词条' }).click();
@@ -164,10 +160,7 @@ try {
   const book = JSON.parse(fs.readFileSync(path.join(dir, '.state/b.worldbook.json'), 'utf8'));
   assert.deepEqual(book.entries.map(e => [e.id, e.title, e.keys, e.secret]), [['e1', '<i>港务协会</i>', ['协会大楼', 'dockmasters'], true]]);
   assert.ok(!(await page.locator('#worldbook-view').innerText()).includes('null'));
-  await page.getByRole('tab', { name: '队友意图', exact: true }).click();
-  await page.getByLabel('哈丽特 <队友> 的意图').fill('追求米娜，同时维持社团团结。');
-  await page.getByRole('button', { name: '保存意图' }).click(); await page.getByText(/意图已保存/).waitFor();
-  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, '.state/b.intentions.json'), 'utf8')).intentions.hl.text, '追求米娜，同时维持社团团结。');
+  assert.equal(await page.getByRole('tab', { name: '队友意图', exact: true }).count(), 0, 'no intentions tab: the AI co-players are gone');
   await page.getByRole('tab', { name: '概览', exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
@@ -178,5 +171,5 @@ try {
   assert.equal(await page.locator('#session').isVisible(), false);
   assert.ok(!(await context.cookies()).some(c => c.name === cookie.name));
   assert.deepEqual(errors, []);
-  console.log('GM WebUI: live co-player windows, stale locations, token charts, full plan, worldbook, intentions, persistent login and hosting task controls passed');
+  console.log('GM WebUI: live cast, stale snapshots, token charts, full plan, worldbook, persistent login and hosting task controls passed');
 } finally { await context?.close(); await stop(); for (const s of stores.values()) s.close(); fs.rmSync(dir, { recursive: true, force: true }); }
