@@ -27,8 +27,8 @@ namespace {
 // A character someone else hands to a bot (docs/BOTS.md): the bot owes one turn, in each window its character is bound
 // to, to take the part up. Nothing for a person's character.
 void owedAdoption(pqxx::work& w, const std::string& channelId, const std::string& characterId, const std::string& ownerId) {
-    Db::exec(w, "INSERT INTO bot_window_state(bot_id, chat_window_id, channel_id, cursor_seq, owed, owed_seq, owed_at, gm_seen) "
-                "SELECT b.id, wm.chat_window_id, $1, e.s, 'adopt', e.s, now(), true FROM server_bots b JOIN chat_window_members wm ON wm.user_id=b.user_id AND wm.character_id=$2 "
+    Db::exec(w, "INSERT INTO bot_window_state(bot_id, chat_window_id, channel_id, cursor_seq, memory_seq, owed, owed_seq, owed_at, gm_seen) "
+                "SELECT b.id, wm.chat_window_id, $1, e.s, e.s, 'adopt', e.s, now(), true FROM server_bots b JOIN chat_window_members wm ON wm.user_id=b.user_id AND wm.character_id=$2 "
                 "CROSS JOIN LATERAL (SELECT coalesce(max(m.seq), 0) AS s FROM messages m WHERE m.chat_window_id=wm.chat_window_id) e WHERE b.user_id=$3 AND b.deleted_at IS NULL "
                 "ON CONFLICT (bot_id, chat_window_id) DO UPDATE SET owed='adopt', owed_seq=EXCLUDED.owed_seq, owed_at=now(), gm_seen=true, chain=0", {channelId, characterId, ownerId});
 }

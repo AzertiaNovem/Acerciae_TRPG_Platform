@@ -251,7 +251,8 @@ Json::Value BotService::callTurn(const ChannelAccess& a, const std::string& wind
         const auto end = Db::queryOne(w, "SELECT coalesce(max(seq), 0) AS s FROM messages WHERE chat_window_id=$1", {windowId})["s"].asInt64();
         for (const auto& b : bots) {
             if (!only.empty() && std::find(only.begin(), only.end(), json::str(b, "character_id")) == only.end()) continue;
-            Db::exec(w, "INSERT INTO bot_window_state(bot_id, chat_window_id, channel_id, cursor_seq) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING",
+            // A bot new to the window starts reading, and remembering, from its end.
+            Db::exec(w, "INSERT INTO bot_window_state(bot_id, chat_window_id, channel_id, cursor_seq, memory_seq) VALUES($1,$2,$3,$4,$4) ON CONFLICT DO NOTHING",
                      {b["id"].asString(), windowId, a.channelId, (int64_t)end});
             Db::exec(w, "UPDATE bot_window_state SET owed='called', owed_seq=$3, owed_at=now(), gm_seen=true, retry_after=NULL WHERE bot_id=$1 AND chat_window_id=$2",
                      {b["id"].asString(), windowId, (int64_t)end});

@@ -298,9 +298,15 @@
         Json::Value b; b["name"] = "Moth"; b["persona"] = "Collects ghost stories.";
         auto bot = S.bots->create(gmP, sid, b);
         const auto botId = bot["id"].asString(), botUser = bot["user_id"].asString();
+        // Lines from before it came are never its to remember.
+        Json::Value before; before["content"] = "Before Moth came, the lamp went out."; before["kind"] = "ic";
+        S.chat->postMessage(S.auth->channelAccess(p1User, ch), win, before);
         S.bots->invite(keeper, botId);
         Json::Value pc; pc["name"] = "Ivo"; pc["user_id"] = botUser;
+        // Given a character before the runtime first looked, it starts reading and remembering from the window's end.
         auto ivo = S.chat->createCharacter(keeper, pc)["id"].asString();
+        auto seated = S.db->queryOne("SELECT cursor_seq, memory_seq FROM bot_window_state WHERE bot_id=$1 AND chat_window_id=$2", {botId, win});
+        CHECK(!seated.isNull()); CHECK(seated["memory_seq"].asInt64() == seated["cursor_seq"].asInt64()); CHECK(seated["memory_seq"].asInt64() > 0);
         S.botRuntime->tick(true);
         auto post = [&](const std::string& uid, const std::string& chId, const std::string& w, const std::string& content, const char* kind = "ic", Json::Value extra = Json::Value(Json::objectValue)) {
             Json::Value m = extra; m["content"] = content; m["kind"] = kind; return S.chat->postMessage(S.auth->channelAccess(uid, chId), w, m); };
@@ -320,6 +326,7 @@
         CHECK(S.botRuntime->memoryTick(true) == 1);
         auto account = memory("table", ch), whispered = memory("table_private", ch);
         CHECK(account["text"].asString().find("We climb the lighthouse stairs") != std::string::npos);
+        CHECK(account["text"].asString().find("Before Moth came") == std::string::npos);
         CHECK(account["text"].asString().find("recognise the keeper") == std::string::npos);
         CHECK(account["text"].asString().find("ghost") == std::string::npos);
         CHECK(!account["highlight"].asString().empty());
@@ -336,7 +343,12 @@
         auto keeper2 = S.auth->channelAccess(gmUser, ch2);
         S.chat->addChannelMember(keeper2, "p2" + suffix, "player");
         auto win2 = S.chat->listWindows(keeper2)[0]["id"].asString();
+        Json::Value early; early["content"] = "Earlier at the harbour, a gull stole a pie."; early["kind"] = "ooc";
+        S.chat->postMessage(S.auth->channelAccess(p2User, ch2), win2, early);
         S.bots->invite(keeper2, botId);
+        S.bots->callTurn(keeper2, win2, Json::Value(Json::objectValue));   // the GM's call seats it before the runtime looks
+        auto called = S.db->queryOne("SELECT cursor_seq, memory_seq FROM bot_window_state WHERE bot_id=$1 AND chat_window_id=$2", {botId, win2});
+        CHECK(!called.isNull()); CHECK(called["memory_seq"].asInt64() == called["cursor_seq"].asInt64());
         S.botRuntime->tick(true);
         CHECK(S.botRuntime->memory().recall(botId, ch2, win2, false).find("lighthouse") == std::string::npos);
         // Its maintainers let it share between tables: the account comes up everywhere, never the whispers.
@@ -374,6 +386,7 @@
         S.bots->removeFromChannel(keeper2, botId);
         CHECK(S.botRuntime->memoryTick(true) == 1);
         CHECK(memory("table", ch2)["text"].asString().find("We row out at dawn") != std::string::npos);
+        CHECK(memory("table", ch2)["text"].asString().find("gull stole a pie") == std::string::npos);
         S.botRuntime->tick(true);
         CHECK(S.db->queryOne("SELECT 1 AS ok FROM bot_window_state WHERE bot_id=$1 AND chat_window_id=$2", {botId, win2}).isNull());
         S.cfg.botSettleMs = 6000; S.cfg.botGmWaitMs = 90000;
