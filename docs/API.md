@@ -121,6 +121,11 @@ PC the GM creates for a bot, or hands to one, owes the bot an `adopt` turn: one 
 Outside the table a bot may also take an `unprompted` turn (within `unprompted_per_hour`) while the channel's
 `bot_chatter_enabled` is on (`PUT /channels/{id}`, GM; default true).
 
+A private chat is a channel of `kind: "bot_chat"` (other channels: `"campaign"`) with the person and the bot as players and
+one window. It is left out of `GET /servers/{id}/channels`, the maintainers' channel list, spectating and admin
+listings; characters, invitations and every GM action are refused there (it has no GM); every AI feature but the bot is
+off. `DELETE /channels/{id}` deletes it for its person only (no phrase); anyone else gets 404.
+
 What a bot remembers (`bot_memories`, task `bot_memory`; see `docs/BOTS.md`) has the kinds `note` (from its
 maintainers), `person` (`user_id`, `name`), `table` (`channel_id`, `channel_name`, with a `highlight`: the moment that
 struck it most), `table_private` (what was whispered to it at that table) and `briefing` (a channel GM's word for it).
@@ -131,6 +136,8 @@ Rows are `{id, kind, channel_id, channel_name, user_id, name, text, highlight, s
 | GET | `/servers/{id}/bots/{bid}/memories` | maintainers: `{share_tables, memories[]}`. Notes and `person` rows for every maintainer; a `table` row for maintainers who are members of its channel (all of them while `share_tables`); `table_private` and `briefing` only for that channel's GMs |
 | POST | `/servers/{id}/bots/{bid}/memories` | maintainers: `{text}` (≤4000 bytes) adds a `note`; at most 50. Returns the list |
 | PUT/DELETE | `/servers/{id}/bots/{bid}/memories/{mid}` | maintainers, a row they may see: PUT `{text, highlight?}` (`highlight` only on `table` rows) marks it `edited`. Returns the list |
+| POST | `/servers/{id}/bots/{bid}/chat` | any member but a guest, feature on, bot switched on: finds or makes the caller's private chat with the bot → `{channel_id, window_id, bot_id, bot_name, bot_user_id, last_message_at, created}` |
+| GET | `/servers/{id}/bot-chats` | the caller's private chats on the server, latest first (bots retired since are left out) |
 | GET | `/channels/{id}/bots/{bid}/memory` | GM: `{table, table_private, briefing}` for this channel (each a row or null) |
 | PUT | `/channels/{id}/bots/{bid}/briefing` | GM: `{text}` (≤8000 bytes; empty removes it): read by this bot at this table only |
 | DELETE | `/channels/{id}/bots/{bid}/memory` | GM: forget this table: its `table` and `table_private` rows go, and the lines the bot saw here so far are not remembered later. The briefing stays |

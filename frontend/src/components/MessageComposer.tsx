@@ -39,7 +39,9 @@ export default function MessageComposer() {
   const activeCharacter = characterId || myWindowCharacter;
 
   useEffect(() => { if (composerInsert) { setText((t) => (t ? t + '\n' : '') + composerInsert.text); ta.current?.focus(); } }, [composerInsert]);
-  useEffect(() => { setKind(isGm ? 'narration' : 'ic'); }, [isGm, windowId]);
+  // A private chat with a bot (docs/BOTS.md) is talk out of character, nothing else.
+  const privateChat = channel?.kind === 'bot_chat';
+  useEffect(() => { setKind(privateChat ? 'ooc' : isGm ? 'narration' : 'ic'); }, [isGm, windowId, privateChat]);
   // The table sees the character being written as (a pen next to its name) while there is text here.
   useTypingSignal(channelId, windowId, canPost ? activeCharacter : '', text);
 
@@ -81,7 +83,7 @@ export default function MessageComposer() {
         {references.map(m=><div className="chat-reference" key={m.id}><div className="row"><span className="grow">{m.character_name ?? m.author_name}</span><button className="ghost small" aria-label={tr('Remove reference')} onClick={()=>removeReference(m.id)}>×</button></div><div className="small">{(m.dice?.type==='pbta_move' ? m.dice.text : m.content).slice(0,240)}</div></div>)}
       </div>}
       <div className="composer-input">
-        <textarea disabled={!canPost} ref={ta} value={text} onChange={(e) => setText(e.target.value)} placeholder={isGm ? tr("Narrate, speak as an NPC, or adjudicate…") + (diceOn ? (channel?.rule_system === 'pbta' ? '  (.move search +1)' : dndRules ? '  (.rc stealth dc15 · .ri · .init next · .r 2d20kh1+5)' : '  (.ra skill · .r 1d100 · .sc 1/1d6 · .st str60)') : '') : tr("What does your character do or say?") + (diceOn ? (channel?.rule_system === 'pbta' ? '  (.move search +1)' : dndRules ? '  (.rc stealth · .ri · .ss 1)' : '  (.ra skill to roll)') : '')}
+        <textarea disabled={!canPost} ref={ta} value={text} onChange={(e) => setText(e.target.value)} placeholder={privateChat ? tr("Write to {name}…", { name: windows.find((w) => w.id === windowId)?.name ?? '' }) : isGm ? tr("Narrate, speak as an NPC, or adjudicate…") + (diceOn ? (channel?.rule_system === 'pbta' ? '  (.move search +1)' : dndRules ? '  (.rc stealth dc15 · .ri · .init next · .r 2d20kh1+5)' : '  (.ra skill · .r 1d100 · .sc 1/1d6 · .st str60)') : '') : tr("What does your character do or say?") + (diceOn ? (channel?.rule_system === 'pbta' ? '  (.move search +1)' : dndRules ? '  (.rc stealth · .ri · .ss 1)' : '  (.ra skill to roll)') : '')}
           onScroll={(e) => { if (ghost.current) ghost.current.scrollTop = e.currentTarget.scrollTop; }}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
           // A pasted or dropped image opens the picture dialog. Text copied from an office document often brings a
@@ -99,9 +101,9 @@ export default function MessageComposer() {
       </div>
       <div className="toolbar">
         {/* A message starting with a dot command (.r .ra .sc .st .en …) is rolled by the server; there is no manual roll kind. */}
-        <select value={kind} onChange={(e) => setKind(e.target.value as any)} disabled={isDice} title={isDice ? tr("Dot commands are rolled automatically") : tr("Message kind")}>
+        {!privateChat && <select value={kind} onChange={(e) => setKind(e.target.value as any)} disabled={isDice} title={isDice ? tr("Dot commands are rolled automatically") : tr("Message kind")}>
           <option value="ic">{tr("In character")}</option><option value="narration">{tr("Narration")}</option><option value="ooc">{tr("Out of character")}</option>
-        </select>
+        </select>}
         {(isGm ? characters : myCharacters).length > 0 && (
           <select value={activeCharacter} onChange={(e) => setCharacterId(e.target.value)} title={tr("Speak as")}>
             {isGm && <option value="">{tr("— as GM —")}</option>}

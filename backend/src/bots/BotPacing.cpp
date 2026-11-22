@@ -32,7 +32,7 @@ void ingest(State& s, const Self& me, const Line& l) {
     s.lastLineAt = std::max(s.lastLineAt, l.at);
     if (l.authorId == me.userId) return;
     const bool human = !l.authorIsBot && !l.authorIsGm;
-    const bool named = l.whisperedToMe || names(l.content, me.names);
+    const bool named = l.whisperedToMe || (me.direct && !l.authorIsBot) || names(l.content, me.names);
     if (human) s.chain = 0;
     if (me.table) {
         if (human) { if (!me.agentPacing) owe(s, "player", l, false); return; }

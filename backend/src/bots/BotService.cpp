@@ -44,12 +44,13 @@ const char* MEMORY_SELECT =
 // The memories of bot $1 that user $2 may see as a maintainer ($3: the bot shares between tables).
 const char* MEMORY_VISIBLE =
     "m.bot_id=$1 AND (m.kind IN ('note', 'person') "
-    "OR (m.kind='table' AND ($3 OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id=m.channel_id AND cm.user_id=$2))) "
+    "OR (m.kind='table' AND (($3 AND NOT EXISTS (SELECT 1 FROM channels pc WHERE pc.id=m.channel_id AND pc.kind='bot_chat')) "
+    "  OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id=m.channel_id AND cm.user_id=$2))) "
     "OR (m.kind IN ('table_private', 'briefing') AND EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id=m.channel_id AND cm.user_id=$2 AND cm.role='gm'))) ";
 const char* BOT_SELECT =
     "SELECT b.*, u.display_name AS name, u.username, "
     "(SELECT coalesce(json_agg(json_build_object('id', c.id, 'name', c.name) ORDER BY c.name), '[]'::json) FROM channel_members cm JOIN channels c ON c.id=cm.channel_id "
-    " WHERE cm.user_id=b.user_id) AS channels "
+    " WHERE cm.user_id=b.user_id AND c.kind='campaign') AS channels "
     "FROM server_bots b JOIN users u ON u.id=b.user_id ";
 }
 
@@ -185,6 +186,7 @@ Json::Value BotService::channelView(const ChannelAccess& a) {
 }
 
 Json::Value BotService::invite(const ChannelAccess& a, const std::string& botId) {
+    if (a.botChat) throw forbidden("nobody else joins a private chat");
     settings_.requireFeature(a.serverId, "bots");
     auto bot = botRow(a.serverId, botId);
     if (!bot["enabled"].asBool()) throw conflict("this bot is switched off");
@@ -363,4 +365,48 @@ Json::Value BotService::forgetTable(const ChannelAccess& a, const std::string& b
     return tableMemory(a, botId);
 }
 
+namespace {
+const char* CHAT_SELECT =
+    "SELECT c.id AS channel_id, (SELECT w.id FROM chat_windows w WHERE w.channel_id=c.id AND w.kind='main' ORDER BY w.created_at LIMIT 1) AS window_id, "
+    "b.id AS bot_id, u.display_name AS bot_name, b.user_id AS bot_user_id, (SELECT max(m.created_at) FROM messages m WHERE m.channel_id=c.id) AS last_message_at "
+    "FROM channels c JOIN server_bots b ON b.id=c.chat_bot_id AND b.deleted_at IS NULL JOIN users u ON u.id=b.user_id ";
+}
+
+Json::Value BotService::openChat(const Principal& p, const std::string& serverId, const std::string& botId) {
+    if (!Visibility::isUuid(serverId)) throw notFound("server not found");
+    auth_.requireServerMember(p.userId, serverId);
+    if (db_.queryOne("SELECT role FROM server_members WHERE server_id=$1 AND user_id=$2", {serverId, p.userId})["role"] == "guest") throw forbidden("guests cannot open private chats");
+    settings_.requireFeature(serverId, "bots");
+    auto bot = botRow(serverId, botId);
+    if (!bot["enabled"].asBool()) throw conflict("this bot is switched off");
+    bool created = false;
+    db_.tx([&](pqxx::work& w) {
+        // One chat per person and bot, even when two requests race.
+        Db::exec(w, "SELECT pg_advisory_xact_lock(hashtext($1))", {p.userId + "|" + botId});
+        if (!Db::queryOne(w, "SELECT id FROM channels WHERE kind='bot_chat' AND chat_user_id=$1 AND chat_bot_id=$2", {p.userId, botId}).isNull()) return;
+        auto c = Db::queryOne(w,
+            "INSERT INTO channels(server_id, name, description, kind, chat_user_id, chat_bot_id, knowledge_mode, ai_enabled, consistency_enabled, inspiration_enabled, "
+            "atmosphere_enabled, illustrations_enabled, bot_invites_enabled, bot_chatter_enabled) VALUES($1,$2,'','bot_chat',$3,$4,'isolated',false,false,false,false,false,false,false) RETURNING id",
+            {serverId, bot["name"].asString(), p.userId, botId});
+        const auto id = c["id"].asString();
+        Db::exec(w, "INSERT INTO chat_windows(channel_id, name, kind, created_by) VALUES($1,$2,'main',$3)", {id, bot["name"].asString(), p.userId});
+        chat_.joinChannel(w, id, p.userId, "player", "");
+        const auto window = chat_.joinChannel(w, id, bot["user_id"].asString(), "player", p.userId);
+        // The bot reads the chat from its first line, even one written before the runtime first looks.
+        Db::exec(w, "INSERT INTO bot_window_state(bot_id, chat_window_id, channel_id, cursor_seq, memory_seq) VALUES($1,$2,$3,0,0) ON CONFLICT DO NOTHING", {botId, window, id});
+        created = true;
+    });
+    auto out = db_.queryOne(std::string(CHAT_SELECT) + "WHERE c.kind='bot_chat' AND c.chat_user_id=$1 AND c.chat_bot_id=$2", {p.userId, botId});
+    out["created"] = created;
+    return out;
+}
+
+Json::Value BotService::chats(const Principal& p, const std::string& serverId) {
+    if (!Visibility::isUuid(serverId)) throw notFound("server not found");
+    auth_.requireServerMember(p.userId, serverId);
+    return db_.queryJson(std::string(CHAT_SELECT) + "WHERE c.kind='bot_chat' AND c.server_id=$1 AND c.chat_user_id=$2 "
+                         "ORDER BY coalesce((SELECT max(m.created_at) FROM messages m WHERE m.channel_id=c.id), c.created_at) DESC", {serverId, p.userId});
+}
+
 } // namespace acerciae
+

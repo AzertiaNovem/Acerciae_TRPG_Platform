@@ -64,6 +64,13 @@ plan, and what is done so far, is in [BOTS_PLAN.md](BOTS_PLAN.md).
   world, how to play here); players never see it. Server settings → Bots → Activity lists each bot's latest turns:
   where, why, and what came of them.
 
+- **Private chats** — in the channel sidebar, Private chats → + lists the server's bots: choose one to talk with it
+  one to one, out of character, as friends do between games. Each person has one chat per bot; nobody else can see,
+  read or join it, and it is in no channel list (nor on the mobile apps). Every line there is for the bot, which
+  answers as itself; a person's chats share an allowance of 30 bot turns an hour. The bot remembers the chat (and can
+  talk about the tables it played at, as anywhere), but never brings the chat up anywhere else, whatever its sharing
+  switch, and keeps no notes on people from it. "Delete this chat" removes the chat for good (only its person can).
+
 A bot is a user of its own (`users.is_bot`): it never signs in, never appears where people are searched for, and never
 joins a player group (it will read only what it witnessed itself). Deleting a server deletes its bots.
 
@@ -71,6 +78,5 @@ joins a player group (it will read only what it witnessed itself). Deleting a se
 
 1. The GM agent's own co-players are retired in favour of bots. Already now `gm-agent`'s `bots handoff` command hands a
    co-player's character to a bot, with what it remembered as the bot's briefing (`gm-agent/README.md`).
-2. Private one-to-one chats with a bot.
 
 The API is in [API.md](API.md) (Bots); the model use is `text_bots` ([AI_PROVIDERS.md](AI_PROVIDERS.md)).

@@ -1943,6 +1943,15 @@ int main() {
             ingest(atTable, player, line(1, 100, "alice", false, false, "We go in."));
             CHECK(atTable.heard == 0);
         });
+        test("bots: in a private chat every line of the person is for the bot; another bot's line is not", [&] {
+            Self me = mina; me.table = false; me.direct = true;
+            State s;
+            ingest(s, me, line(1, 100, "alice", false, false, "Rainy day here.", "ooc"));
+            CHECK(s.owed == "mention"); CHECK(s.heard == 0);
+            State other;
+            ingest(other, me, line(1, 100, "ken", true, false, "Hello.", "ooc"));
+            CHECK(other.owed.empty());
+        });
         test("bots: while a GM agent paces the bots, players' and GM lines owe nothing; system lines are ignored", [&] {
             Self me = mina; me.agentPacing = true;
             State s;

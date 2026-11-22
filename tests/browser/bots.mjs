@@ -93,6 +93,18 @@ try {
   const kept = await api('GET', `/servers/${server.id}/bots/${mina.id}/memories`, undefined, gm.token);
   assert.deepEqual(kept.memories.map((m) => m.kind).sort(), ['briefing', 'note']);
   await page.getByRole('button', { name: 'Close', exact: true }).click();
+  // A private chat with Mina: opened from the sidebar, every line answered out of character, deleted by its person.
+  await page.getByRole('button', { name: 'Chat with a bot' }).click();
+  await page.getByRole('dialog', { name: 'Chat with a bot' }).locator('.pick-row').filter({ hasText: 'Mina' }).getByRole('button', { name: 'Chat' }).click();
+  await page.locator('.item').filter({ hasText: 'Mina' }).filter({ has: page.locator('text=✉') }).waitFor();
+  await page.getByPlaceholder('Write to Mina…').fill('How was your day?');
+  await page.getByPlaceholder('Write to Mina…').press('Enter');
+  await page.locator('.message').filter({ hasText: 'you said "How was your day?"' }).locator('.bot-tag').waitFor({ timeout: 30000 });
+  assert.equal(await page.getByText('Chat windows').count(), 0, 'a private chat has no windows, characters or GM tools');
+  if (shots) await page.screenshot({ path: `${shots}/bots-private-chat-${engine}.png` });
+  page.once('dialog', (d) => d.accept());
+  await Promise.all([page.waitForResponse((r) => r.request().method() === 'DELETE' && r.ok()), page.getByText('Delete this chat').click()]);
+  await page.locator('.item').filter({ has: page.locator('text=✉') }).waitFor({ state: 'detached' });
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   assert.deepEqual(errors, []);
