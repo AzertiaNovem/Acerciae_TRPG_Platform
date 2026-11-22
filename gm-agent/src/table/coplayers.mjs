@@ -11,7 +11,7 @@ import { describeCalendar, describeRoutine } from "../calendar.mjs";
 import { renderBondsFor } from "../bonds.mjs";
 import { impression } from "../context/traits.mjs";
 
-export async function coplayerAct(table, windowId, coplayer, spotlight, { side = false, maxMessages = table.cfg.maxActionsPerTurn } = {}) {
+export async function coplayerAct(table, windowId, coplayer, spotlight, { autonomous = false, maxMessages = table.cfg.maxActionsPerTurn } = {}) {
     const me = coplayer.characterId;
     const hidden = table.hiddenLines();
     // Everything this co-player witnessed (its seats, its timeline), from the local copy of the chat.
@@ -39,8 +39,8 @@ export async function coplayerAct(table, windowId, coplayer, spotlight, { side =
       // The worldbook's public entries that came up where it was.
       const lore = table.publicLore({ lines: witnessed, texts: [t?.location] });
 
-      move = await coplayerTurn(table.llm, { language: table.language, coplayer, card, lore, pbta, profile: table.profile, attrs: table.attrs.get(me) ?? {}, companions, withYou: table.cfg.timelineAuto ? t.members.filter((id) => id !== me) : null, log, memories, recalled, spotlight, timeline, side, world: table.improv.on ? table.improv.world : "", improv: table.improv.on, casual: table.casualOn(), phone,
-        canFormat: () => !(side && table.overBudget()),
+      move = await coplayerTurn(table.llm, { language: table.language, coplayer, card, lore, pbta, profile: table.profile, attrs: table.attrs.get(me) ?? {}, companions, withYou: table.cfg.timelineAuto ? t.members.filter((id) => id !== me) : null, log, memories, recalled, spotlight, timeline, world: table.improv.on ? table.improv.world : "", improv: table.improv.on, casual: table.casualOn(), phone,
+        canFormat: () => !(autonomous && table.overBudget()),
         writing: table.cfg.writing?.coplayer,
         formatting: table.cfg.writing?.formatting,
         corrections: renderCorrectionsFor(table.planner.table, coplayer.name),
@@ -66,7 +66,7 @@ export async function coplayerAct(table, windowId, coplayer, spotlight, { side =
       if (messages.length > limit) messages = [...messages.slice(0, limit - 1), messages.slice(limit - 1).join("\n\n")];
       let n = 0;
       for (const content of messages) {
-        if (side && table.overBudget()) break;
+        if (autonomous && table.overBudget()) break;
         const sent = await table.post(windowId, { content, kind: move.kind, character_id: me, expected_owner_id: table.me.id });
         if (!sent) break;
         n += sent;

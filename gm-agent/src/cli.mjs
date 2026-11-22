@@ -340,7 +340,7 @@ export async function run(cfg, { managed = false, onLock = () => {} } = {}) {
   const inbox = inboxPath(cfg.stateDir, channel.id);
   fs.watchFile(inbox, { interval: 1000 }, take);
   take();
-  log(`keeping "${channel.name}" in ${table.language}; co-players: ${roster.coplayers.map((c) => c.name).join(", ") || "(none)"}; NPCs: ${roster.npcs.length}; models: ${modelsLine(cfg)}; autonomy: ${cfg.autonomy ? `on (side every ${cfg.autonomySideIntervalMs / 1000}s, quiet after ${cfg.autonomyQuietMs / 1000}s, idle after ${cfg.autonomyIdleMinutes} min)` : "off"}; planner: ${cfg.planner.enabled ? "on" : "off"}; timelines: ${cfg.timelineAuto ? "proactive" : "model-led"}; scenarios: ${cfg.scenarioAuto ? `GM-driven (≥ ${cfg.scenarioMinMinutes} min, ≥ ${cfg.scenarioMinLines} lines)` : "manual"}`);
+  log(`keeping "${channel.name}" in ${table.language}; co-players: ${roster.coplayers.map((c) => c.name).join(", ") || "(none)"}; NPCs: ${roster.npcs.length}; models: ${modelsLine(cfg)}; autonomy: ${cfg.autonomy ? `on (quiet after ${cfg.autonomyQuietMs / 1000}s, idle after ${cfg.autonomyIdleMinutes} min)` : "off"}; planner: ${cfg.planner.enabled ? "on" : "off"}; timelines: ${cfg.timelineAuto ? "proactive" : "model-led"}; scenarios: ${cfg.scenarioAuto ? `GM-driven (≥ ${cfg.scenarioMinMinutes} min, ≥ ${cfg.scenarioMinLines} lines)` : "manual"}`);
   if (cfg.kickoff) {
     const main = table.primaryWindowId();
     if (main) table.schedule(main, { kickoff: true, delay: 0 });
@@ -408,10 +408,10 @@ function world(cfg) {
 
 const list = (v) => String(v ?? "").split(",").map((x) => x.trim()).filter(Boolean);
 
-// `split --who "Alice Hale,Harriet Vance" --place "Old Harbour" [--span long] [--time …] [--opening …]`
-// (`--coplayers` and `--name` are accepted as older spellings of --who and --place.)
+// `split --who "Alice Hale,Bob Price" --place "Old Harbour" [--span long] [--time …] [--opening …]`
+// (`--name` is accepted as an older spelling of --place.)
 function split(cfg, args) {
-  const who = list(args.who ?? args.coplayers);
+  const who = list(args.who);
   const place = args.place ?? args.name;
   if (!place || !who.length) throw new Error("split needs --who <names, comma-separated> and --place <where they go>");
   return manual(cfg, { cmd: "split", who, place, span: args.span, time: args.time ?? "", opening: args.opening ?? "" }, `split ${who.join(", ")} → ${place}`);
@@ -468,7 +468,7 @@ async function status(cfg) {
   const ses = pl.session;
   console.log(`final review: ${cfg.planner.finalReview && pl.on ? `on — after a session of ≥ ${cfg.planner.finalReviewMinLines} player lines, once nobody has written for ${cfg.autonomyIdleMinutes} min (or when run stops); moves the calendar up to ${cfg.planner.finalReviewMaxDays} days` : "off"}${ses ? `; session in progress: ${ses.lines} player line(s) since ${new Date(ses.startedAt).toISOString().slice(0, 16).replace("T", " ")}` : ""}${pl.between ? "; the next session opens from the last review" : ""}`);
   console.log(`improvisation: ${im.on ? `on — world bible ${im.world.length} characters, hidden ${im.secrets.length} characters, ${table.worldbook().entries.length} worldbook entr${table.worldbook().entries.length === 1 ? "y" : "ies"} (${operatorPath(cfg.stateDir, table.channelId, "worldbook")}), ${im.truths.length} hidden truth(s) decided in play; the module's script knowledge and hints are ignored` : "off"}`);
-  console.log(`autonomy: ${cfg.autonomy ? `on — side timelines every ${cfg.autonomySideIntervalMs / 1000}s; a shared window moves after ${cfg.autonomyQuietMs / 1000}s of silence, up to ${cfg.autonomyQuietTurns} times; pauses after ${cfg.autonomyIdleMinutes} min without a human line; at most ${cfg.autonomyMaxTurnsPerHour} autonomous turns an hour` : "off"}`);
+  console.log(`autonomy: ${cfg.autonomy ? `on — a shared window moves after ${cfg.autonomyQuietMs / 1000}s of silence, up to ${cfg.autonomyQuietTurns} times; pauses after ${cfg.autonomyIdleMinutes} min without a human line; at most ${cfg.autonomyMaxTurnsPerHour} autonomous turns an hour` : "off"}`);
   console.log(`timelines: ${cfg.timelineAuto ? `proactive (at most ${cfg.timelineMaxActive} at once, ${cfg.timelineMaxArrivalsPerHour} arrivals an hour)` : "model-led (TIMELINE_AUTO=false)"}, ${cfg.sceneForks ? "scene forks on (after a split the main story leaves the Main Chat, a lobby)" : "the main story stays in the Main Chat"}; scenarios: ${cfg.scenarioAuto ? `GM-driven from the Main Chat after ${cfg.scenarioMinMinutes} min and ${cfg.scenarioMinLines} lines; never during a short split` : "manual only"}`);
 }
 

@@ -1,7 +1,7 @@
 // Creation follows the runtime's mode dependencies. Hidden branches are drafts, never submitted settings.
 export const FEATURES = [
   { key: 'planner.enabled', title: '剧情规划', help: '即兴故事中规划长期线索与人物关系；模组故事中主要把握节奏。规划会增加模型调用。', children: ['planner.wish_window', 'planner.final_review'] },
-  { key: 'autonomy.enabled', title: '自主推进', help: '允许 GM 在短暂冷场时推进，以及让 AI 队友独处的支线继续。玩家长期离开后，共享场景会停下。', children: ['autonomy.max_turns_per_hour', 'autonomy.idle_minutes'] },
+  { key: 'autonomy.enabled', title: '自主推进', help: '允许 GM 在短暂冷场时推进。玩家长期离开后，共享场景会停下。', children: ['autonomy.max_turns_per_hour', 'autonomy.idle_minutes'] },
   { key: 'timelines.scene_forks', title: '私有场景分叉', help: '适合多人分头行动：主聊天成为大厅，故事在各自的场景窗口进行。每位玩家还需分属独立玩家组。', children: ['timelines.max_active'] },
   { key: 'illustrations.enabled', title: '剧情插画', help: '为剧情中的时刻配图，也可让玩家请求回顾插画。需要平台配置图像服务，绘图费用另计。', children: ['illustrations.max_per_hour', 'illustrations.requests_per_hour', 'illustrations.allow_cloud'] },
 ];

@@ -121,7 +121,7 @@ export function planWhereabouts({ timelines, scene, reports, scopeIds, speakers 
       // 2. Authority.
       if (!override && isPc(id)) {
         if (!["human", "relay"].includes(mode) || !speakers.has(id)) { ignored.push({ id, why: "a player character moves only when its player says so" }); continue; }
-      } else if (!override && !verifiedCompanions && !["followup", "side"].includes(mode)) { ignored.push({ id, why: "a co-player moves only after its own line" }); continue; }
+      } else if (!override && !verifiedCompanions && mode !== "followup") { ignored.push({ id, why: "a co-player moves only after its own line" }); continue; }
       // 3. Guard (players' own moves are exempt).
       if (!isPc(id) && !override) {
         const r = rec(id);

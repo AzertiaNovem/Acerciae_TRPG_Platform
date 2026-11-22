@@ -7,7 +7,6 @@ import { correctionNotice, publicLines, readDestinations, sceneHandoff } from ".
 import { readPresence } from "../presence.mjs";
 import { planWhereabouts } from "../whereabouts.mjs";
 import { hashText } from "../improv.mjs";
-import { norm, names } from "./shared.mjs";
 
 export function partitionPlan(table, ops) { return table.forks ? sceneForks(table.timelines, ops, { windowOf: t => table.windowOf(t) }) : ops; }
 
@@ -52,7 +51,7 @@ export function presenceThreads(table) {
 
 export async function reconcilePresence(table, windowId, turn) {
     const activeTurn = table.turnScope.getStore();
-    if (table.generation.paused || (["quiet", "side"].includes(activeTurn?.mode) && table.overBudget())) return;
+    if (table.generation.paused || (activeTurn?.mode === "quiet" && table.overBudget())) return;
     const scene = table.scene(windowId);
     const threads = table.presenceThreads();
     if (!scene || !threads.length) return;
@@ -63,7 +62,7 @@ export async function reconcilePresence(table, windowId, turn) {
     try { placements = await readPresence(table.llm, { current, threads }); }
     catch (e) { table.generation.signal.throwIfAborted(); table.log("scene presence: " + e.message); return; }
     table.generation.signal.throwIfAborted();
-    if (["quiet", "side"].includes(activeTurn?.mode) && table.overBudget()) return;
+    if (activeTurn?.mode === "quiet" && table.overBudget()) return;
     // A newer correction/departure received while the model was thinking invalidates its snapshot.
     if (hashText(JSON.stringify(table.presenceThreads())) !== digest) return;
     (table.presenceChecked ??= new Map()).set(current, digest);
@@ -424,37 +423,6 @@ export async function applyPlan(table, result, { windowId, mode, turn, autonomou
     table.save();
     await table.archiveRetired();
     return { here, moved };
-  }
-
-export function coplayersNamed(table, list) { return names(list).map((n) => table.roster.coplayerByName(n)).filter(Boolean); }
-
-export async function legacySplit(table, fromWindowId, a) {
-    const proposed = table.coplayersNamed(a.coplayers);
-    const checked = await table.checkDestinations(fromWindowId, [{ who: proposed.map(c => c.name), thread: "NEW", place: a.location || a.name, ownScene: true, time: a.narrative_time || "", span: "short", opening: a.opening || "" }], new Set(proposed.map(c => c.characterId)), [], "side");
-    const members = table.coplayersNamed(checked.reports[0]?.who || []);
-    if (!members.length) { table.log(`split "${a.name}": no co-player named; skipped`); return 0; }
-    const result = planWhereabouts({ timelines: table.timelines, scene: { timeline: table.scene(fromWindowId) },
-      reports: checked.reports, scopeIds: new Set(members.map(c => c.characterId)), mode: "manual",
-      resolve: n => table.investigatorByName(n), isPc: id => table.isPc(id), userOf: id => table.userOf(id), windowUsers: w => table.windowUsers(w),
-      guard: table.guard, turn: table.guard.turn, now: table.now(), cfg: table.cfg });
-    await table.applyPlan(result, { windowId: fromWindowId, mode: "manual", turn: table.guard.turn });
-    return 0;
-  }
-
-export async function legacyRejoin(table, a) {
-    const t = table.timelines.byName(a.timeline);
-    if (!t || t.id === MAIN || t.status !== "active") return 0;
-    const targetWindow = a.into ? table.windows.find(w => norm(w.name) === norm(a.into) || w.id === a.into) : null;
-    const target = table.scene(targetWindow?.id) ?? table.timelines.main();
-    if (target === t) return 0;
-    const companions = table.roster.coplayers.filter(c => t.members.includes(c.characterId));
-    const checked = await table.checkDestinations(t.windowId, [{ who: companions.map(c => c.name), thread: "T" + target.handle }], new Set(companions.map(c => c.characterId)), [], "side");
-    const result = planWhereabouts({ timelines: table.timelines, scene: { timeline: t }, reports: checked.reports,
-      scopeIds: new Set(companions.map(c => c.characterId)), mode: "manual", resolve: n => table.investigatorByName(n),
-      isPc: id => table.isPc(id), userOf: id => table.userOf(id), windowUsers: w => table.windowUsers(w),
-      guard: table.guard, turn: table.guard.turn, now: table.now(), cfg: table.cfg });
-    await table.applyPlan(result, { windowId: t.windowId, mode: "manual", turn: table.guard.turn });
-    return 0;
   }
 
 export function updateTimeline(table, a) {

@@ -109,8 +109,6 @@ export async function act(table, windowId, a, ctx, { mode, parent = mode, scope 
         return 1;
       }
       case "request_roll": return table.pbta ? 0 : table.requestRoll(windowId, a, scope);
-      case "split": return table.cfg.timelineAuto ? 0 : table.legacySplit(windowId, a);
-      case "rejoin": return table.cfg.timelineAuto ? 0 : table.legacyRejoin(a);
       case "timeline": {
         const t = table.timelines.byName(a.timeline) ?? table.timelines.main();
 

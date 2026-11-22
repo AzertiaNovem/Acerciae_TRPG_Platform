@@ -106,7 +106,7 @@ export function directorSources(plan, take, directions) {
     if (a?.move_id != null) requireDirection(directions, a.move_id);
     if (ROUTED_GM.has(a?.type)) return { ...a, ...take(a.text, a.type === "text" ? "npc_text" : a.type) };
     if (PUBLIC_GM.has(a?.type) && (a.text != null || a.type === "narrate" || a.type === "ask")) return { ...a, ...take(a.text, "public") };
-    return a?.type === "split" ? opening(a) : a;
+    return a;
   }), ...(Array.isArray(plan.whereabouts) ? { whereabouts: plan.whereabouts.map(opening) } : {}) };
 }
 

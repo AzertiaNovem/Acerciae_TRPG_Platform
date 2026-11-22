@@ -11,7 +11,7 @@ async function setup({ extra = [], cfg: overrides = {} } = {}) {
   api.characters_.push(...extra);
   const cfg = Object.assign(buildConfig({}, {}, { data: {} }), {
     debounceMs: 0, postDelayMs: 0, sceneForks: false, autonomy: true,
-    autonomySideIntervalMs: 90000, autonomyQuietMs: 600000, ...overrides,
+    autonomyQuietMs: 600000, ...overrides,
   });
   cfg.planner.enabled = false; cfg.illustrations.enabled = false;
   const t = await new Table({ api, cfg, llm, roster: new Roster(), channelId: 'ch',
@@ -21,7 +21,7 @@ async function setup({ extra = [], cfg: overrides = {} } = {}) {
   return { t, api, llm, clock, human };
 }
 
-for (const sceneForks of [false, true]) test(`a confirmed visit repairs a rejected split and receives autonomous turns (scene forks: ${sceneForks})`, async () => {
+for (const sceneForks of [false, true]) test(`a confirmed visit repairs a rejected split (scene forks: ${sceneForks})`, async () => {
   const { t, api, llm, clock, human } = await setup({ cfg: { sceneForks }, extra: [{ id: 'c-jiang', name: 'Jiang', kind: 'pc', user_id: 'u-bot', role_card: {} }] });
   t.timelines.main().location = 'Bookshop';
   const own = await t.post('w-main', { kind: 'ic', character_id: 'c-harriet', content: 'I went home after lunch; I am staying with Mr. Grimsby for tea.' });
@@ -45,35 +45,6 @@ for (const sceneForks of [false, true]) test(`a confirmed visit repairs a reject
   assert.match(home.notes, /He has just asked about her weekend/);
   assert.deepEqual(t.roster.coplayerByName('Harriet Vance').seats.filter(s => s.toSeq === null).map(s => s.windowId), [home.windowId]);
   assert.ok(!llm.calls.some(c => c.purpose === 'director' && c.messages[0].content.includes('MODE: arrival')), 'repair does not replay a fictional journey');
-
-  const before = api.posts.length;
-  clock.now += 90001;
-  llm.director = () => ({ actions: [], coplayers_may_act: true });
-  llm.coplayer = () => ({ action: 'speak', text: 'I was hoping to hear about your week.' });
-  await t.tick();
-  assert.ok(api.posts.slice(before).some(p => p.window === home.windowId && p.character_id === 'c-harriet'));
-  assert.ok(api.posts.slice(before).every(p => p.window === home.windowId), 'the independent visit does not continue in the human scene');
-  const prompt = llm.calls.findLast(c => c.purpose === 'coplayer_turn').messages[0].content;
-  assert.match(prompt, /ELSEWHERE.*\n.*Alice Hale/s);
-  assert.match(prompt, /WITH YOU HERE[^\n]*:\n\(none\)/);
-});
-
-test('a co-player-only primary scene is eligible for side turns while a human plays elsewhere', async () => {
-  const { t, api, llm, clock } = await setup();
-  const w = await api.createWindow('ch', { kind: 'group', name: 'Alice at the library', members: [{ user_id: 'u-alice', character_id: 'c-alice' }] });
-  t.timelines.split({ name: 'Library', location: 'Library', members: ['c-alice'], windowId: w.id, span: 'long', fromSeq: api.seq + 1 });
-  await t.refresh(); t.lastHumanAt = clock.now;
-  clock.now += 90001;
-  llm.director = () => ({ actions: [], coplayers_may_act: true });
-  llm.coplayer = () => ({ action: 'speak', text: 'I ask Mr. Grimsby about his own plans.' });
-  await t.tick();
-  assert.ok(api.posts.some(p => p.window === 'w-main' && p.character_id === 'c-harriet'));
-  assert.ok(llm.calls.some(c => c.purpose === 'director' && c.messages[0].content.includes('MODE: side')));
-  const calls = llm.calls.length;
-  t.generation.pause(); clock.now += 90001; await t.tick();
-  assert.equal(llm.calls.length, calls);
-  t.generation.resume(); t.cfg.dailyTokenBudget = 1;
-  await t.tick(); assert.equal(llm.calls.length, calls, 'the same token cap still stops autonomous turns');
 });
 
 test('a small turn budget rotates speaking opportunities instead of always stopping at the first co-player', async () => {
@@ -160,26 +131,4 @@ test('a wrong group proposal cannot drag an undecided companion or the human int
   assert.deepEqual(t.timelines.of('c-harriet').members, ['c-harriet']);
   assert.deepEqual(new Set(t.timelines.main().members), new Set(['c-alice', 'c-jiang']));
   assert.equal(t.timelines.active().length, 2);
-});
-
-test('an omitted return joins the existing thread without opening a duplicate window', async () => {
-  const { t, api, llm } = await setup();
-  const window = await api.createWindow('ch', { kind: 'group', name: 'Hale house', members: [{ user_id: 'u-bot' }] });
-  t.timelines.split({ name: 'Hale house', location: 'Hale house', members: ['c-harriet'], windowId: window.id, span: 'long', fromSeq: api.seq + 1 });
-  t.roster.moveSeats([t.roster.coplayerByName('Harriet Vance')], [window.id], api.seq);
-  await t.refresh();
-  await t.post(window.id, { kind: 'ic', character_id: 'c-harriet', content: 'I go back to the Cafeteria now.' });
-  const source = api.lines.at(-1).seq;
-  t.timelines.main().location = 'Cafeteria';
-  llm.director = () => ({ actions: [], coplayers_may_act: false });
-  llm.movements = ({ actors, destinations }) => ({ moves: actors.some(a => a.id === 'c-harriet' && a.sources.includes(source))
-    ? [{ id: 'c-harriet', seq: source, destination: destinations.find(d => d.place === 'Cafeteria').key }] : [] });
-  const windowsBefore = api.createdWindows.length;
-  // A fresh own action in the side turn is enough to run discovery without any human line there.
-  let spoken = false;
-  llm.coplayer = () => !spoken && (spoken = true) ? { action: 'speak', text: 'I am going back now.' } : { action: 'pass' };
-  await t.turn(window.id, { mode: 'side' }); await settle(t);
-  assert.equal(t.timelines.of('c-harriet').id, 'main');
-  assert.equal(api.createdWindows.length, windowsBefore);
-  assert.equal(t.timelines.active().length, 1);
 });

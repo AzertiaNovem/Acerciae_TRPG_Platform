@@ -81,8 +81,8 @@ const SETTINGS = [
   ["final-review", null, "planner.final_review"], ["final-review-min-lines", null, "planner.final_review_min_lines"], ["final-review-max-days", null, "planner.final_review_max_days"],
   ["debounce-ms", null, "pacing.debounce_ms"], ["post-delay-ms", null, "pacing.post_delay_ms"], ["max-actions", null, "pacing.max_actions_per_turn"],
   ["context-recall-tokens", null, "context.recall_tokens"], ["gm-context-tokens", null, "context.gm_tokens"], ["coplayer-context-tokens", null, "context.coplayer_tokens"], ["context-lines", null, "context.page_lines"], ["history-backfill-lines", null, "context.backfill_lines"], ["llm-daily-token-budget", null, "context.daily_token_budget"],
-  ["autonomy", null, "autonomy.enabled"], ["autonomy-tick-ms", null, "autonomy.tick_ms"], ["autonomy-side-interval-ms", null, "autonomy.side_interval_ms"], ["autonomy-quiet-ms", null, "autonomy.quiet_ms"], ["autonomy-quiet-turns", null, "autonomy.quiet_turns"],
-  ["autonomy-max-turns-per-hour", null, "autonomy.max_turns_per_hour"], ["autonomy-idle-minutes", null, "autonomy.idle_minutes"], ["away-side-interval-ms", null, "autonomy.away_side_interval_ms"],
+  ["autonomy", null, "autonomy.enabled"], ["autonomy-tick-ms", null, "autonomy.tick_ms"], ["autonomy-quiet-ms", null, "autonomy.quiet_ms"], ["autonomy-quiet-turns", null, "autonomy.quiet_turns"],
+  ["autonomy-max-turns-per-hour", null, "autonomy.max_turns_per_hour"], ["autonomy-idle-minutes", null, "autonomy.idle_minutes"],
   ["timeline-auto", null, "timelines.auto"], ["scene-forks", null, "timelines.scene_forks"], ["timeline-guard-turns", null, "timelines.guard_turns"], ["timeline-guard-ms", null, "timelines.guard_ms"], ["timeline-max-active", null, "timelines.max_active"], ["timeline-pc-cooldown-ms", null, "timelines.pc_cooldown_ms"], ["timeline-max-arrivals-per-hour", null, "timelines.max_arrivals_per_hour"],
   ["scenario-auto", null, "scenarios.auto"], ["scenario-min-minutes", null, "scenarios.min_minutes"], ["scenario-min-lines", null, "scenarios.min_lines"],
   ["calendar-min-minutes", null, "calendar.min_minutes"], ["calendar-min-lines", null, "calendar.min_lines"], ["calendar-max-days", null, "calendar.max_days"],
@@ -106,7 +106,7 @@ const LEGACY_ENV = {
 // Settings of features this client no longer has (its own AI co-players and what served them, whose place the
 // platform's bots took: docs/BOTS.md). Older files may still set them: they are read without a warning, and ignored.
 const RETIRED_KEYS = ["autonomy.coplayer_idle_lines", "autonomy.coplayer_idle_minutes", "planner.impulse_lines",
-  "modes.casual_ai_texts_per_hour", "modes.casual_ai_chain"];
+  "modes.casual_ai_texts_per_hour", "modes.casual_ai_chain", "autonomy.side_interval_ms", "autonomy.away_side_interval_ms"];
 // Model functions and purposes of those features (`models.<name>`), likewise.
 const RETIRED_MODELS = ["coplayer_phone"];
 const SECTIONS = ["forge", "worldbook", "account", "channel", "table", "writing", "llm", "planner", "models", "providers", "pacing", "context", "autonomy", "timelines", "scenarios", "calendar", "modes", "illustrations"];
@@ -124,7 +124,7 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
   const data = file?.data ?? file ?? {};
   const dir = file?.dir ?? process.cwd();
   const warnings = [];
-  for (const [name, key] of Object.entries(LEGACY_ENV)) if (env[name] !== undefined) warnings.push(`${name} is no longer read; set ${key} in gm-agent.yml (or pass --${SETTINGS.find((s) => s[2] === key)?.[0] ?? key})`);
+  for (const [name, key] of Object.entries(LEGACY_ENV)) if (env[name] !== undefined) warnings.push(RETIRED_KEYS.includes(key) ? `${name} is no longer read; its setting is retired` : `${name} is no longer read; set ${key} in gm-agent.yml (or pass --${SETTINGS.find((s) => s[2] === key)?.[0] ?? key})`);
   for (const section of Object.keys(data)) {
     if (!SECTIONS.includes(section)) { warnings.push(`gm-agent.yml: unknown section "${section}"`); continue; }
     if (FREE_SECTIONS.includes(section)) continue;
@@ -272,14 +272,10 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     // Billable-equivalent tokens a day (cache reads count a tenth); spent, the table stops its own autonomous turns.
     dailyTokenBudget: Math.max(0, int(pick("llm-daily-token-budget", 0), 0)),
     kickoff: bool(pick("kickoff"), false),
-    // Autonomy: the table moves on its own clock (side timelines, quiet shared windows) while humans are around.
+    // Autonomy: the table moves quiet shared windows on its own clock while humans are around.
     autonomy: bool(pick("autonomy"), true),
     autonomyTickMs: Math.max(1000, int(pick("autonomy-tick-ms", 30000), 30000)),
-    autonomySideIntervalMs: int(pick("autonomy-side-interval-ms", 90000), 90000),
     autonomyQuietMs: int(pick("autonomy-quiet-ms", 180000), 180000),
-    // Away mode: once nobody has posted for idle_minutes, co-players-only threads still move, this rarely (0 = they
-    // wait too). Fragmented play keeps going between visits without spending much.
-    awaySideIntervalMs: Math.max(0, int(pick("away-side-interval-ms", 21600000), 21600000)),
     autonomyQuietTurns: Math.max(0, int(pick("autonomy-quiet-turns", 2), 2)),
     autonomyMaxTurnsPerHour: Math.max(0, int(pick("autonomy-max-turns-per-hour", 20), 20)),
     autonomyIdleMinutes: Math.max(1, int(pick("autonomy-idle-minutes", 30), 30)),

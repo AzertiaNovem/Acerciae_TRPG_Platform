@@ -23,7 +23,7 @@ function draftFor(purpose, plan) {
       note: "GM only", text: `Phone from ${a.from} to ${a.to}`,
     })[a.type];
     const withOpening = a => a.opening ? { ...a, opening: part(a.opening, "Opening") } : a;
-    const sourced = new Set(["narrate", "npc", "new_npc", "whisper", "note", "text", "request_roll", "ask", "dice", "rejoin"]);
+    const sourced = new Set(["narrate", "npc", "new_npc", "whisper", "note", "text", "request_roll", "ask", "dice"]);
     plan = { ...plan, actions: plan.actions.map(a => sourced.has(a.type) ? { ...a, text: part(a.text, label(a)) } : withOpening(a)) };
     if (plan.whereabouts) plan.whereabouts = plan.whereabouts.map(withOpening);
   } else {

@@ -215,21 +215,16 @@ export async function tick(table) {
     if (table.overBudget()) return null;
     const now = table.now();
     const idle = table.cfg.autonomyIdleMinutes * 60000;
-    // Away: nobody at the table. Only co-players-only threads move, every AWAY_SIDE_INTERVAL_MS (0: not at all).
-    const away = now - table.lastHumanAt > idle;
-    if (away && !table.cfg.awaySideIntervalMs) return null;
+    // Away: nobody at the table, so nothing moves on its own.
+    if (now - table.lastHumanAt > idle) return null;
     table.autonomousTurns = table.autonomousTurns.filter((t) => now - t < HOUR);
     if (table.autonomousTurns.length >= table.cfg.autonomyMaxTurnsPerHour) return null;
     const candidates = [];
     for (const w of table.windows) {
       if (w.archived_at || table.timelines.retired(w.id) || table.isTableWindow(w.id) || (table.forks && !table.scene(w.id))) continue;
       const st = table.state(w.id);
-      const scene = table.scene(w.id);
       const humans = table.presentPlayers(w.id).length > 0;
-      const sinceLine = now - Math.max(st.lastLineAt, st.lastTurnAt);
-      if (scene && !humans && table.roster.coplayersIn(w.id).length) {
-        if (sinceLine >= (away ? table.cfg.awaySideIntervalMs : table.cfg.autonomySideIntervalMs)) candidates.push({ w, mode: "side", waited: sinceLine, extra: { timeline: scene } });
-      } else if (!away && humans && st.lastHumanAt && now - st.lastHumanAt <= idle && st.quietTurns < table.cfg.autonomyQuietTurns) {
+      if (humans && st.lastHumanAt && now - st.lastHumanAt <= idle && st.quietTurns < table.cfg.autonomyQuietTurns) {
         // Only a window where a human spoke recently moves on; a long-abandoned private window stays as it is. A human
         // writing there now holds it: the story does not move on while they compose their line (their sent line gets
         // its answer as always), and their stopping starts the silence over.

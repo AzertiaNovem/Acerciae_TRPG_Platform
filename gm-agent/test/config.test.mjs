@@ -165,4 +165,6 @@ const RETIRED = {
 test("the co-players' settings in an older file load without a warning", () => {
   assert.deepEqual(buildConfig({}, {}, file(RETIRED)).warnings, []);
   assert.doesNotThrow(() => parseChannel(YAML.stringify(RETIRED)));
+  // Their old environment variables still say they are not read, without pointing to a key that does nothing.
+  assert.deepEqual(buildConfig({}, { AWAY_SIDE_INTERVAL_MS: "0" }, file({})).warnings, ["AWAY_SIDE_INTERVAL_MS is no longer read; its setting is retired"]);
 });

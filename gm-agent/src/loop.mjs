@@ -8,12 +8,11 @@
 // and reunites them in the Main Chat when they are together again. Every new or changed scene gets an arrival turn
 // at once. A player who keeps writing in the old window is answered in their own scene (relay).
 //
-// The table does not always wait for a human. On its own clock (tick) it also runs:
-//   side   – a co-players-only window bound to a side timeline: its thread moves on, turn after turn;
-//   quiet  – a window with human players that has been silent for a while: the scene moves on a little without
-//            deciding anything for a player character, at most AUTONOMY_QUIET_TURNS times until a human posts again.
-//            A human writing in the window (the platform's typing flag) holds its quiet turns: the story does not
-//            move on while they compose their line, and their stopping starts the silence over.
+// The table does not always wait for a human. On its own clock (tick) it also runs quiet turns: a window with human
+// players that has been silent for a while moves on a little without deciding anything for a player character, at
+// most AUTONOMY_QUIET_TURNS times until a human posts again. A human writing in the window (the platform's typing
+// flag) holds its quiet turns: the story does not move on while they compose their line, and their stopping starts
+// the silence over.
 // Autonomy pauses when no human has posted in the channel for AUTONOMY_IDLE_MINUTES, and is capped per hour.
 //
 // The GM may also open the next scenario (campaign-wide), only from the Main Chat, never while a short split is
@@ -410,8 +409,8 @@ export class Table {
     const st = this.state(windowId);
     st.lastTurnAt = this.now();
     if (mode === "quiet") st.quietTurns++;
-    if (mode === "quiet" || mode === "side" || (mode === "arrival" && extra.autonomous)) this.autonomousTurns.push(this.now());
-    // Players' lines are taken only by the turns that can act on them; an arrival, quiet or side turn running first
+    if (mode === "quiet" || (mode === "arrival" && extra.autonomous)) this.autonomousTurns.push(this.now());
+    // Players' lines are taken only by the turns that can act on them; an arrival or quiet turn running first
     // leaves them for the human turn that follows.
     const takesLines = mode === "human" || mode === "relay";
     const batch = takesLines ? this.speakers.get(windowId) ?? [] : [];
@@ -420,7 +419,7 @@ export class Table {
     if (checkpoint) checkpoint.batch = batch.map((l) => ({ ...l }));
     // Its only line was recalled before it was answered: nothing to answer.
     if (mode === "human" && !kickoff && !batch.length && !extra.arrival && this.recallEmptied.delete(windowId)) return;
-    const autonomous = mode === "quiet" || mode === "side" || (mode === "arrival" && Boolean(extra.autonomous));
+    const autonomous = mode === "quiet" || (mode === "arrival" && Boolean(extra.autonomous));
     let scene = this.scene(windowId);
     const sceneThread = scene;
     if (this.forks && extra.arrival?.newcomer && scene) {
@@ -610,8 +609,7 @@ export class Table {
       await this.syncBotBrief();
       await this.callBots(windowId);
     }
-    const side = mode === "side" || (mode === "arrival" && !this.presentPlayers(windowId).length);
-    if (!plan.coplayersMayAct && !side) return;
+    if (!plan.coplayersMayAct) return;
     // Pace: in a quiet turn a co-player acts only if it has not since the last human line, so slow humans are not
     // drowned out by the AI side of the table.
     const st2 = this.state(windowId);
@@ -623,7 +621,7 @@ export class Table {
     let acted = 0;
     for (const c of [...first, ...seated.filter((x) => !first.includes(x))]) {
       if (budget <= 0 || (autonomous && this.overBudget())) break;
-      const n = await this.coplayerAct(windowId, c, first.includes(c), { side, maxMessages: Math.max(1, budget) });
+      const n = await this.coplayerAct(windowId, c, first.includes(c), { autonomous, maxMessages: Math.max(1, budget) });
       if (n) (st2.coplayersActed ??= new Set()).add(c.characterId);
       acted += n; budget -= n;
     }
@@ -943,14 +941,8 @@ export class Table {
 
   // Posts the world setting in the Main Chat for the human players, once per version of the text.
 
-  // ---- older, model-led timelines (TIMELINE_AUTO=false)
-  coplayersNamed(...args) { return windows.coplayersNamed(this, ...args); }
-
-  legacySplit(...args) { return windows.legacySplit(this, ...args); }
-
-  legacyRejoin(...args) { return windows.legacyRejoin(this, ...args); }
-
-  // Time, place, span and notes of a timeline. (With TIMELINE_AUTO, membership changes only through whereabouts.)
+  // Time, place, span and notes of a timeline (membership changes only through whereabouts and the CLI's split and
+  // rejoin).
   updateTimeline(...args) { return windows.updateTimeline(this, ...args); }
 
   // ---- autonomy

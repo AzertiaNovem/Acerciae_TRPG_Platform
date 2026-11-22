@@ -85,14 +85,12 @@ export const FIELDS = [
   f("context.backfill_lines", "int", "历史回填行数", "首次启动时读取的历史行数。", (c) => c.historyBackfillLines, { min: 0 }),
   f("context.daily_token_budget", "int", "每日令牌预算", "计费等价令牌（缓存读取按十分之一计）。用尽后停止自主回合。0 为不限。", (c) => c.dailyTokenBudget, { min: 0 }),
 
-  f("autonomy.enabled", "bool", "启用自主推进", "队友独处的支线与安静的共享窗口自行推进。", (c) => c.autonomy),
+  f("autonomy.enabled", "bool", "启用自主推进", "安静的共享窗口自行推进。", (c) => c.autonomy),
   f("autonomy.tick_ms", "int", "检查间隔", "自主推进的检查周期。", (c) => c.autonomyTickMs, { min: 1000, unit: "ms" }),
-  f("autonomy.side_interval_ms", "int", "支线推进间隔", "只有 AI 队友的支线多久推进一次。", (c) => c.autonomySideIntervalMs, { min: 0, unit: "ms" }),
   f("autonomy.quiet_ms", "int", "安静多久后推进", "共享窗口沉默多久后 GM 推进。", (c) => c.autonomyQuietMs, { min: 0, unit: "ms" }),
   f("autonomy.quiet_turns", "int", "安静推进次数", "无人回应时最多推进几次。", (c) => c.autonomyQuietTurns, { min: 0 }),
   f("autonomy.max_turns_per_hour", "int", "每小时自主回合", "自主回合的上限。", (c) => c.autonomyMaxTurnsPerHour, { min: 0 }),
   f("autonomy.idle_minutes", "int", "离开判定", "多久没有玩家发言视为离开：共享窗口暂停。", (c) => c.autonomyIdleMinutes, { min: 1, unit: "分钟" }),
-  f("autonomy.away_side_interval_ms", "int", "离开时支线间隔", "玩家离开期间支线的推进间隔（0 为暂停）。", (c) => c.awaySideIntervalMs, { min: 0, unit: "ms" }),
 
   f("timelines.auto", "bool", "主动分头", "GM 报告行踪，牌桌自动分头与重聚。关闭则回到模型主导的分头。", (c) => c.timelineAuto),
   f("timelines.scene_forks", "bool", "场景分叉", "开启：首次分头后主线移入私有分叉窗口，主聊天变为 GM 不叙述的大厅（多名玩家）。关闭：主线留在主聊天（单人）。", (c) => c.sceneForks),
