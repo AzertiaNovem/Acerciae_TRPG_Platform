@@ -1,4 +1,5 @@
 import PbtaPackEditor from './pbta/PackEditor';
+import BotBriefEditor from './BotBriefEditor';
 import { BotTag } from './BotTag';
 import { t as tr, currentLocale } from '../i18n';
 import { useEffect, useRef, useState } from 'react';
@@ -164,6 +165,7 @@ function ChannelSettings() {
         <div className="tiny muted">{tr("Turn all five off for a plain chat room that costs no tokens: no model calls are made for this channel. Features the server maintainer turned off are greyed out.")}</div>
         <label className="row small"><input type="checkbox" checked={form.bot_invites_enabled} disabled={serverSettings?.features?.bots !== true} onChange={(e) => setForm({ ...form, bot_invites_enabled: e.target.checked })} />{tr("Players may invite bots")}</label>
         <div className="tiny muted">{tr("Off: only you can bring one of the server's bots to this table. Bots already here stay until you remove them.")}</div>
+        {serverSettings?.features?.bots === true && channelId && <BotBriefEditor channelId={channelId} />}
         <label className="field"><span>{tr("Dice reply texts")}</span>
           <select value={form.dice_text_group} onChange={(e) => setForm({ ...form, dice_text_group: e.target.value })} disabled={!diceOn}>
             <option value="">{tr("Follow server language (")}{LANGUAGE_LABELS[lang] ?? lang})</option>

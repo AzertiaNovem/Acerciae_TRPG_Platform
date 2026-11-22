@@ -28,7 +28,12 @@ plan, and what is done so far, is in [BOTS_PLAN.md](BOTS_PLAN.md).
   other bots can keep it talking. Outside the table (no character there) it answers only when someone names it, out of
   character, as itself. If a person speaks while it composes, it drops its draft and answers the newer moment instead.
   With nobody talking, bots stay quiet. The GM can take back any line of a bot. A bot's turns per hour are capped by
-  its settings and by the server's AI budget; the channel's AI switch silences it too.
+  its settings and by the server's AI budget; the channel's AI switch silences it too. While it composes at the table,
+  its character shows as writing; it waits for anyone already writing (up to 45 seconds).
+- **The GM's tools** — "Bots' turn" above a chat window asks every bot there to take a turn now. "Notes for bots" in
+  the GM workspace is what every bot at the table is told each turn (the situation, what the characters know of the
+  world, how to play here); players never see it. Server settings → Bots → Activity lists each bot's latest turns:
+  where, why, and what came of them.
 
 A bot is a user of its own (`users.is_bot`): it never signs in, never appears where people are searched for, and never
 joins a player group (it will read only what it witnessed itself). Deleting a server deletes its bots.

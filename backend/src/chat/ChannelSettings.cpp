@@ -23,9 +23,11 @@ using namespace chatQueries;
 // ---- channels --------------------------------------------------------------------------------
 Json::Value ChatService::listChannels(const Principal& p, const std::string& serverId) {
     auth_.requireServerMember(p.userId, serverId);
-    return db_.queryJson(
+    auto rows = db_.queryJson(
         "SELECT c.*, cm.role AS my_role FROM channels c JOIN channel_members cm ON cm.channel_id=c.id AND cm.user_id=$2 WHERE c.server_id=$1 ORDER BY c.created_at",
         {serverId, p.userId});
+    for (auto& r : rows) if (r["my_role"] != "gm") r.removeMember("bot_brief");   // the GM's notes for bots stay the GM's
+    return rows;
 }
 Json::Value ChatService::allChannels(const Principal& p, const std::string& serverId) {
     auth_.requireServerMember(p.userId, serverId);
@@ -66,7 +68,7 @@ void ChatService::requireChannelAi(const ChannelAccess& a, const std::string& co
 }
 Json::Value ChatService::getChannel(const ChannelAccess& a) {
     auto c = db_.queryOne("SELECT c.*, s.title AS current_scene_title FROM channels c LEFT JOIN scenes s ON s.id=c.current_scene_id WHERE c.id=$1", {a.channelId});
-    if(!a.isGm) c["current_scene_title"]=Json::Value();
+    if(!a.isGm) { c["current_scene_title"]=Json::Value(); c.removeMember("bot_brief"); }   // the GM's notes for bots stay the GM's
     if(!a.playerGroupId.empty()) c["player_group_name"]=db_.queryOne("SELECT name FROM player_groups WHERE id=$1",{a.playerGroupId})["name"];
     c["player_group_id"]=a.playerGroupId; c["player_group_version"]=a.playerGroupVersion;
     c["forge_eligible"] = db_.tx([&](pqxx::work& w) { return !forge::hasPlay(w,a.channelId); });

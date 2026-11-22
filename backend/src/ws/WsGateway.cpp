@@ -143,6 +143,34 @@ void WsGateway::setTyping(const drogon::WebSocketConnectionPtr& conn, const std:
     for (const auto& t : fallen) announceTyping(t, false);
     if (raised) announceTyping(*raised, true);
 }
+static std::set<std::string> typingAudience(const std::string& channelId, const std::string& chatWindowId, bool npc);
+void WsGateway::setServerTyping(const std::string& channelId, const std::string& chatWindowId, const std::string& characterId, const std::string& userId, bool active) {
+    auto audience = active ? typingAudience(channelId, chatWindowId, false) : std::set<std::string>{};
+    std::vector<Typing> fallen; std::optional<Typing> raised;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        auto it = typing_.find(characterId);
+        if (!active) {
+            if (it != typing_.end() && it->second.userId == userId) { fallen.push_back(std::move(it->second)); typing_.erase(it); }
+        } else {
+            const auto until = std::chrono::steady_clock::now() + kServerTypingTtl;
+            if (it != typing_.end() && it->second.chatWindowId == chatWindowId) { it->second.until = until; it->second.audience = std::move(audience); }
+            else {
+                if (it != typing_.end()) { fallen.push_back(std::move(it->second)); typing_.erase(it); }
+                Typing t{channelId, chatWindowId, characterId, userId, nullptr, std::move(audience), until};
+                typing_[characterId] = t; raised = std::move(t);
+            }
+        }
+    }
+    for (const auto& t : fallen) announceTyping(t, false);
+    if (raised) announceTyping(*raised, true);
+}
+bool WsGateway::someoneTyping(const std::string& chatWindowId, const std::string& exceptUserId) {
+    std::lock_guard<std::mutex> lk(mu_);
+    const auto now = std::chrono::steady_clock::now();
+    for (const auto& [id, t] : typing_) if (t.chatWindowId == chatWindowId && t.userId != exceptUserId && t.until > now) return true;
+    return false;
+}
 void WsGateway::sweepTyping() {
     std::vector<Typing> expired;
     {

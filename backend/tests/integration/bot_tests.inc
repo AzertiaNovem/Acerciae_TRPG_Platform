@@ -182,3 +182,59 @@
         S.cfg.botSettleMs = 6000; S.cfg.botGmWaitMs = 90000;
     });
 
+    test("bots: the GM's call gives every bot in the window a turn now; the GM's notes for bots stay the GM's; maintainers read the activity", [&] {
+        S.cfg.botSettleMs = 0; S.cfg.botGmWaitMs = 0;
+        const auto sid = server["id"].asString();
+        auto outcome = [](const std::function<void()>& fn) { try { fn(); return std::string("ok"); } catch (const ApiError& e) { return e.code(); } };
+        Json::Value cb; cb["name"] = "Called table"; cb["knowledge_mode"] = "isolated";
+        auto ch = S.chat->createChannel(gmP, sid, cb)["id"].asString();
+        auto keeper = S.auth->channelAccess(gmUser, ch);
+        S.chat->addChannelMember(keeper, "p1" + suffix, "player");
+        auto win = S.chat->listWindows(keeper)[0]["id"].asString();
+        Json::Value b; b["name"] = "Moss";
+        auto bot = S.bots->create(gmP, sid, b);
+        S.bots->invite(keeper, bot["id"].asString());
+        Json::Value pc; pc["name"] = "Quill"; pc["user_id"] = bot["user_id"];
+        S.chat->createCharacter(keeper, pc);
+        S.botRuntime->tick(true);
+        auto lines = [&] { return S.db->queryOne("SELECT count(*) AS n FROM messages WHERE chat_window_id=$1 AND author_id=$2", {win, bot["user_id"].asString()})["n"].asInt(); };
+        auto p1a = S.auth->channelAccess(p1User, ch);
+        CHECK(outcome([&] { S.bots->callTurn(p1a, win, Json::Value(Json::objectValue)); }) == "forbidden");
+        // Its run is spent (two turns since the last human line), yet the GM's call still gives it a turn.
+        S.db->exec("UPDATE bot_window_state SET chain=2 WHERE bot_id=$1 AND chat_window_id=$2", {bot["id"].asString(), win});
+        auto called = S.bots->callTurn(keeper, win, Json::Value(Json::objectValue));
+        CHECK(called["called"].size() == 1); CHECK(called["called"][0]["name"] == "Moss");
+        CHECK(S.botRuntime->tick(true) >= 1);   // other tests' bots may have a turn due too
+        CHECK(lines() == 1);
+        CHECK(S.db->queryOne("SELECT trigger FROM bot_turns WHERE bot_id=$1", {bot["id"].asString()})["trigger"] == "called");
+        // Only the characters named are called.
+        Json::Value some; some["character_ids"] = Json::Value(Json::arrayValue); some["character_ids"].append("00000000-0000-0000-0000-000000000000");
+        CHECK(S.bots->callTurn(keeper, win, some)["called"].empty());
+        // A GM agent's call also leaves players' lines to it for a while.
+        Json::Value pace; pace["pace"] = true;
+        S.bots->callTurn(keeper, win, pace);
+        CHECK(S.db->queryOne("SELECT bot_pacing_until > now() AS on FROM channels WHERE id=$1", {ch})["on"].asBool());
+        S.botRuntime->tick(true);
+        const auto before = lines();
+        Json::Value hello; hello["content"] = "Hello there."; hello["kind"] = "ic";
+        S.chat->postMessage(p1a, win, hello);
+        S.botRuntime->tick(true);
+        CHECK(lines() == before);   // the agent paces: a player's line owes nothing now
+        S.db->exec("UPDATE channels SET bot_pacing_until=NULL WHERE id=$1", {ch});
+        // The notes for bots: the GM's to write and read.
+        Json::Value note; note["text"] = "The harbour master is secretly kind.";
+        CHECK(outcome([&] { S.bots->setBrief(p1a, note); }) == "forbidden");
+        S.bots->setBrief(keeper, note);
+        CHECK(S.chat->getChannel(keeper)["bot_brief"] == "The harbour master is secretly kind.");
+        CHECK(!S.chat->getChannel(p1a).isMember("bot_brief"));
+        Principal p1P{p1User, "p1", "P1"};
+        for (const auto& c : S.chat->listChannels(p1P, sid)) CHECK(!c.isMember("bot_brief"));
+        Json::Value tooLong; tooLong["text"] = std::string(12001, 'x');
+        CHECK(outcome([&] { S.bots->setBrief(keeper, tooLong); }) == "bad_request");
+        // The activity: maintainers only.
+        auto act = S.bots->activity(gmP, sid, bot["id"].asString());
+        CHECK(act.size() >= 2); CHECK(act[act.size() - 1]["trigger"] == "called"); CHECK(act[act.size() - 1]["channel_name"] == "Called table");
+        CHECK(outcome([&] { S.bots->activity(p1P, sid, bot["id"].asString()); }) == "forbidden");
+        S.cfg.botSettleMs = 6000; S.cfg.botGmWaitMs = 90000;
+    });
+

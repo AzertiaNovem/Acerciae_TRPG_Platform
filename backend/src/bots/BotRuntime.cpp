@@ -12,6 +12,7 @@
 #include "../core/Log.h"
 #include "../core/Text.h"
 #include "../core/WorkPool.h"
+#include "../ws/WsGateway.h"
 #include <algorithm>
 #include <map>
 #include <cctype>
@@ -184,6 +185,8 @@ std::vector<BotRuntime::Claim> BotRuntime::scan() {
                 bots::ingest(s, me, line);
             }
             bool claim = bots::due(s, st["now_s"].asDouble(), timing);
+            // Someone is writing: let them finish (but not for ever).
+            if (claim && st["now_s"].asDouble() - s.owedAt < 45 && WsGateway::instance().someoneTyping(windowId, user)) claim = false;
             if (claim && Db::queryOne(w, "SELECT count(*) AS n FROM bot_turns WHERE bot_id=$1 AND started_at > now() - interval '1 hour'", {botId})["n"].asInt64() >= st["turns_per_hour"].asInt64()) {
                 ALOG_INFO << "bots: " << st["name"].asString() << " reached its turns for this hour; a turn is skipped";
                 s.owed.clear(); claim = false;
@@ -233,6 +236,9 @@ void BotRuntime::runTurn(const Claim& c) {
     if (turn.isNull()) { release("owed=NULL"); return; }
     const auto turnId = turn["id"].asString();
     std::vector<std::string> posted;
+    // At the table its character shows as writing while it composes.
+    struct Typing { std::string ch, win, pc, user; ~Typing() { if (!pc.empty()) try { WsGateway::instance().setServerTyping(ch, win, pc, user, false); } catch (...) {} } } typing;
+    if (table) { typing.ch = channelId; typing.win = c.windowId; typing.pc = pc["id"].asString(); typing.user = user; try { WsGateway::instance().setServerTyping(channelId, c.windowId, typing.pc, user, true); } catch (...) {} }
     try {
         std::vector<std::string> mine;
         for (const auto& r : db_.queryJson("SELECT id FROM characters WHERE channel_id=$1 AND user_id=$2", {channelId, user})) mine.push_back(r["id"].asString());

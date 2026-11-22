@@ -17,5 +17,8 @@ void registerBotRoutes() {
     route1("/api/channels/{1}/bots", {Get}, [&](auto&, auto& p, auto& a) { return S.bots->channelView(access(p, a[0])); });
     route1("/api/channels/{1}/bots", {Post}, [&](auto& req, auto& p, auto& a) { return S.bots->invite(access(p, a[0]), json::requireStr(body(req), "bot_id")); });
     route2("/api/channels/{1}/bots/{2}", {Delete}, [&](auto&, auto& p, auto& a) { return S.bots->removeFromChannel(access(p, a[0]), a[1]); });
+    route2("/api/channels/{1}/windows/{2}/bot-turns", {Post}, [&](auto& req, auto& p, auto& a) { return S.bots->callTurn(access(p, a[0]), a[1], body(req)); });
+    route1("/api/channels/{1}/bot-brief", {Put}, [&](auto& req, auto& p, auto& a) { return S.bots->setBrief(access(p, a[0]), body(req)); });
+    route2("/api/servers/{1}/bots/{2}/activity", {Get}, [&](auto&, auto& p, auto& a) { return S.bots->activity(p, a[0], a[1]); });
 }
 }
