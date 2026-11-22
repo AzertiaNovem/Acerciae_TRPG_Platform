@@ -8,8 +8,6 @@ import { noteCalendarLine } from "../calendar.mjs";
 import { TRIGGER_KINDS, HOUR } from "./shared.mjs";
 import { pictureOnly } from "../pictureLines.mjs";
 
-import { attentionCandidates } from './attention.mjs';
-
 export function cancelTimer(table, windowId) {
     const pending = table.timers.get(windowId);
     if (!pending) return;
@@ -229,12 +227,6 @@ export async function tick(table) {
       const scene = table.scene(w.id);
       const humans = table.presentPlayers(w.id).length > 0;
       const sinceLine = now - Math.max(st.lastLineAt, st.lastTurnAt);
-      // A neglected co-player gets a bounded review even when the shared window has used
-      // its ordinary quiet turns. It still waits for typing, the idle gate and hourly cap.
-      if (!away && (!humans || (st.lastHumanAt && now - st.lastHumanAt <= idle)) && table.cfg.maxActionsPerTurn >= 2 && sinceLine >= table.cfg.autonomyQuietMs && !table.humansTyping(w.id).length && attentionCandidates(table, w.id).length) {
-        candidates.push({ w, mode: "attention", waited: sinceLine, extra: {} });
-        continue;
-      }
       if (scene && !humans && table.roster.coplayersIn(w.id).length) {
         if (sinceLine >= (away ? table.cfg.awaySideIntervalMs : table.cfg.autonomySideIntervalMs)) candidates.push({ w, mode: "side", waited: sinceLine, extra: { timeline: scene } });
       } else if (!away && humans && st.lastHumanAt && now - st.lastHumanAt <= idle && st.quietTurns < table.cfg.autonomyQuietTurns) {

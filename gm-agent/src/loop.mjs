@@ -58,7 +58,6 @@ import * as planning from "./table/planning.mjs";
 import * as social from "./table/social.mjs";
 import * as coplayers from "./table/coplayers.mjs";
 import * as bots from "./table/bots.mjs";
-import { attentionCandidates, attentionBrief, attentionChoice, noteAttention } from "./table/attention.mjs";
 import * as world from './table/world-state.mjs';
 import { worldState as normalizeWorldState } from './world-state/state.mjs';
 import { languageName, MOVE_MODES, norm, names } from "./table/shared.mjs";
@@ -412,7 +411,7 @@ export class Table {
     const st = this.state(windowId);
     st.lastTurnAt = this.now();
     if (mode === "quiet") st.quietTurns++;
-    if (mode === "quiet" || mode === "side" || mode === "attention" || (mode === "arrival" && extra.autonomous)) this.autonomousTurns.push(this.now());
+    if (mode === "quiet" || mode === "side" || (mode === "arrival" && extra.autonomous)) this.autonomousTurns.push(this.now());
     // Players' lines are taken only by the turns that can act on them; an arrival, quiet or side turn running first
     // leaves them for the human turn that follows.
     const takesLines = mode === "human" || mode === "relay";
@@ -422,7 +421,7 @@ export class Table {
     if (checkpoint) checkpoint.batch = batch.map((l) => ({ ...l }));
     // Its only line was recalled before it was answered: nothing to answer.
     if (mode === "human" && !kickoff && !batch.length && !extra.arrival && this.recallEmptied.delete(windowId)) return;
-    const autonomous = mode === "quiet" || mode === "side" || mode === "attention" || (mode === "arrival" && Boolean(extra.autonomous));
+    const autonomous = mode === "quiet" || mode === "side" || (mode === "arrival" && Boolean(extra.autonomous));
     let scene = this.scene(windowId);
     const sceneThread = scene;
     if (this.forks && extra.arrival?.newcomer && scene) {
@@ -465,8 +464,6 @@ export class Table {
     const visitorsIn = scene ? [...speakerIds].filter((id) => !scene.members.includes(id)) : [];
 
     let budget = this.cfg.maxActionsPerTurn;
-    let reviewed = null, reviewDecision = null;
-    const reviewInvite = () => reviewed && reviewDecision?.decision !== "rest" && this.scene(windowId)?.members.includes(reviewed.id);
     const timeline = this.timelines.ofWindow(windowId);
     // The first turn a player starts after a final review opens the new session from what it prepared (once).
     let between = windowId === this.primaryWindowId() && (["human", "relay"].includes(mode) || kickoff) ? this.betweenNote() : null;
@@ -494,8 +491,6 @@ export class Table {
         }
       }
       scene = this.scene(windowId);
-      if (roundMode === mode && ["human", "relay", "quiet", "side", "attention"].includes(mode) && budget >= 2 && (!autonomous || !this.overBudget())) reviewed = attentionCandidates(this, windowId)[0] ?? null;
-      if (roundMode === "attention" && !reviewed) return { actions: [], coplayersMayAct: false, spotlight: [], whereabouts: [] };
       let worldDraft = await world.beginWorldDraft(this, windowId);
       const ctx = await this.buildGm(windowId, { storyPlan: this.storyPlanSection() });
       lastCtx = ctx;
@@ -524,7 +519,7 @@ export class Table {
       // A public handoff or seat correction just posted by the table must not replace the player's question.
       const newest = roundMode === "human" && ctx.newest && !this.isHuman(ctx.newest)
         ? ctx.lines(windowId).findLast(m => this.isTrigger(m)) ?? ctx.newest : ctx.newest;
-      const request = { language: this.language, profile: this.profile, context: ctx.parts, pbta, newest, mode: roundMode, kickoff: roundMode === "kickoff", timeline, whereabouts, scenario, auto: this.cfg.timelineAuto, forks: this.forks, illustrate: this.illustrationsOn() && (this.cfg.illustrations?.maxPerHour ?? 0) > 0, improv: this.improv.on, casual: this.casualOn(), planner: this.plannerVerdict(), between, calendar: this.calendarOn(), ...roundExtra, attentionNote: roundMode === mode ? attentionBrief(reviewed) : '' };
+      const request = { language: this.language, profile: this.profile, context: ctx.parts, pbta, newest, mode: roundMode, kickoff: roundMode === "kickoff", timeline, whereabouts, scenario, auto: this.cfg.timelineAuto, forks: this.forks, illustrate: this.illustrationsOn() && (this.cfg.illustrations?.maxPerHour ?? 0) > 0, improv: this.improv.on, casual: this.casualOn(), planner: this.plannerVerdict(), between, calendar: this.calendarOn(), ...roundExtra };
       request.canFormat = () => !(autonomous && this.overBudget());
       request.writing = this.cfg.writing?.gm;
       request.formatting = this.cfg.writing?.formatting;
@@ -552,14 +547,10 @@ export class Table {
         }
       }
       this.generation.signal.throwIfAborted();
-      // Resolve the current mechanical decision before spending a turn on an unrelated opportunity.
-      if (roundMode === mode && reviewed && plan.actions.some(a => ["request_roll", "move", "ask"].includes(a.type))) reviewed = null;
-      if (roundMode === mode && reviewed) reviewDecision = plan.attentionReview;
       if (this.forks && placements?.ops.some(o => ["split", "move", "merge", "fork_main"].includes(o.op))) {
         const out = await this.applyPlan(placements, { windowId, mode: roundMode, turn: turnNo, autonomous });
         placements = null;
         if (out?.moved.length) {
-          if (reviewed && !this.scene(windowId)?.members.includes(reviewed.id)) noteAttention(this, reviewed, reviewDecision);
           if (out.here) here = out.here;
           // Discard prose written for the old audience. Each new scene gets its own opening/context.
           if (this.scene(windowId) && !here) this.schedule(windowId, { mode: "followup", delay: 0 });
@@ -576,8 +567,7 @@ export class Table {
       await world.commitWorldGroup(this, windowId, worldGroups?.get(-1));
       for (const [actionIndex, action] of plan.actions.entries()) {
         this.generation.signal.throwIfAborted();
-        const reserve = roundMode === mode && reviewInvite() ? Math.min(2, this.cfg.maxActionsPerTurn - 1) : 0;
-        if (budget <= reserve) break;
+        if (budget <= 0) break;
         if (this.pbta && action.type === "move" && !intents.some(m => m.id === action.source_id && m.character_id === action.character_id)) continue;
         const newNpc = action.type === "new_npc" && !this.roster.npcByName(action.name);
         budget -= await world.runWorldAction(this, windowId, worldGroups?.get(actionIndex), action, () => this.act(windowId, action, ctx, { mode: roundMode, parent: mode, scope, evidenceThrough }));
@@ -604,7 +594,6 @@ export class Table {
       // Published arrivals may establish a reunion even if the director omitted whereabouts or a movement
       // proposal was rejected. Reconcile before choosing co-players so their next turn reads the real cast.
       if (this.cfg.timelineAuto && moves) await this.reconcilePresence(windowId, turnNo);
-      if (roundMode === mode && reviewed && (reviewDecision?.decision === "rest" || !this.scene(windowId)?.members.includes(reviewed.id))) noteAttention(this, reviewed, reviewDecision);
       return plan;
     };
     // Players back after being away are welcomed back in this turn.
@@ -623,25 +612,19 @@ export class Table {
       await this.callBots(windowId);
     }
     const side = mode === "side" || (mode === "arrival" && !this.presentPlayers(windowId).length);
-    if (!plan.coplayersMayAct && !side && !reviewInvite()) return;
+    if (!plan.coplayersMayAct && !side) return;
     // Pace: in a quiet turn a co-player acts only if it has not since the last human line, so slow humans are not
     // drowned out by the AI side of the table.
     const st2 = this.state(windowId);
     const lastSpoke = new Map(this.history.lines(windowId).filter(m => m.character_id && m.kind === "ic").map(m => [m.character_id, m.seq]));
     // A small turn budget must not give the first roster entry every available slot.
-    const seated = this.roster.coplayersIn(windowId).filter(c =>
-      (mode !== "attention" || (reviewInvite() && c.characterId === reviewed.id)) &&
-      (plan.coplayersMayAct || side || (reviewInvite() && c.characterId === reviewed.id)) &&
-      !(reviewed?.id === c.characterId && reviewDecision?.decision === "rest") &&
-      (reviewInvite() && c.characterId === reviewed.id || mode !== "quiet" || !st2.coplayersActed?.has(c.characterId)))
+    const seated = this.roster.coplayersIn(windowId).filter(c => mode !== "quiet" || !st2.coplayersActed?.has(c.characterId))
       .sort((a, b) => (lastSpoke.get(a.characterId) ?? 0) - (lastSpoke.get(b.characterId) ?? 0));
-    const first = seated.filter(c => reviewed?.id === c.characterId || plan.spotlight.some(n => norm(n) === norm(c.name)))
-      .sort((a, b) => Number(b.characterId === reviewed?.id) - Number(a.characterId === reviewed?.id));
+    const first = seated.filter(c => plan.spotlight.some(n => norm(n) === norm(c.name)));
     let acted = 0;
     for (const c of [...first, ...seated.filter((x) => !first.includes(x))]) {
-      if (budget <= 0 || (reviewed && acted > 0 && budget <= 1) || (autonomous && this.overBudget())) break;
-      const n = await this.coplayerAct(windowId, c, first.includes(c), { side, maxMessages: Math.max(1, budget - (reviewed ? 1 : 0)), attentionNote: attentionChoice(c.characterId === reviewed?.id ? reviewed : null) });
-      if (c.characterId === reviewed?.id) noteAttention(this, reviewed, reviewDecision);
+      if (budget <= 0 || (autonomous && this.overBudget())) break;
+      const n = await this.coplayerAct(windowId, c, first.includes(c), { side, maxMessages: Math.max(1, budget) });
       if (n) (st2.coplayersActed ??= new Set()).add(c.characterId);
       acted += n; budget -= n;
     }

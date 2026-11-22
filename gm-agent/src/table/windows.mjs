@@ -52,7 +52,7 @@ export function presenceThreads(table) {
 
 export async function reconcilePresence(table, windowId, turn) {
     const activeTurn = table.turnScope.getStore();
-    if (table.generation.paused || (["quiet", "side", "attention"].includes(activeTurn?.mode) && table.overBudget())) return;
+    if (table.generation.paused || (["quiet", "side"].includes(activeTurn?.mode) && table.overBudget())) return;
     const scene = table.scene(windowId);
     const threads = table.presenceThreads();
     if (!scene || !threads.length) return;
@@ -63,7 +63,7 @@ export async function reconcilePresence(table, windowId, turn) {
     try { placements = await readPresence(table.llm, { current, threads }); }
     catch (e) { table.generation.signal.throwIfAborted(); table.log("scene presence: " + e.message); return; }
     table.generation.signal.throwIfAborted();
-    if (["quiet", "side", "attention"].includes(activeTurn?.mode) && table.overBudget()) return;
+    if (["quiet", "side"].includes(activeTurn?.mode) && table.overBudget()) return;
     // A newer correction/departure received while the model was thinking invalidates its snapshot.
     if (hashText(JSON.stringify(table.presenceThreads())) !== digest) return;
     (table.presenceChecked ??= new Map()).set(current, digest);

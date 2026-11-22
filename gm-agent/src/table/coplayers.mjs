@@ -12,7 +12,7 @@ import { describeCalendar, describeRoutine } from "../calendar.mjs";
 import { renderBondsFor } from "../bonds.mjs";
 import { impression } from "../context/traits.mjs";
 
-export async function coplayerAct(table, windowId, coplayer, spotlight, { side = false, attentionNote = "", maxMessages = table.cfg.maxActionsPerTurn } = {}) {
+export async function coplayerAct(table, windowId, coplayer, spotlight, { side = false, maxMessages = table.cfg.maxActionsPerTurn } = {}) {
     const me = coplayer.characterId;
     const hidden = table.hiddenLines();
     // Everything this co-player witnessed (its seats, its timeline), from the local copy of the chat.
@@ -45,7 +45,7 @@ export async function coplayerAct(table, windowId, coplayer, spotlight, { side =
         canFormat: () => !(side && table.overBudget()),
         writing: table.cfg.writing?.coplayer,
         formatting: table.cfg.writing?.formatting,
-        attentionNote, corrections: renderCorrectionsFor(table.planner.table, coplayer.name),
+        corrections: renderCorrectionsFor(table.planner.table, coplayer.name),
         ...(table.calendarOn() ? { today: describeCalendar(table.calendar, { time: t?.narrativeTime || table.calendar.time }), routine: describeRoutine(table.calendar), timePassed: table.timePassedFor(me, witnessed) } : {}), met: table.metBy(known.met), bonds: renderBondsFor(table.bonds, me, known.all, (id) => table.nameOf(id)) });
     } catch (e) { table.log(`co-player ${coplayer.name}: ${e.message}`); return 0; }
 

@@ -99,7 +99,7 @@ const requireDirection = (directions, value = null) => {
 export function directorSources(plan, take, directions) {
   if (!Array.isArray(plan?.actions)) throw new Error("actions must be an array");
   const opening = (a) => a?.opening == null ? a : { ...a, opening: take(a.opening, "opening").text };
-  if (plan.whereabouts?.length || plan.spotlight?.length || plan.attention_review) requireDirection(directions);
+  if (plan.whereabouts?.length || plan.spotlight?.length) requireDirection(directions);
   return { ...plan, actions: plan.actions.map(a => {
     if (!["narrate", "npc", "whisper", "text", "note"].includes(a?.type)) requireDirection(directions);
     if (a?.command != null) requireDirection(directions, a.command);

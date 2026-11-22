@@ -80,7 +80,7 @@ ${casual ? '- Phone from <NPC> to <recipient>: for a text message. Specify its d
 - Table directions: for decisions the table must carry out. Use brief plain sentences with the exact names, commands, IDs, times and other required facts. Put a direction before or after the relevant prose according to when it happens; point to that paragraph if they belong to one action. Say whether co-players may act, and who has the spotlight, when it matters. An unlabelled paragraph is public; repeat the cue for every new paragraph of private text or NPC dialogue.`).replace("\u0000WRITING\u0000", () => writing);
 }
 
-export function directorFormatSchema({ auto = true, improv = false, casual = false, planner = false, calendar = false, pbta = false, illustrate = false, profile = COC7E, attention = false } = {}) {
+export function directorFormatSchema({ auto = true, improv = false, casual = false, planner = false, calendar = false, pbta = false, illustrate = false, profile = COC7E } = {}) {
   return `For a GM turn map public paragraphs to narrate, npc to npc, new_npc to new_npc, whisper to whisper, note to note, and npc_text to text. An opening paragraph belongs only to a split or whereabouts. Names and recipients come from the paragraphs. Use only the drafted actions from the options below. Numbers in text or opening fields are paragraph ids.
 {"actions": [
   {"type": "narrate", "text": 1},
@@ -108,7 +108,7 @@ ${improv ? `  {"type": "truth", "text": "<a hidden fact you just decided, for yo
  ],
  "coplayers_may_act": true | false,
  "spotlight": ["<co-player names invited to act first>"]${auto ? `,
- "whereabouts": [{"who": ["<character names>"], "thread": "<handle like T0>" | "new", "place": "...", "own_scene": true, "span": "short" | "long", "time": "...", "opening": 8}]` : ""}${attention ? `, "attention_review": {"decision": "invite" | "rest", "reason": "..."}` : ""}}`;
+ "whereabouts": [{"who": ["<character names>"], "thread": "<handle like T0>" | "new", "place": "...", "own_scene": true, "span": "short" | "long", "time": "...", "opening": 8}]` : ""}}`;
 }
 
 export function validateDirector(x, { auto = true, improv = false, casual = false, planner = false, calendar = false, pbta = false, illustrate = false, profile = COC7E } = {}) {
@@ -124,7 +124,6 @@ export function validateDirector(x, { auto = true, improv = false, casual = fals
     actions,
     coplayersMayAct: x.coplayers_may_act !== false,
     spotlight: Array.isArray(x.spotlight) ? x.spotlight.map(String) : [],
-    attentionReview: { decision: x.attention_review?.decision === "rest" && String(x.attention_review?.reason ?? '').trim() ? "rest" : "invite", reason: String(x.attention_review?.reason ?? '').trim().slice(0, 500) },
     whereabouts: auto ? validateWhereabouts(x.whereabouts) : [],
   };
 }
@@ -135,7 +134,6 @@ const MODE_NOTES = {
   followup: () => "MODE: followup — the co-players just acted (the lines after your last ones). Answer each of their choices now and push the story forward.",
   quiet: ({ quietMinutes }) => `MODE: quiet — the human players in this window have been silent for ${quietMinutes} minutes. Move the scene forward a little on your own: the world, the NPCs, or a question to a named player. Co-players may act. Never decide, speak or roll for a player character, and never resolve a roll a player still owes.`,
   side: ({ timeline }) => `MODE: side — this window is the co-players-only timeline "${timeline?.name ?? "side"}". No human is here: run its thread with the co-players, beat by beat. When the co-players head back to the others, report it in whereabouts.`,
-  attention: () => 'MODE: attention — give the selected neglected AI co-player a concrete personal opportunity or a grounded reason to rest. This is their turn; do not require a human response.',
   arrival: ({ arrival }) => (arrival?.newcomer ? `MODE: arrival — a new player just joined the table with ${list(arrival.names)}. Bring ${arrival.names?.length > 1 ? "them" : "this character"} into the story here, naturally: who they are to the others, why they are here now, what they notice; then hand them the scene. Never decide for player characters.` : `MODE: arrival — ${list(arrival?.names)} ${arrival?.reunion ? "just rejoined the others here" : `just arrived at ${arrival?.place || "this place"}`}. Open the scene for them now: where they are, what they notice, an open situation. Do not repeat the departure${arrival?.opening ? ` or this opening, already posted: "${arrival.opening}"` : ""}. Never decide for player characters.`),
   phone: ({ phone }) => `MODE: phone — ${phone?.from ?? "a player character"} texted ${phone?.to ?? "an NPC"} on their phone${phone?.thread ? `. The thread so far (oldest first):\n${phone.thread}\n` : ": "}${JSON.stringify(phone?.text ?? "")}. Answer only as ${phone?.to ?? "the NPC"}, with one Phone from ${phone?.to ?? "the NPC"} to ${phone?.from ?? "the player character"} paragraph and a plausible delay in the directions; or pass if they would leave it unanswered. Nothing else happens in any scene this turn. You may add a note, truth or world_change.`,
   relay: ({ relay }) => `MODE: relay — ${relay?.speaker ?? "a player"} wrote in another window ("${relay?.window ?? "elsewhere"}"), but their character is here, in this scene. Answer them here as if they had written here: ${JSON.stringify(relay?.text ?? "")}.`,
@@ -163,7 +161,6 @@ export async function directTurn(llm, { language, context, newest, mode = "human
     note,
     arrivalNote,
     returningNote,
-    extra.attentionNote ?? "",
     plannerNote,
     newest ? `NEWEST LINE: ${newest.character_name || newest.author_name || "someone"}: ${newest.content}` : "",
     `Decide the ${v.gm}'s actions for this turn.`,
@@ -172,7 +169,7 @@ export async function directTurn(llm, { language, context, newest, mode = "human
   const options = { auto, improv, casual, planner: Boolean(planner?.on), calendar, pbta: !!pbta, illustrate, profile };
   const result = await formatTurn(llm, {
     system: directorSystem(language, { ...options, forks, writing: extra.writing }) + (extra.worldToolRules ? `\n\n${extra.worldToolRules}` : ''),
-    user, purpose: "director", phase: mode, schema: directorFormatSchema({ ...options, attention: Boolean(extra.attentionNote) }), bind: directorSources,
+    user, purpose: "director", phase: mode, schema: directorFormatSchema(options), bind: directorSources,
     validate: (x) => validateDirector(x, options), canFormat: extra.canFormat, formatting: extra.formatting, toolkit: extra.toolkit,
   });
   return result ?? validateDirector({ actions: [], coplayers_may_act: false }, options);
