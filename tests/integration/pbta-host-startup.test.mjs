@@ -81,7 +81,7 @@ test('run prepares a pre-created PbtA channel, waits through restart, and hosts 
     return host;
   };
 
-  const first = start(id, '--world', world, '--coplayers', '1', '--kickoff');
+  const first = start(id, '--world', world, '--kickoff');
   await first.waitFor('Waiting for your decision.');
   const draft = await gm.pbtaDraft(id);
   assert.equal(draft.status, 'pending');
@@ -91,7 +91,7 @@ test('run prepares a pre-created PbtA channel, waits through restart, and hosts 
   await competing.waitFor('already keeps this channel');
   await first.stop();
 
-  // No world path, cast count or separate setup command on recovery.
+  // No world path or separate setup command on recovery.
   const resumed = start(id);
   await resumed.waitFor('Waiting for your decision.');
   assert.equal((await gm.pbtaDraft(id)).version, draft.version);
@@ -105,17 +105,15 @@ test('run prepares a pre-created PbtA channel, waits through restart, and hosts 
     pack: draft.pack,
   });
   await resumed.waitFor('keeping "Pilots"');
-  const cast = await gm.characters(id);
-  assert.equal(cast.length, 1);
-  assert.equal(cast[0].role_card.pbta.book, 'courier');
+  // The pack the GM activated, edits included, is the channel's; the host makes no characters of its own (the players
+  // and the platform's bots bring theirs).
+  assert.equal((await gm.pbtaRules(id)).pack.books[0].id, 'courier');
+  assert.deepEqual(await gm.characters(id), []);
   await resumed.stop();
   const playAgain = start(id);
   await playAgain.waitFor('keeping "Pilots"');
   await playAgain.stop();
-  assert.deepEqual(
-    (await gm.characters(id)).map((c) => c.id),
-    [cast[0].id],
-  );
+  assert.deepEqual(await gm.characters(id), []);
   assert.deepEqual(
     (await gm.channels(server.id)).map((c) => c.id),
     [id],
@@ -126,7 +124,7 @@ test('run prepares a pre-created PbtA channel, waits through restart, and hosts 
     .map((line) => JSON.parse(line).purpose);
   assert.deepEqual(
     calls.filter((p) => p.startsWith('pbta_')),
-    ['pbta_design', 'pbta_card'],
+    ['pbta_design'],
   );
 
   // A channel whose earlier one-shot setup failed can retry under the attached host, then keep the starter.
@@ -138,7 +136,7 @@ test('run prepares a pre-created PbtA channel, waits through restart, and hosts 
     version: claim.version,
     error: 'design interrupted',
   });
-  const waiting = start(retryTable.id, '--world', world, '--coplayers', '0');
+  const waiting = start(retryTable.id, '--world', world);
   await waiting.waitFor('design interrupted');
   await gm.reviewPbta(retryTable.id, { op: 'retry', version: failed.version });
   await waiting.waitFor('· pending');
@@ -162,8 +160,6 @@ test('run prepares a pre-created PbtA channel, waits through restart, and hosts 
     busy.id,
     '--world',
     world,
-    '--coplayers',
-    '0',
     '--llm-provider',
     'openai_compatible',
     '--llm-model',
@@ -183,7 +179,7 @@ test('run prepares a pre-created PbtA channel, waits through restart, and hosts 
   await late.stop();
 
   const starter = await gm.createChannel(server.id, { name: 'Starter', rule_system: 'pbta' });
-  const noWorld = start(starter.id, '--coplayers', '0');
+  const noWorld = start(starter.id);
   await noWorld.waitFor('keeping "Starter"');
   assert.equal((await gm.pbtaDraft(starter.id)).status, 'none');
   await noWorld.stop();

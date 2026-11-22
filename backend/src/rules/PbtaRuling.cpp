@@ -54,7 +54,7 @@ Ruling prepareRuling(pqxx::work &w, const ChannelAccess &a,
   r.op = json::str(request, "op", "manual");
   if (r.op == "declare") {
     if (c["user_id"] != a.userId)
-      throw forbidden("Only the host's own co-player can declare an action");
+      throw forbidden("Only a character of the host's own can declare an action");
     r.intent = id(request, "source_id");
     r.source = Db::queryOne(w,
                             "SELECT * FROM messages WHERE id=$1 AND "

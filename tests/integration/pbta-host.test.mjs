@@ -180,9 +180,12 @@ test('GM agent world review, sourced moves, player choices and atomic bookkeepin
     (await gm.pbtaRulings(ch, win)).some((r) => r.roll_id === hidden.id),
     false,
   );
+  // A character of the GM account's own (voiced by the GM like an NPC) declares an action before its move.
+  const own = await gm.createCharacter(ch, { name: 'Pilot PC', kind: 'pc' });
+  await gm.putCard(ch, own.id, { pack_revision: active.revision, role_card: { pbta: sheet } });
   const declare = {
     op: 'declare',
-    character_id: actor.id,
+    character_id: own.id,
     source_id: answer.id,
     text: 'I check the written orders.',
     move_id: 'compare',
@@ -196,7 +199,7 @@ test('GM agent world review, sourced moves, player choices and atomic bookkeepin
   assert.equal((await gm.pbtaDraft(ch)).eligible, false);
 });
 
-test('the running GM reads real dice before asking; a co-player only receives its own moves', async () => {
+test('the running GM reads real dice before asking, and plays its own character\'s move like an NPC\'s', async () => {
   const { Table } = await import('../../gm-agent/src/loop.mjs');
   const { Roster } = await import('../../gm-agent/src/roles/roster.mjs');
   const { buildConfig } = await import('../../gm-agent/src/config.mjs');
@@ -232,8 +235,7 @@ test('the running GM reads real dice before asking; a co-player only receives it
     reply,
     roll,
     asked = false,
-    marked = false,
-    botTurn = false;
+    marked = false;
   llm.complete = async (req) => {
     if (req.purpose === 'director') {
       const txt = req.messages.map((m) => textOf(m.content)).join('');
@@ -254,6 +256,9 @@ test('the running GM reads real dice before asking; a co-player only receives it
             expected: 2,
             value: 1,
           },
+          // Then it voices the Steward (its own character) like an NPC, whose declared action triggers its move; a move
+          // ends the GM's actions until its result is read.
+          { type: 'npc', name: 'Steward', text: 'I lay out both order slips.', move_id: 'compare' },
         ];
         marked = true;
       } else if (!asked && !roll && !txt.includes('"roll_id":"'))
@@ -267,18 +272,9 @@ test('the running GM reads real dice before asking; a co-player only receives it
         ];
         asked = true;
       }
-      const prose = actions.filter(a=>a.text).map(a=>a.text);
+      const prose = actions.filter(a=>a.text).map(a=>a.type==='npc'?`NPC ${a.name}: ${a.text}`:a.text);
       let n=0; actions=actions.map(a=>a.text?{...a,text:++n}:a);
-      return [...prose, `Table directions: ${JSON.stringify({actions,coplayers_may_act:!!reply&&!botTurn})}`].join('\n\n');
-    }
-    if (req.purpose === 'coplayer_turn') {
-      const txt = req.messages.map((m) => textOf(m.content)).join('');
-      assert.ok(!txt.includes('HIDDEN_KITCHEN') && !txt.includes(rules.pack.gmMoves[0].text));
-      assert.ok(!txt.includes('OTHER_CARD_ONLY'));
-      assert.ok(!txt.includes(rules.pack.moves.find((m) => m.book === 'scribe').trigger));
-      assert.ok(txt.includes(rules.pack.moves.find((m) => m.id === 'compare').trigger));
-      botTurn = true;
-      return 'I lay out both order slips.\n\nTable directions: '+JSON.stringify({action:'roll',command:'.move compare',text:1});
+      return [...prose, `Table directions: ${JSON.stringify({actions,coplayers_may_act:false})}`].join('\n\n');
     }
     return original(req);
   };
@@ -308,7 +304,7 @@ test('the running GM reads real dice before asking; a co-player only receives it
   const resumed = await make();
   reply = await pl.postMessage(ch, win, { content: 'I spend a supply.', character_id: hero.id });
   await resumed.onMessage(reply);
-  assert.ok(marked && botTurn);
+  assert.ok(marked);
   assert.equal((await pl.characterSpace(ch, hero.id)).character.role_card.pbta.resources.supply, 1);
   const lines = await gm.pbtaRulings(ch, win);
   assert.equal(lines.find((r) => r.character_id === bot.id)?.dice.move_id, 'compare');
