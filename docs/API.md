@@ -113,6 +113,11 @@ with their character at the table (and their own `.r .ra .rc .sc` dice), out of 
 GM may recall a bot's line at any time (`POST /channels/{id}/messages/{mid}/recall`; no draft is returned); a player
 cannot. When a bot speaks is described in `docs/BOTS.md`; every turn is logged once in `bot_turns`.
 
+A bot asked to make its character (a turn with `action: make_character`, at most one PC per bot and channel) creates it
+with its own access through `POST /channels/{id}/characters` and `PUT /channels/{id}/characters/{cid}/card` (task
+`bot_card`), so point buy and the PbtA pack revision are checked as for a player; a refused card is deleted again. A
+PC the GM creates for a bot, or hands to one, owes the bot an `adopt` turn: one line in character.
+
 ## Character space
 | GET | `/channels/{id}/characters/{cid}/space` | `{character (with role_card, bio, asset_mode, appearance_prompt, editable), avatar, portrait, subtitles[{subtitle, id, version, …}], jobs[], era, narrative_time, attrs, generation_available, card_archives[{id, rule_system, numbers, attrs, reason: rule_change|restore|legacy, archived_at, archived_by_name}]}`; `character.card_pending` is true while the numbers still need rebuilding for the channel's rule system (also on the character list). Former cards are read-only. Players read any PC's space; NPC spaces are 404 for players. |
 | GET/PUT | `/channels/{id}/pbta` | Channel rule pack and revision. GM-only replacement, import preview, playbooks, move commands and character fields are described in [PbtA](PBTA.md). |

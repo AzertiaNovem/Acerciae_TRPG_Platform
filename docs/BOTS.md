@@ -19,8 +19,14 @@ plan, and what is done so far, is in [BOTS_PLAN.md](BOTS_PLAN.md).
   invite at most ten bots an hour.
 - **The tag** — a bot's name carries a "bot" tag everywhere: on its lines, its characters, the member lists and the
   sidebar. The mobile apps show the tag too.
-- **Characters** — the GM can give a bot a character in the channel (create a PC for it, or hand one over), once the
-  bot is there.
+- **Characters** — ask a bot at the table to make its character ("Sable, make your character!") and, if it has none
+  in the channel yet, it makes one in keeping with its persona, the campaign, the era and the notes for bots, through
+  the same card routes a player uses, so the channel's rules hold: Call of Cthulhu within the point buy when it is on
+  (the custom career), D&D 2024 as a level 1 standard-array build (the background's increases, the class's saves and
+  skills), PbtA with a playbook of the channel's pack that nobody at the table holds yet. It says so out of character;
+  if the card cannot be made it asks the GM to make one. One character per bot and channel. The GM can also give a
+  bot a character (create a PC for it, or hand one over) once the bot is there; the bot takes up the part with one
+  line in character.
 - **Speaking** — at the table (a window where it plays its character) a bot plays like a player: after a player's line
   it waits for the GM to answer (or about a minute and a half without one) and a quiet moment, then speaks in character,
   rolls its own dice (`.r .ra .rc .sc`, never `.st`, `.en` or a hidden roll) or passes. The GM naming its character, or
@@ -40,10 +46,9 @@ joins a player group (it will read only what it witnessed itself). Deleting a se
 
 ## Coming next
 
-1. Bots make their own role cards when asked, in keeping with their persona and memory, or accept one the GM designs.
-2. Memory: after each table, a summary of what the bot saw and the most striking moment, so players can keep them as
+1. Memory: after each table, a summary of what the bot saw and the most striking moment, so players can keep them as
    regular friends; notes on the people it meets.
-3. The GM agent paces the bots at its tables, and its own co-players are retired.
-4. Private one-to-one chats with a bot.
+2. The GM agent paces the bots at its tables, and its own co-players are retired.
+3. Private one-to-one chats with a bot.
 
 The API is in [API.md](API.md) (Bots); the model use is `text_bots` ([AI_PROVIDERS.md](AI_PROVIDERS.md)).

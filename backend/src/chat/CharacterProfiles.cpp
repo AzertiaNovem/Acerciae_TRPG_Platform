@@ -23,6 +23,16 @@
 #include "ChatQueries.h"
 namespace acerciae {
 using namespace chatQueries;
+namespace {
+// A character someone else hands to a bot (docs/BOTS.md): the bot owes one turn, in each window its character is bound
+// to, to take the part up. Nothing for a person's character.
+void owedAdoption(pqxx::work& w, const std::string& channelId, const std::string& characterId, const std::string& ownerId) {
+    Db::exec(w, "INSERT INTO bot_window_state(bot_id, chat_window_id, channel_id, cursor_seq, owed, owed_seq, owed_at, gm_seen) "
+                "SELECT b.id, wm.chat_window_id, $1, e.s, 'adopt', e.s, now(), true FROM server_bots b JOIN chat_window_members wm ON wm.user_id=b.user_id AND wm.character_id=$2 "
+                "CROSS JOIN LATERAL (SELECT coalesce(max(m.seq), 0) AS s FROM messages m WHERE m.chat_window_id=wm.chat_window_id) e WHERE b.user_id=$3 AND b.deleted_at IS NULL "
+                "ON CONFLICT (bot_id, chat_window_id) DO UPDATE SET owed='adopt', owed_seq=EXCLUDED.owed_seq, owed_at=now(), gm_seen=true, chain=0", {channelId, characterId, ownerId});
+}
+}
 Json::Value ChatService::listCharacters(const ChannelAccess& a) {
     // Players see all PC names (table knowledge) but GM-only NPC sheets stay hidden.
     std::string sql = "SELECT c.*, u.display_name AS player_name, COALESCE(u.is_bot, false) AS player_is_bot, av.version AS avatar_asset_version, av.content_hash AS avatar_asset_hash FROM characters c LEFT JOIN users u ON u.id=c.user_id LEFT JOIN media_assets av ON av.id=c.avatar_asset_id WHERE c.channel_id=$1";
@@ -65,6 +75,7 @@ Json::Value ChatService::createCharacter(const ChannelAccess& a, const Json::Val
             // Bind the character to the windows its player is already in and has no character yet.
             Db::exec(w, "UPDATE chat_window_members wm SET character_id=$2 FROM chat_windows cw WHERE cw.id=wm.chat_window_id AND cw.channel_id=$1 AND wm.user_id=$3 AND wm.character_id IS NULL",
                 {a.channelId, c["id"].asString(), ownerId});
+            if (ownerId != a.userId) owedAdoption(w, a.channelId, c["id"].asString(), ownerId);
         }
         Db::exec(w, "INSERT INTO entities(channel_id, kind, name, character_id, description) VALUES($1,$2,$3,$4,$5) ON CONFLICT (channel_id, kind, name) WHERE player_group_id IS NULL DO UPDATE SET character_id=EXCLUDED.character_id",
             {a.channelId, kind, name, c["id"].asString(), json::str(body, "description")});
@@ -91,7 +102,9 @@ Json::Value ChatService::transferCharacter(const ChannelAccess& a, const std::st
         Db::exec(w,"UPDATE chat_window_members SET character_id=NULL WHERE character_id=$1",{id});
         if(member["role"]=="player") Db::exec(w,"UPDATE chat_window_members wm SET character_id=$3 FROM chat_windows cw WHERE cw.id=wm.chat_window_id AND cw.channel_id=$1 AND cw.purpose='story' AND wm.user_id=$2 AND wm.character_id IS NULL",{a.channelId,owner,id});
         windows=Db::queryJson(w,"SELECT * FROM chat_windows WHERE channel_id=$1",{a.channelId});
-        return Db::queryOne(w,"UPDATE characters SET user_id=$2,updated_at=now() WHERE id=$1 RETURNING *",{id,owner});
+        auto row = Db::queryOne(w,"UPDATE characters SET user_id=$2,updated_at=now() WHERE id=$1 RETURNING *",{id,owner});
+        owedAdoption(w, a.channelId, id, owner);
+        return row;
     });
     notifier_.characterUpdated(a.channelId,result);
     for(const auto& win:windows) notifier_.windowChanged(a.channelId,win);

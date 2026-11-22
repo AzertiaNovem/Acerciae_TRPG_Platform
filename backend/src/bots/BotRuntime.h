@@ -10,7 +10,7 @@
 #include <thread>
 
 namespace acerciae {
-class AuthService; class ChatService; class LlmGateway; class ServerSettingsService; class WorkPool;
+class AuthService; class ChatService; class LlmGateway; class ServerSettingsService; class WorkPool; class CharacterSpaceService; class DiceService; class BotCards;
 
 // Bots speak (docs/BOTS.md). A loop reads, for every bot in every chat window it is in, the lines it witnessed since it
 // last looked (its own window's lines and whispers to its characters; never GM-only lines, never another window), and
@@ -23,15 +23,16 @@ class AuthService; class ChatService; class LlmGateway; class ServerSettingsServ
 // bot composes discards the draft (the debt stays). An interrupted turn is never posted twice; failures back off.
 class BotRuntime {
 public:
-    BotRuntime(const Config& cfg, Db& db, AuthService& auth, ChatService& chat, LlmGateway& llm, ServerSettingsService& settings);
+    BotRuntime(const Config& cfg, Db& db, AuthService& auth, ChatService& chat, LlmGateway& llm, ServerSettingsService& settings, CharacterSpaceService& space, DiceService& dice);
     ~BotRuntime();
     void start();
     void stop();
     // One pass of the loop (tests call it directly): reads new lines, and runs due turns inline when `inlineTurns`.
     int tick(bool inlineTurns = false);
-    // The checked answer of a turn: {action: speak|roll|pass, kind, messages[], command}. Throws std::runtime_error
-    // naming what is wrong. `table`: the bot plays a character here; `ruleSystem`: the channel's.
-    static Json::Value checkTurn(const Json::Value& out, bool table, const std::string& ruleSystem);
+    // The checked answer of a turn: {action: speak|roll|pass|make_character, kind, messages[], command, concept}. Throws
+    // std::runtime_error naming what is wrong. `table`: the bot plays a character here; `ruleSystem`: the channel's;
+    // `canMake`: it has no character in this channel yet, so it may make one when asked.
+    static Json::Value checkTurn(const Json::Value& out, bool table, const std::string& ruleSystem, bool canMake = false);
     static Json::Value schema();
 
 private:
@@ -45,6 +46,7 @@ private:
     ChatService& chat_;
     LlmGateway& llm_;
     ServerSettingsService& settings_;
+    std::unique_ptr<BotCards> cards_;
     std::unique_ptr<WorkPool> pool_;
     std::atomic<bool> running_{false};
     std::mutex mu_;

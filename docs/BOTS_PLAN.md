@@ -377,4 +377,5 @@ mobile changes).
 - 1a (GM agent: daily life removed): merged (#68).
 - 1b (platform, web and apps: stand-in and passive marks removed, migration 0070): merged (#69).
 - 2 (bot accounts, settings, the "bot" tag on web and apps, invitations; migration 0071; 2a and 2b together): merged (#70).
-- 3 (bots speak: pacing, turns, the runtime, GM recall of bot lines, the GM's call, notes for bots, typing, activity; migration 0072; 3a and 3b together): in review.
+- 3 (bots speak: pacing, turns, the runtime, GM recall of bot lines, the GM's call, notes for bots, typing, activity; migration 0072; 3a and 3b together): merged (#71).
+- 4 (role cards: bots make their own Call of Cthulhu, D&D 2024 and PbtA characters when asked, and take up characters the GM makes; 4a and 4b together): in review.

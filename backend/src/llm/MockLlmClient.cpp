@@ -52,6 +52,7 @@ LlmResponse MockLlmClient::complete(const LlmRequest& req) {
     else if (req.task == "consistency") out = consistency(ctx);
     else if (req.task == "inspiration") out = inspiration(ctx);
     else if (req.task == "bot_turn") out = botTurn(ctx);
+    else if (req.task == "bot_card") out = botCard(ctx);
     else if (req.task == "module_structure") out = moduleStructure(ctx);
     else { out["note"] = "mock: unknown task"; }
     r.content = json::dump(out);
@@ -532,6 +533,12 @@ Json::Value MockLlmClient::botTurn(const Json::Value& ctx) {
     const auto said = json::str(ctx["newest"], "content");
     const bool table = json::str(ctx, "mode") == "table";
     if (said.find("[quiet]") != std::string::npos) { out["action"] = "pass"; return out; }
+    static const std::regex make("make your character|your character card|创建角色|做个角色|建卡", std::regex::icase);
+    if (ctx["can_make"].asBool() && std::regex_search(said, make)) {
+        out["action"] = "make_character"; out["kind"] = "ooc"; out["concept"] = "[mock] a curious scholar";
+        out["messages"].append("[mock] Sure, give me a moment.");
+        return out;
+    }
     static const std::regex roll("roll\\s+([A-Za-z][A-Za-z ]{1,30}[A-Za-z])", std::regex::icase);
     std::smatch m;
     if (table && std::regex_search(said, m, roll)) {
@@ -543,6 +550,32 @@ Json::Value MockLlmClient::botTurn(const Json::Value& ctx) {
     out["kind"] = table ? "ic" : "ooc";
     out["messages"].append(table ? "[mock] " + json::str(ctx, "pc") + " answers: \"" + truncate(said, 60) + "\""
                                  : "[mock] " + json::str(ctx, "name") + " (" + json::str(ctx, "trigger") + "): you said \"" + truncate(said, 60) + "\"");
+    return out;
+}
+
+Json::Value MockLlmClient::botCard(const Json::Value& ctx) {
+    Json::Value out;
+    out["name"] = "[mock] " + json::str(ctx, "name") + " Vale"; out["speaking_style"] = "brisk and curious"; out["bio"] = "[mock] A scholar who keeps notebooks of odd things.";
+    out["occupation"] = "Librarian"; out["age"] = "34"; out["sex"] = "female";
+    out["items"].append("notebook"); out["items"].append("magnifying glass");
+    if (json::str(ctx, "rule_system") == "dnd2024") {
+        out["class"] = "Wizard"; out["species"] = "Elf"; out["background"] = "Sage";
+        for (auto a : {"INT", "CON", "DEX", "WIS", "CHA", "STR"}) out["abilities"].append(a);
+        for (auto k : {"Arcana", "Investigation", "Perception", "History", "Stealth"}) out["skills"].append(k);
+        out["spells"] = "Mage Hand, Light, Magic Missile"; out["story"]["personal_description"] = "Ink-stained fingers, quick eyes.";
+        return out;
+    }
+    if (json::str(ctx, "rule_system") == "pbta") {
+        out["book"] = ctx["books"].empty() ? Json::Value("") : ctx["books"][0];
+        int bonus = 2; for (const auto& st : ctx["stats"]) { out["stats"][st.asString()] = std::to_string(std::max(-1, bonus)); --bonus; }
+        out["story"]["personal_description"] = "Ink-stained fingers, quick eyes.";
+        return out;
+    }
+    const std::pair<const char*, int> chars[] = {{"STR", 45}, {"CON", 55}, {"SIZ", 50}, {"DEX", 60}, {"APP", 55}, {"INT", 75}, {"POW", 60}, {"EDU", 80}, {"LUK", 50}};
+    for (auto& [k, v] : chars) out["characteristics"][k] = v;
+    const std::pair<const char*, int> skills[] = {{"Library Use", 75}, {"Spot Hidden", 60}, {"History", 60}, {"Psychology", 50}, {"Persuade", 45}, {"Credit Rating", 30}, {"Language (Other) (Latin)", 50}, {"Occult", 40}, {"Cthulhu Mythos", 20}};
+    for (auto& [k, v] : skills) out["skills"][k] = v;
+    out["background"]["personal_description"] = "Ink-stained fingers, quick eyes."; out["background"]["ideology"] = "Knowledge should be shared.";
     return out;
 }
 
