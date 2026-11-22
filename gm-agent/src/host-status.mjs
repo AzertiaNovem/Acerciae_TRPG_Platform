@@ -108,7 +108,7 @@ export function tableSnapshot(table, { cfg = table.cfg, channel = table.channel,
       return {
         on: Boolean(p.on), mode: !p.on ? "off" : table.improv?.on ? "full" : "pace", busy: Boolean(table.memory?.jobs?.has("planner")),
         version: arc?.version ?? null, updatedAt: parsed(arc?.updatedAt), trigger: arc?.trigger ?? null, beat: arc?.beat?.title ?? null,
-        moveOn: Boolean(arc?.verdict?.moveOn), threads: arc?.threads?.length ?? 0, impulses: (p.impulses ?? []).map((i) => i.name),
+        moveOn: Boolean(arc?.verdict?.moveOn), threads: arc?.threads?.length ?? 0,
         window: p.window ? wname(p.window) : null, inbox: p.inbox?.length ?? 0,
         corrections: notes.filter((n) => n.kind === "correction").length, wishes: notes.filter((n) => n.kind === "wish").length,
         session: p.session ? { lines: p.session.lines, startedAt: at(p.session.startedAt) } : null, between: Boolean(p.between),

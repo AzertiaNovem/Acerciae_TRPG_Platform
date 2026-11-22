@@ -460,7 +460,7 @@ async function status(cfg) {
   console.log(`relationships: ${table.bonds.length ? table.bonds.map((b) => `${nameOf(b.a)} — ${nameOf(b.b)}: ${b.kind}${b.secret ? " (secret)" : ""}`).join("; ") : "(none recorded)"}`);
   const pl = table.planner, arc = pl.arc;
   const plMode = !pl.on ? "off" : table.improv.on ? "full plotting" : "pace only: module-led campaign";
-  console.log(`story planner: ${pl.on ? `on (${plMode})${arc ? ` — plan v${arc.version}, ${Math.round((Date.now() - Date.parse(arc.updatedAt)) / 60000)} min ago (${arc.trigger}); beat "${arc.beat.title}", verdict: ${arc.verdict?.moveOn ? "move on" : "continue"}; ${arc.threads.length} thread(s)${pl.impulses.length ? `; impulses: ${pl.impulses.map((i) => i.name).join(", ")}` : ""}` : " — no plan yet (needs 10 lines, or `plan now`)"}; automatic after ${cfg.planner.intervalMs / 60000} min and ${cfg.planner.minLines} lines, cooldown ${cfg.planner.cooldownMs / 60000} min, ≤ ${cfg.planner.maxRunsPerHour}/h; model ${modelOf(cfg, "planner")}` : "off"}`);
+  console.log(`story planner: ${pl.on ? `on (${plMode})${arc ? ` — plan v${arc.version}, ${Math.round((Date.now() - Date.parse(arc.updatedAt)) / 60000)} min ago (${arc.trigger}); beat "${arc.beat.title}", verdict: ${arc.verdict?.moveOn ? "move on" : "continue"}; ${arc.threads.length} thread(s)` : " — no plan yet (needs 10 lines, or `plan now`)"}; automatic after ${cfg.planner.intervalMs / 60000} min and ${cfg.planner.minLines} lines, cooldown ${cfg.planner.cooldownMs / 60000} min, ≤ ${cfg.planner.maxRunsPerHour}/h; model ${modelOf(cfg, "planner")}` : "off"}`);
   console.log(`models: ${modelsLine(cfg)}`);
   const im = table.improv;
   const notes = pl.table;
@@ -480,7 +480,6 @@ async function plan(cfg, args) {
     const { renderStoryPlan } = await import("./planner.mjs");
     if (!table.planner.arc) { console.log("no story plan yet"); return; }
     console.log(renderStoryPlan(table.planner.arc, 100000));
-    if (table.planner.impulses.length) console.log(`\nimpulses: ${table.planner.impulses.map((i) => `${i.name}: "${i.text}"`).join("\n          ")}`);
     if (args.full) { const rec = table.store.latestPlan(); if (rec) console.log(`\n--- v${rec.version} (${rec.trigger}) in full ---\n${JSON.stringify(rec.record, null, 2)}`); }
     return;
   }

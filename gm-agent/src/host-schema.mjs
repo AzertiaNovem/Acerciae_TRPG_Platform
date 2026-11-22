@@ -68,7 +68,6 @@ export const FIELDS = [
   f("planner.cooldown_minutes", "int", "规划冷却", "任何一次规划之后的冷却时间。", (c) => minutes(c.planner.cooldownMs), { min: 0, unit: "分钟" }),
   f("planner.stall_turns", "int", "停滞回合", "剧情停滞这么多回合后提前规划。", (c) => c.planner.stallTurns, { min: 2 }),
   f("planner.max_runs_per_hour", "int", "每小时最多规划", "规划次数上限。", (c) => c.planner.maxRunsPerHour, { min: 1 }),
-  f("planner.impulse_lines", "int", "冲动间隔行数", "NPC 冲动的检查间隔。", (c) => c.planner.impulseLines, { min: 1 }),
   f("planner.plan_tokens", "int", "计划篇幅", "交给 GM 的计划摘要令牌数。", (c) => c.planner.planTokens, { min: 300 }),
   f("planner.wish_window", "bool", "规划窗口", "开放“致剧情规划”窗口，供玩家写下愿望与纠正。", (c) => c.planner.wishWindow),
   f("planner.final_review", "bool", "会后总结", "玩家离开后复盘本次游戏。", (c) => c.planner.finalReview),

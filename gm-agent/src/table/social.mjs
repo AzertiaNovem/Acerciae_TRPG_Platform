@@ -6,7 +6,6 @@ import { playerRules } from "../pbta.mjs";
 import { hashText } from "../improv.mjs";
 import { PHONE_LOG, PHONE_PREFIX, coplayerPhoneReply, dueAt, pairKey, parseAddress, renderThread } from "../casual.mjs";
 import { WISH_WINDOW, addToInbox, renderCorrectionsFor } from "../wishes.mjs";
-import { renderImpulse } from "../planner.mjs";
 import { describeCalendar, describeRoutine } from "../calendar.mjs";
 import { renderBondsFor } from "../bonds.mjs";
 import { names, chunk, HOUR } from "./shared.mjs";
@@ -159,7 +158,7 @@ export async function phoneTurn(table, windowId, { fromId, toId }) {
         : [today ? `TODAY IN THE STORY: ${today}` : "", today && describeRoutine(table.calendar) ? `${describeRoutine(table.calendar)} (common knowledge)` : "", renderBondsFor(table.bonds, toId, known, (id) => table.nameOf(id)), renderCorrectionsFor(table.planner.table, cp.name)];
       const self = [coplayerSelf({ coplayer: cp, card, world: table.improv.on ? table.improv.world : "", profile: table.profile, attrs: table.attrs.get(toId) ?? {} }), memories.length ? `WHAT YOU REMEMBER:\n${memories.join("\n\n")}` : "", ...tableInfo].filter(Boolean).join("\n\n");
       let r;
-      try { r = await coplayerPhoneReply(table.llm, { language: table.language, lore: table.publicLore({ texts: [table.store.thread(fromId, toId, 12).reverse().map((x) => x.text).join("\n")] }), self: [self, renderImpulse(table.impulseFor(toId))].filter(Boolean).join("\n\n"), name: cp.name, from: table.nameOf(fromId), thread, maxDelay: max, pc: table.profile.vocab.pc, canFormat, formatting: table.cfg.writing?.formatting }); }
+      try { r = await coplayerPhoneReply(table.llm, { language: table.language, lore: table.publicLore({ texts: [table.store.thread(fromId, toId, 12).reverse().map((x) => x.text).join("\n")] }), self, name: cp.name, from: table.nameOf(fromId), thread, maxDelay: max, pc: table.profile.vocab.pc, canFormat, formatting: table.cfg.writing?.formatting }); }
       catch (e) { table.log(`co-player ${cp.name} (phone): ${e.message}`); return; }
       if (r.reply) table.queueText({ windowId, from: toId, to: fromId, text: r.reply, minutes: r.delay });
       else table.log(`casual: ${cp.name} leaves ${table.nameOf(fromId)}'s message on read`);

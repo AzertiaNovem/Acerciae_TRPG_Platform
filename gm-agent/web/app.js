@@ -346,7 +346,7 @@ function renderOverview() {
       kv('状态', p.on ? (p.mode === 'full' ? '开（完整规划：即兴）' : '开（只管节奏：模组）') : '关'),
       p.on ? kv('计划', p.version ? `v${p.version} · ${ago(p.updatedAt)}${p.trigger ? `（${p.trigger}）` : ''}` : '尚无（需要更多发言）') : null,
       p.beat ? kv('当前节拍', p.beat) : null, p.version ? kv('判断', p.moveOn ? '可以推进' : '继续当前') : null,
-      p.on ? kv('线索 / 冲动', `${num(p.threads)} / ${p.impulses?.length ? p.impulses.join('、') : '无'}`) : null,
+      p.on ? kv('线索', num(p.threads)) : null,
       p.window ? kv('规划窗口', `「${p.window}」 · 纠正 ${p.corrections} · 愿望 ${p.wishes}${p.inbox ? ` · 未读 ${p.inbox}` : ''}`) : null,
       p.session ? kv('本次游戏', `${num(p.session.lines)} 行玩家发言 · 始于 ${time(p.session.startedAt)}`) : null,
       p.on ? kv('会后总结', p.finalReview ? '开' : '关') : null, p.busy ? kv('', '正在规划…', 'warn-text') : null,

@@ -1221,11 +1221,11 @@ test("the first story plan: drafted, critiqued and revised in one cached convers
   assert.ok(calls[2].parts.flat().filter((p) => p.cache).length <= 3, "at most three cache marks");
   assert.match(calls[0].system, /story planner/); assert.match(calls[0].system, /Be bold/);
   const notes = api.posts.filter((p) => p.visibility === "gm_only" && p.content.startsWith("Story plan v1"));
-  assert.equal(notes.length, 1); assert.match(notes[0].content, /beat "\[mock beat\] The present trouble"/); assert.match(notes[0].content, /Impulse for Harriet Vance/);
+  assert.equal(notes.length, 1); assert.match(notes[0].content, /beat "\[mock beat\] The present trouble"/);
   await t.adoptPlan();
   assert.equal(api.posts.filter((p) => p.content.startsWith("Story plan v1")).length, 1, "adoption is idempotent");
   assert.ok(t.store.latestPlan().record.draft && t.store.latestPlan().record.critique && t.store.latestPlan().record.final);
-  // The GM reads the plan in part C only; a co-player reads its impulse, never the plan; the GM never reads the impulse.
+  // The GM reads the plan in part C only; a co-player never reads it.
   await alicePosts(t, api, "Harriet, what do you think?");
   await settle(t);
   const director = llm.calls.filter((c) => c.purpose === "director").at(-1);
@@ -1233,10 +1233,8 @@ test("the first story plan: drafted, critiqued and revised in one cached convers
   assert.ok(!parts[0].text.includes("## Story plan"), "not in A");
   assert.ok(parts.slice(1, -1).some((p) => p.cache && p.text.includes("## Story plan") && p.text.includes("[mock twist]")), "in a cached middle part");
   assert.match(director.system, /Story plan: your private plan/); assert.match(llm.calls.findLast(c => c.purpose === "chat_format" && c.system.includes("For a GM turn")).system, /"type": "planner_note"/);
-  assert.ok(!director.messages[0].content.includes("[mock impulse]"), "the GM never reads an impulse");
   const cp = llm.calls.filter((c) => c.purpose === "coplayer_turn" && c.messages[0].content.startsWith("YOU ARE: Harriet")).at(-1).messages[0].content;
-  assert.ok(cp.includes("SOMETHING ON YOUR MIND") && cp.includes("[mock impulse]"), "Harriet has her impulse");
-  assert.ok(!cp.includes("[mock twist]") && !cp.includes("Story plan"), "and nothing of the plan");
+  assert.ok(!cp.includes("[mock twist]") && !cp.includes("Story plan"), "Harriet reads nothing of the plan");
   assert.deepEqual(require_(plannerStateRoundTrip(t)), require_(t.planner), "the state survives a save and reload");
 });
 import { plannerState as _plannerState } from "../src/planner.mjs";
@@ -1271,10 +1269,8 @@ test("module-led campaign: the planner judges pace only", async () => {
   await planned(t, api);
   assert.equal(t.planner.arc.mode, "pace");
   assert.match(plannerCalls(llm)[0].system, /the module has the plots/); assert.doesNotMatch(plannerCalls(llm)[0].system, /Be bold/);
-  assert.deepEqual([t.planner.arc.threads, t.planner.arc.next, t.planner.impulses], [[], [], []]);
+  assert.deepEqual([t.planner.arc.threads, t.planner.arc.next], [[], []]);
   assert.match(t.storyPlanSection(), /^## Story plan \(pace only/);
-  await alicePosts(t, api, "Harriet?"); await settle(t);
-  assert.ok(!llm.calls.filter((c) => c.purpose === "coplayer_turn").at(-1).messages[0].content.includes("SOMETHING ON YOUR MIND"));
 });
 
 test("a stalled story asks the planner again; a planner_note from the GM does too, and closes the beat", async () => {

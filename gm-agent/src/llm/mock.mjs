@@ -238,7 +238,7 @@ export class MockLlm {
   planner(user) {
     const step = (user.match(/^STEP: (\w+)/gm) ?? []).at(-1)?.slice(6) ?? "draft";
     if (step === "critique") return { boring: [], implausible: [], contradictions: [], stale: [], merge: [], beat_done: null, must_fix: [] };
-    const pace = /pace only|Do not invent plots/.test(user) || !/Co-players you may give an impulse/.test(user);
+    const pace = /pace only|Do not invent plots/.test(user);
     const beat = { title: "[mock beat] The present trouble", purpose: "let the investigators commit to a course", exit: "someone acts on what they learned" };
     // The first date when none is set; a final review moves the calendar on two days and acts off-screen.
     const routine = { routine: "[mock routine] The herring season: the boats go out before dawn and the fish market is loud every morning.", upcoming: [{ when: "next Saturday", what: "[mock] the Harbour Fair on the quay" }] };
@@ -250,13 +250,11 @@ export class MockLlm {
     const table = /"table_notes"/.test(user) ? { table_notes: words.map((w) => ({ id: "new", kind: /\b(never|not|no)\b/i.test(w) ? "correction" : "wish", text: `[mock note] ${w}`, about: (w.match(/\b(Harriet Vance|Harriet|Alice Hale|Alice)\b/) ?? []).slice(0, 1).map((n) => (n.startsWith("Harriet") ? "Harriet Vance" : "Alice Hale")) })), reply: words.length ? `[mock reply] Noted ${words.length} line(s): the story will follow.` : "" } : {};
     const between = final ? { advance_days: 2, time: "morning", why: "[mock] the town sleeps on it", ...(pace ? {} : { offscreen: [{ text: "[mock offscreen] The Guild doubled the night watch at the docks.", secret: true }] }), opening: "[mock opening] A knock at the door at dawn.", recap: "[mock recap] They asked around the harbour." } : undefined;
     if (pace) return { beat, verdict: { move_on: false, why: "the scene is still fresh" }, played: "[mock] as planned", changed: step === "revise" ? "[mock] nothing" : "", calendar, ...table, ...(between ? { between } : {}) };
-    const who = (user.match(/^## Co-players you may give an impulse\n([\s\S]*?)(?:\n\n|$)/m)?.[1] ?? "").split("\n").map((l) => l.replace(/^- /, "").trim()).filter(Boolean);
     return {
       throughline: "[mock] a town that hides what the sea brings in",
       threads: [{ id: "P1", title: "[mock] The night boats", status: "live", stakes: "who profits", hooks: ["a sailor talks"], twist: "[mock twist] the Guild lands cargo at the lighthouse", ripe_when: "the investigators reach the docks at night", weave_with: null }],
       beat, next: [{ what: "[mock] a stranger offers a boat ride", when: "after the docks" }],
       verdict: { move_on: false, why: "the scene is still fresh" },
-      impulses: who.slice(0, 1).map((w) => ({ who: w, text: `[mock impulse] You keep thinking about the docks at night; you want to see them for yourself.` })),
       played: "[mock] as planned", changed: step === "revise" ? "[mock] nothing" : "", calendar, ...table, ...(between ? { between } : {}),
     };
   }

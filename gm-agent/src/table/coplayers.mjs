@@ -7,7 +7,6 @@ import { coplayerTurn } from "../coplayer.mjs";
 import { playerRules } from "../pbta.mjs";
 import { renderThread } from "../casual.mjs";
 import { renderCorrectionsFor } from "../wishes.mjs";
-import { renderImpulse } from "../planner.mjs";
 import { describeCalendar, describeRoutine } from "../calendar.mjs";
 import { renderBondsFor } from "../bonds.mjs";
 import { impression } from "../context/traits.mjs";
@@ -40,7 +39,7 @@ export async function coplayerAct(table, windowId, coplayer, spotlight, { side =
       // The worldbook's public entries that came up where it was.
       const lore = table.publicLore({ lines: witnessed, texts: [t?.location] });
 
-      move = await coplayerTurn(table.llm, { language: table.language, coplayer, card, lore, pbta, profile: table.profile, attrs: table.attrs.get(me) ?? {}, companions, withYou: table.cfg.timelineAuto ? t.members.filter((id) => id !== me) : null, log, memories, recalled, spotlight, timeline, side, world: table.improv.on ? table.improv.world : "", improv: table.improv.on, casual: table.casualOn(), phone, impulse: renderImpulse(table.impulseFor(me)),
+      move = await coplayerTurn(table.llm, { language: table.language, coplayer, card, lore, pbta, profile: table.profile, attrs: table.attrs.get(me) ?? {}, companions, withYou: table.cfg.timelineAuto ? t.members.filter((id) => id !== me) : null, log, memories, recalled, spotlight, timeline, side, world: table.improv.on ? table.improv.world : "", improv: table.improv.on, casual: table.casualOn(), phone,
         canFormat: () => !(side && table.overBudget()),
         writing: table.cfg.writing?.coplayer,
         formatting: table.cfg.writing?.formatting,

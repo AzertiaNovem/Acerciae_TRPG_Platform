@@ -335,7 +335,7 @@ test("a separately configured planner streams its draft, critique and revision v
     const cfg = buildConfig({}, { PLANNER_API_KEY: "k" }, { llm: { provider: "mock" }, planner: { provider: "anthropic", api_base: s.base } });
     const result = await planStory(createLlm(cfg.planner), {
       contextText: "The boat has arrived.", since: "", mode: "full", language: "Chinese", prev: null,
-      coplayers: [], secrets: [], nextId: 1, lastSeq: 11, trigger: "manual", now: Date.now(),
+      nextId: 1, lastSeq: 11, trigger: "manual", now: Date.now(),
     });
     assert.equal(result.arc.beat.title, "青岚码头");
     assert.deepEqual(s.seen.map(r => [r.body.stream, r.body.messages.length]), [[true, 1], [true, 3], [true, 5]]);

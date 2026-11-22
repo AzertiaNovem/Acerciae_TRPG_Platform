@@ -816,7 +816,6 @@ export class Table {
   plannerMode(...args) { return planning.plannerMode(this, ...args); }
   storyPlanSection(...args) { return planning.storyPlanSection(this, ...args); }
   plannerVerdict(...args) { return planning.plannerVerdict(this, ...args); }
-  impulseFor(...args) { return planning.impulseFor(this, ...args); }
 
   // After a turn: the same scenario, place, world record, truths and threads as last time means the story stood still.
   noteStall(...args) { return planning.noteStall(this, ...args); }

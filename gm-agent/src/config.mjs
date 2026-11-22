@@ -76,7 +76,7 @@ const SETTINGS = [
   ["llm-max-tokens", null, "llm.max_tokens"], ["llm-fallbacks", null, "llm.fallbacks"], ["llm-timeout-ms", null, "llm.timeout_ms"], ["llm-stream", null, "llm.stream"], ["llm-trace", null, "llm.trace"], ["llm-cache-ttl", null, "llm.cache_ttl"],
   ["planner", null, "planner.enabled"], ["planner-provider", null, "planner.provider"], ["planner-api-base", null, "planner.api_base"], ["planner-api-key", "PLANNER_API_KEY", null], ["planner-model", null, "planner.model"], ["planner-effort", null, "planner.effort"],
   ["planner-interval-minutes", null, "planner.interval_minutes"], ["planner-min-lines", null, "planner.min_lines"], ["planner-cooldown-minutes", null, "planner.cooldown_minutes"], ["planner-stall-turns", null, "planner.stall_turns"],
-  ["planner-max-runs-per-hour", null, "planner.max_runs_per_hour"], ["planner-impulse-lines", null, "planner.impulse_lines"], ["planner-plan-tokens", null, "planner.plan_tokens"],
+  ["planner-max-runs-per-hour", null, "planner.max_runs_per_hour"], ["planner-plan-tokens", null, "planner.plan_tokens"],
   ["planner-window", null, "planner.wish_window"],
   ["casual-ai-texts-per-hour", null, "modes.casual_ai_texts_per_hour"], ["casual-ai-chain", null, "modes.casual_ai_chain"],
   ["final-review", null, "planner.final_review"], ["final-review-min-lines", null, "planner.final_review_min_lines"], ["final-review-max-days", null, "planner.final_review_max_days"],
@@ -106,7 +106,7 @@ const LEGACY_ENV = {
 };
 // Settings of features this client no longer has (its own AI co-players and what served them, whose place the
 // platform's bots took: docs/BOTS.md). Older files may still set them: they are read without a warning, and ignored.
-const RETIRED_KEYS = ["autonomy.coplayer_idle_lines", "autonomy.coplayer_idle_minutes"];
+const RETIRED_KEYS = ["autonomy.coplayer_idle_lines", "autonomy.coplayer_idle_minutes", "planner.impulse_lines"];
 // Model functions and purposes of those features (`models.<name>`), likewise.
 const RETIRED_MODELS = [];
 const SECTIONS = ["forge", "worldbook", "account", "channel", "table", "writing", "llm", "planner", "models", "providers", "pacing", "context", "autonomy", "timelines", "scenarios", "calendar", "modes", "illustrations"];
@@ -180,7 +180,6 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     cooldownMs: Math.max(0, int(pick("planner-cooldown-minutes", 10), 10)) * 60000,
     stallTurns: Math.max(2, int(pick("planner-stall-turns", 6), 6)),
     maxRunsPerHour: Math.max(1, int(pick("planner-max-runs-per-hour", 4), 4)),
-    impulseLines: Math.max(1, int(pick("planner-impulse-lines", 60), 60)),
     planTokens: Math.max(300, int(pick("planner-plan-tokens", 1500), 1500)),
     // The final review after a session of human play (planner.mjs): on unless turned off, from this many player lines.
     // The planner window, where the players write wishes and corrections for the planner's next run (wishes.mjs).
