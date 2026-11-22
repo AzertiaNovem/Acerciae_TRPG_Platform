@@ -38,6 +38,7 @@ void ingest(State& s, const Self& me, const Line& l) {
         if (human) { if (!me.agentPacing) owe(s, "player", l, false); return; }
         if (l.authorIsGm) {
             if (!s.owed.empty()) { s.gmSeen = true; return; }
+            if (me.agentPacing) return;   // the GM agent calls the bots itself after its turn
             if (named && s.chain < kChainMax) owe(s, "addressed", l, true);
             return;
         }

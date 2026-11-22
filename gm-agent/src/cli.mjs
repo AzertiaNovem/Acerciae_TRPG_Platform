@@ -7,7 +7,7 @@
 //   advance open the next scenario now
 //   status  show the channel, the cast, the timelines and how each role is fed (read-only)
 //   date    casual games: move the story's calendar on (or to a later date); bond records or ends a relationship
-import { operatorPath } from "./operator-files.mjs";
+import { operatorPath, readOperatorFile } from "./operator-files.mjs";
 import { forgeMode, startForge } from "./forge/runtime.mjs";
 import { awaitingReview, fingerprint, preparePack, prepareActor } from "./pbta.mjs";
 import fs from "node:fs";
@@ -34,6 +34,7 @@ import { Timelines } from "./timelines.mjs";
 import { RULE_SYSTEMS, rulesProfile, ruleSystemOf } from "./rules/index.mjs";
 import { calendarPace, changedBy, describeCalendar, renderCalendar } from "./calendar.mjs";
 import { Guard } from "./whereabouts.mjs";
+import { handoffToBot } from "./handoff.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
@@ -531,6 +532,26 @@ async function usage(cfg, args) {
   } finally { store.close(); }
 }
 
+// `bots handoff --character NAME --bot NAME`: one of this account's characters (a former AI co-player) goes to one of
+// the server's platform bots, with what it remembered of the campaign as the bot's briefing (src/handoff.mjs).
+async function bots(cfg, args) {
+  if (args._[1] !== "handoff" || typeof args.character !== "string" || typeof args.bot !== "string")
+    throw new Error('usage: acerciae-gm bots handoff --character "NAME" --bot "BOT NAME" [--channel ID]');
+  const api = await signIn(cfg);
+  const { channel } = await resolveChannel(api, cfg, { create: false });
+  const file = storePath(cfg.stateDir, channel.id);
+  const store = fs.existsSync(file) ? new Store(file) : null;
+  try {
+    const intentions = readOperatorFile(operatorPath(cfg.stateDir, channel.id, "intentions"))?.intentions ?? {};
+    const done = await handoffToBot(api, {
+      channelId: channel.id, characterName: args.character, botName: args.bot, state: loadState(cfg.stateDir, channel.id), log,
+      chapters: (id) => (store ? store.chapters(`coplayer:${id}`, "") : []),
+      intentionOf: (id) => String(intentions[id]?.text ?? ""),
+    });
+    log(`${done.character} now belongs to ${done.bot} (seated in ${done.windows} window(s)); its briefing holds ${done.chapters} memory chapter(s), ${done.briefingBytes} bytes`);
+  } finally { store?.close(); }
+}
+
 export async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.env) loadEnvFile(args.env);
@@ -541,9 +562,9 @@ export async function main() {
   const cfg = buildConfig(args, process.env, loadConfigFile(configPath(args, process.env, process.cwd(), path.join(here, ".."))));
   for (const w of cfg.warnings) console.error(`warning: ${w}`);
   const command = args._[0] ?? "run";
-  const commands = { setup, run, status, usage, split, rejoin, advance, world, casual, plan, date, bond };
+  const commands = { setup, run, status, usage, split, rejoin, advance, world, casual, plan, date, bond, bots };
   if (!commands[command]) {
-    console.error(`usage: acerciae-gm <setup|run|status|usage|split|rejoin|advance|world|casual|plan|date|bond> [--coplayers N] [--channel ID] [--kickoff] …  (see README.md)`);
+    console.error(`usage: acerciae-gm <setup|run|status|usage|split|rejoin|advance|world|casual|plan|date|bond|bots handoff> [--coplayers N] [--channel ID] [--kickoff] …  (see README.md)`);
     process.exit(2);
   }
   await commands[command](cfg, args);

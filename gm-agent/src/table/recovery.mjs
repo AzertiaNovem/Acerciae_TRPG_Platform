@@ -29,6 +29,10 @@ export function noteLine(table, m) {
         if (!table.speakers.has(m.chat_window_id)) table.speakers.set(m.chat_window_id, []);
         table.speakers.get(m.chat_window_id).push({ id: m.character_id, seq: m.seq, content: m.content });
       }
+    } else if (table.isBot(m) && m.character_id && m.visibility === "window" && SPEAKER_KINDS.has(m.kind) && table.isPc(m.character_id)) {
+      // A platform bot playing its character: a line the GM answers like a player's, though nobody arrived or returned.
+      if (!table.speakers.has(m.chat_window_id)) table.speakers.set(m.chat_window_id, []);
+      table.speakers.get(m.chat_window_id).push({ id: m.character_id, seq: m.seq, content: m.content, bot: true });
     }
   }
 

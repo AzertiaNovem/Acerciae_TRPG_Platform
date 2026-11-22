@@ -18,6 +18,29 @@ Every PC the GM account owns is a co-player: `setup` adopts the ones already in 
 app, say) and generates only the missing ones. Inside this client co-players are separate from the real NPCs: they get
 different context, and the GM model is never allowed to speak for them.
 
+**Platform bots.** The platform's bots (`docs/BOTS.md`: AI members of a server, invited by the players, each with its
+own persona and memory) play their own characters at the table like players. This client answers their lines as
+players' lines, but never counts them as people (presence, sessions, wishes, `/pause` and other commands). While it
+runs a table where a bot plays, it paces the bots: from the start, and again every few minutes, it tells the platform
+so (`POST /channels/{id}/windows/{w}/bot-turns` with `pace`), and the platform then gives the bots no turn of its own
+for players' or GM lines. After a turn that answered a person and lets the players' side act, it asks the bots seated
+in that window for their turn; its answer to their lines asks them nothing more until a person speaks again. It also
+keeps the channel's notes for bots up to date with the public world: the world's bible, the date and routine, the
+public worldbook entries that came up and the players' corrections (never the hidden layer). Co-players and bots can
+share a table for now; co-players will be retired in favour of bots.
+
+To hand a co-player to a bot, so that it plays on as one of the server's bots:
+
+```sh
+node src/cli.mjs bots handoff --channel <channel id> --character "Harriet Vance" --bot "Wren"
+```
+
+The bot joins the channel if it is not there yet, the character becomes the bot's (it takes the part up with one
+line in character), and the bot sits with it in every window the co-player sat in. What the co-player remembered of
+the campaign (its memory chapters, newest first while they fit in 8000 bytes), its persona and its standing intention
+become the bot's private briefing at this table (GM: channel sidebar → Bots → Memory). The bot must be switched on and
+not yet play a character in the channel. The table may keep running meanwhile; nothing here calls the model.
+
 The platform's own AI never speaks in chat. It writes tips for the GM: the pinned board, reminder bubbles, script
 knowledge, documents, highlights and module hints. This client reads those tips for the GM and the real NPCs. Co-players
 never get them.

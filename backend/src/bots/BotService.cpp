@@ -238,19 +238,27 @@ Json::Value BotService::callTurn(const ChannelAccess& a, const std::string& wind
     auth_.requireGm(a);
     if (!Visibility::isUuid(windowId) || db_.queryOne("SELECT id FROM chat_windows WHERE id=$1 AND channel_id=$2 AND archived_at IS NULL", {windowId, a.channelId}).isNull())
         throw notFound("window not found");
+    // Only the bots playing the characters named, when `character_ids` is given (none for an empty list: a GM agent
+    // that only paces).
     std::vector<std::string> only;
-    if (body.isMember("character_ids")) {
+    const bool filtered = body.isMember("character_ids");
+    if (filtered) {
         if (!body["character_ids"].isArray()) throw badRequest("character_ids must be a list");
         for (const auto& c : body["character_ids"]) if (c.isString() && Visibility::isUuid(c.asString())) only.push_back(c.asString());
     }
     Json::Value out; out["called"] = Json::Value(Json::arrayValue);
     db_.tx([&](pqxx::work& w) {
+        // A GM agent takes the pacing over: turns the bots owe for players' or GM lines are its to give now.
+        if (json::toBool(body, "pace", false)) {
+            Db::exec(w, "UPDATE channels SET bot_pacing_until=now() + interval '10 minutes' WHERE id=$1", {a.channelId});
+            Db::exec(w, "UPDATE bot_window_state SET owed=NULL WHERE channel_id=$1 AND owed IN ('player', 'addressed')", {a.channelId});
+        }
         auto bots = Db::queryJson(w,
             "SELECT b.id, u.display_name AS name, wm.character_id FROM chat_window_members wm JOIN server_bots b ON b.user_id=wm.user_id JOIN users u ON u.id=b.user_id "
             "WHERE wm.chat_window_id=$1 AND b.deleted_at IS NULL AND b.enabled ORDER BY u.display_name", {windowId});
         const auto end = Db::queryOne(w, "SELECT coalesce(max(seq), 0) AS s FROM messages WHERE chat_window_id=$1", {windowId})["s"].asInt64();
         for (const auto& b : bots) {
-            if (!only.empty() && std::find(only.begin(), only.end(), json::str(b, "character_id")) == only.end()) continue;
+            if (filtered && std::find(only.begin(), only.end(), json::str(b, "character_id")) == only.end()) continue;
             // A bot new to the window starts reading, and remembering, from its end.
             Db::exec(w, "INSERT INTO bot_window_state(bot_id, chat_window_id, channel_id, cursor_seq, memory_seq) VALUES($1,$2,$3,$4,$4) ON CONFLICT DO NOTHING",
                      {b["id"].asString(), windowId, a.channelId, (int64_t)end});
@@ -258,7 +266,6 @@ Json::Value BotService::callTurn(const ChannelAccess& a, const std::string& wind
                      {b["id"].asString(), windowId, (int64_t)end});
             Json::Value c; c["id"] = b["id"]; c["name"] = b["name"]; out["called"].append(c);
         }
-        if (json::toBool(body, "pace", false)) Db::exec(w, "UPDATE channels SET bot_pacing_until=now() + interval '10 minutes' WHERE id=$1", {a.channelId});
     });
     return out;
 }

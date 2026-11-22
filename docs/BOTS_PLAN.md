@@ -379,4 +379,5 @@ mobile changes).
 - 2 (bot accounts, settings, the "bot" tag on web and apps, invitations; migration 0071; 2a and 2b together): merged (#70).
 - 3 (bots speak: pacing, turns, the runtime, GM recall of bot lines, the GM's call, notes for bots, typing, activity; migration 0072; 3a and 3b together): merged (#71).
 - 4 (role cards: bots make their own Call of Cthulhu, D&D 2024 and PbtA characters when asked, and take up characters the GM makes; 4a and 4b together): merged (#72).
-- 5 (memory: accounts of each table with the most striking moment, private whispers, notes on people, sharing switch, editor, GM briefing and forgetting; joining in on their own; migration 0073; 5a and 5b together): in review.
+- 5 (memory: accounts of each table with the most striking moment, private whispers, notes on people, sharing switch, editor, GM briefing and forgetting; joining in on their own; migration 0073; 5a and 5b together): merged (#73).
+- 6a (the GM agent paces the platform's bots: bot lines are players' lines, not people; it calls them after answering a person; notes for bots from the public world; `bots handoff`): in review.

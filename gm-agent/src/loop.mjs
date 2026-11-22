@@ -57,6 +57,7 @@ import * as art from "./table/art.mjs";
 import * as planning from "./table/planning.mjs";
 import * as social from "./table/social.mjs";
 import * as coplayers from "./table/coplayers.mjs";
+import * as bots from "./table/bots.mjs";
 import { attentionCandidates, attentionBrief, attentionChoice, noteAttention } from "./table/attention.mjs";
 import * as world from './table/world-state.mjs';
 import { worldState as normalizeWorldState } from './world-state/state.mjs';
@@ -202,6 +203,7 @@ export class Table {
     if (heal) await this.seedWorld();
     this.ready = true;
     if (heal) await this.ensureTableWindows();
+    await this.paceBots({ force: true });   // the platform's bots here are this client's to pace from now on
     return this;
   }
 
@@ -301,6 +303,12 @@ export class Table {
 
   state(...args) { return context.state(this, ...args); }
   isHuman(...args) { return context.isHuman(this, ...args); }
+  isBot(...args) { return context.isBot(this, ...args); }
+  // Platform bots at this table (table/bots.mjs).
+  botsIn(...args) { return bots.botsIn(this, ...args); }
+  callBots(...args) { return bots.callBots(this, ...args); }
+  paceBots(...args) { return bots.paceBots(this, ...args); }
+  syncBotBrief(...args) { return bots.syncBotBrief(this, ...args); }
   noteSeq(...args) { return context.noteSeq(this, ...args); }
 
   // On start: when humans last spoke, from the newest lines of every window (so a restart does not wake a dead table).
@@ -607,6 +615,13 @@ export class Table {
     if (!kickoff && mode !== "arrival") this.noteStall(windowId, lastCtx);
     if (here) { const arrival = here; here = null; plan = await round("arrival", { arrival }); }
     if (!this.scene(windowId) && sceneThread) return;                    // this window's scene just ended
+    // The platform's bots seated here play their characters like players: after the GM answered a person (or opened the
+    // session) and let the players' side act, they are asked for their turn; the GM's answer to their lines asks them no
+    // more. What they may know of the world goes with them.
+    if (plan.coplayersMayAct && (kickoff || batch.some((l) => !l.bot)) && this.botsIn(windowId).length) {
+      await this.syncBotBrief();
+      await this.callBots(windowId);
+    }
     const side = mode === "side" || (mode === "arrival" && !this.presentPlayers(windowId).length);
     if (!plan.coplayersMayAct && !side && !reviewInvite()) return;
     // Pace: in a quiet turn a co-player acts only if it has not since the last human line, so slow humans are not

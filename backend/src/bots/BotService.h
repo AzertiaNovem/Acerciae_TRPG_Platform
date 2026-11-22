@@ -27,8 +27,9 @@ public:
     Json::Value channelView(const ChannelAccess& a);
     Json::Value invite(const ChannelAccess& a, const std::string& botId);
     Json::Value removeFromChannel(const ChannelAccess& a, const std::string& botId);
-    // The GM's "bots' turn": every bot in the window (or those playing `character_ids`) takes a turn now, whatever its
-    // run. `pace: true` (a GM agent) also leaves players' lines to the agent for ten minutes. {called: [{id, name}]}.
+    // The GM's "bots' turn": every bot in the window (or those playing `character_ids`; none for an empty list) takes a
+    // turn now, whatever its run. `pace: true` (a GM agent) also leaves the bots' turns after players' and GM lines to
+    // the agent for ten minutes. {called: [{id, name}]}.
     Json::Value callTurn(const ChannelAccess& a, const std::string& windowId, const Json::Value& body);
     // What the GM tells every bot at this table (≤12000 bytes): {bot_brief}. GM only.
     Json::Value setBrief(const ChannelAccess& a, const Json::Value& body);

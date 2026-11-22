@@ -41,7 +41,7 @@ struct Self {
     std::string userId;
     std::vector<std::string> names;   // the bot's name and its characters' names here
     bool table = false;               // it plays a character in this window
-    bool agentPacing = false;         // a GM agent paces the bots of this channel: players' lines owe nothing
+    bool agentPacing = false;         // a GM agent paces the bots of this channel: players' and GM lines owe nothing
 };
 
 struct Timing { double settle = 6, gmWait = 90; };

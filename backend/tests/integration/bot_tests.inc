@@ -221,6 +221,24 @@
         S.chat->postMessage(p1a, win, hello);
         S.botRuntime->tick(true);
         CHECK(lines() == before);   // the agent paces: a player's line owes nothing now
+        Json::Value gmLine; gmLine["content"] = "Quill, the door stands open."; gmLine["kind"] = "narration";
+        S.chat->postMessage(keeper, win, gmLine);
+        S.botRuntime->tick(true);
+        CHECK(lines() == before);   // nor the GM naming its character: the agent calls the bots itself
+        // Pacing alone: an empty list calls nobody, and a turn owed for a player's line before the agent took over is its to give.
+        S.db->exec("UPDATE channels SET bot_pacing_until=NULL WHERE id=$1", {ch});
+        Json::Value again; again["content"] = "Anyone there?"; again["kind"] = "ic";
+        S.chat->postMessage(p1a, win, again);
+        S.cfg.botGmWaitMs = 90000;   // it waits for the GM: the debt stays
+        S.botRuntime->tick(true);
+        CHECK(S.db->queryOne("SELECT owed FROM bot_window_state WHERE bot_id=$1 AND chat_window_id=$2", {bot["id"].asString(), win})["owed"] == "player");
+        S.cfg.botGmWaitMs = 0;
+        Json::Value paceOnly; paceOnly["pace"] = true; paceOnly["character_ids"] = Json::Value(Json::arrayValue);
+        CHECK(S.bots->callTurn(keeper, win, paceOnly)["called"].empty());
+        CHECK(S.db->queryOne("SELECT bot_pacing_until > now() AS on FROM channels WHERE id=$1", {ch})["on"].asBool());
+        CHECK(S.db->queryOne("SELECT owed FROM bot_window_state WHERE bot_id=$1 AND chat_window_id=$2", {bot["id"].asString(), win})["owed"].isNull());
+        S.botRuntime->tick(true);
+        CHECK(lines() == before);
         S.db->exec("UPDATE channels SET bot_pacing_until=NULL WHERE id=$1", {ch});
         // The notes for bots: the GM's to write and read.
         Json::Value note; note["text"] = "The harbour master is secretly kind.";
