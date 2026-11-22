@@ -348,7 +348,8 @@ export class CreateWizard {
       const invite = made.invite ?? this.prepared?.invite;
       $('create-result').replaceChildren(h('p', { text: `已${made.created || this.prepared ? '新建并' : ''}接入「${made.name}」。${body.start ? this.branch().forge || this.branch().pendingForge ? '正在进入开局共创。' : '正在准备并启动主持。' : '任务已保存，可稍后手动启动。'}` }),
         invite ? h('p', { text: `服务器邀请码：${invite}` }) : null, h('button', { type: 'button', class: 'primary', onclick: () => this.viewChannel(made.id), text: '查看频道' }));
-      $('create-result').hidden = false; this.notice('主持任务已创建。', 'ok');
+      // The form gives way to the result at once, not after the lists below are reloaded.
+      $('create-result').hidden = false; $('create-flow').hidden = true; this.notice('主持任务已创建。', 'ok');
       await this.onCreated();
     } catch (e) { this.error(`创建失败：${e.message}`); }
     finally { for (const [el, disabled] of controls) el.disabled = disabled; this.onBusy(false); this.renderSteps(); }
