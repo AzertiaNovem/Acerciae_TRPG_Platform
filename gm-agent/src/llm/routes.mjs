@@ -13,7 +13,7 @@ export const MODEL_FUNCTIONS = {
   memory: ["compact", "coplayer_memory"],
   readers: ["scene_presence", "movement_evidence", "placement_correction", "scene_handoff"],
   pictures: ["scenario_illustration", "event_illustration", "plot_search", "plot_illustration"],
-  cards: ["coplayer_card", "npc_card", "coplayer_repair", "coplayer_points", "coplayer_build", "pbta_design", "pbta_card"],
+  cards: ["npc_card", "coplayer_points", "coplayer_build", "pbta_design", "pbta_card"],
 };
 export const FUNCTION_NAMES = Object.keys(MODEL_FUNCTIONS);
 export const PURPOSES = Object.values(MODEL_FUNCTIONS).flat();

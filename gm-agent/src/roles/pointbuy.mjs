@@ -13,13 +13,6 @@ export function careerCatalog(rules) {
   return JSON.stringify((rules?.careers ?? []).map((c) => ({ id: c.id, name: c.name, english: c.names?.en })));
 }
 
-export function needsPointBuy(card, rules, report) {
-  const entries = Object.values(card?.skill_points ?? {});
-  return !findCareer(rules, card?.career?.name) || !entries.length
-    || !entries.some((p) => Number(p.career) > 0) || !entries.some((p) => Number(p.hobby) > 0)
-    || !!report?.violations?.length || !!report?.warnings?.some((w) => w.code === "credit_rating");
-}
-
 // Give the model only the selected career's full rules, rather than 230 full career records.
 export async function allocatePointBuy(llm, card, { rules, language, feedback = "" }) {
   const career = findCareer(rules, card.career?.name);

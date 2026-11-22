@@ -66,8 +66,7 @@ export async function act(table, windowId, a, ctx, { mode, parent = mode, scope 
           const move = table.pbta.pack.moves.find(m => m.id === a.move_id);
           if (!sheet || !move || /^[.。]/.test(a.text.trim())) return 0;
           await prepareActor(table.api, table.llm, table.channelId, {
-            rules: table.pbta, language: table.language, world: table.improv.world, existing: sheet,
-            npc: true, requiredBook: move.book,
+            rules: table.pbta, language: table.language, world: table.improv.world, existing: sheet, requiredBook: move.book,
           });
           const line = await table.api.postMessage(table.channelId, windowId, {
             content: a.text, kind: "ic", character_id: npc.characterId,
@@ -99,8 +98,7 @@ export async function act(table, windowId, a, ctx, { mode, parent = mode, scope 
           const move = table.pbta.pack.moves.find(m => m.id === a.move_id);
           if (!move) return 0;
           await prepareActor(table.api, table.llm, table.channelId, {
-            rules: table.pbta, language: table.language, world: table.improv.world, existing: target,
-            npc: true, requiredBook: move.book,
+            rules: table.pbta, language: table.language, world: table.improv.world, existing: target, requiredBook: move.book,
           });
         }
         const result = await table.api.pbtaRuling(table.channelId, windowId, { ...a, op: a.type, revision: table.pbta.revision });

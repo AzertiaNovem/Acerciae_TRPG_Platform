@@ -51,7 +51,7 @@ export class Forge {
     for(const c of this.s.candidate.characters) {
       const before=c.existing_id && this.s.existing?.find(x=>x.id===c.existing_id);
       if(before) await this.say(`现有角色 · ${before.name} · 修改前\n${before.bio}\n${JSON.stringify(before.role_card,null,2)}`);
-      await this.say(`${c.key} · ${c.name} · ${c.kind==='player'?this.s.participants[c.owner_user_id].name:c.kind==='npc'?'NPC':'AI 陪玩'}${c.existing_id?'（修改后）':''}\n${c.persona}\n表达方式：${c.speaking_style}\n外观：${c.appearance_prompt}\n${JSON.stringify(c.role_card,null,2)}`);
+      await this.say(`${c.key} · ${c.name} · ${c.kind==='player'?this.s.participants[c.owner_user_id].name:'NPC'}${c.existing_id?'（修改后）':''}\n${c.persona}\n表达方式：${c.speaking_style}\n外观：${c.appearance_prompt}\n${JSON.stringify(c.role_card,null,2)}`);
     }
   }
   async closeCards() { const ids=this.s.cards.splice(0); this.s.controlsUntil=0; this.save(); for(const id of ids) try {await this.api.closeHypertext(this.channelId,id);} catch(e) {this.log(`Forge card close: ${e.message}`);} }

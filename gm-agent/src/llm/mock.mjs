@@ -59,9 +59,7 @@ export class MockLlm {
         return JSON.stringify({name:existing?.name || NAMES[index] || "Mock player "+index,
           persona:"[mock] A member of the crew.",speaking_style:"[mock] Direct",role_card:{pbta:{book:books[0].id,stats:{[stats[0].id]:1},resources:{},conditions:{}}}});
       }
-      case "coplayer_card": return JSON.stringify(this.card(user, "coplayer"));
       case "npc_card": return JSON.stringify(this.card(user, "npc"));
-      case "coplayer_repair": return JSON.stringify(this.card(user, "coplayer"));
       case "coplayer_points": return JSON.stringify(this.points(user));
       case "placement_correction": return JSON.stringify(this.placementCorrection(JSON.parse(messages[0].content)));
       case "movement_evidence": return JSON.stringify(this.movements(JSON.parse(messages[0].content)));

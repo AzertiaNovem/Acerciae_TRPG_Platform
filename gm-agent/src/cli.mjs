@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // acerciae-gm: an AI GM (Game master) for an Acerciae channel.
-//   setup   sign in, create or attach to a channel the account is GM of, and create the co-players (role cards by the LLM)
+//   setup   sign in, and create or attach to a channel the account is GM of (PbtA: have its rule pack designed)
 //   run     play: the GM and real NPCs answer the table, then the co-players act; side timelines and quiet windows
 //           move on their own clock
 //   split   send investigators off to a place of their own (a window with the GM); rejoin brings a thread back
@@ -9,7 +9,7 @@
 //   date    casual games: move the story's calendar on (or to a later date); bond records or ends a relationship
 import { operatorPath, readOperatorFile } from "./operator-files.mjs";
 import { forgeMode, startForge } from "./forge/runtime.mjs";
-import { awaitingReview, fingerprint, preparePack, prepareActor } from "./pbta.mjs";
+import { awaitingReview, fingerprint, preparePack } from "./pbta.mjs";
 import fs from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import path from "node:path";
@@ -21,8 +21,6 @@ import { describeModels, providerLabel, routeFor } from "./llm/routes.mjs";
 import { withProgress } from "./llm/progress.mjs";
 import { Realtime } from "./realtime.mjs";
 import { Roster, openSeat, openWindows } from "./roles/roster.mjs";
-import { generateCoplayer, saveCharacter } from "./roles/cardgen.mjs";
-import { completeExistingCharacter } from "./roles/complete.mjs";
 import { SECRETS_MAX, WORLD_MAX, readSetting } from "./improv.mjs";
 import { channelListAdvice, chooseChannel, keptChannels, noChannelAdvice } from "./channels.mjs";
 import { metered } from "./llm/parts.mjs";
@@ -84,12 +82,6 @@ export async function resolveChannel(api, cfg, { create }) {
   let invite = null;
   try { invite = await api.createInvite(serverId); } catch { /* not a maintainer, or the server is closed */ }
   return { channel: await api.channel(ch.id), created: true, invite };
-}
-
-function seatWindows(cfg, windows) {
-  const main = windows.find((w) => w.kind === "main") ?? windows[0];
-  if (!cfg.coplayerWindows.length) return main ? [main.id] : [];
-  return windows.filter((w) => cfg.coplayerWindows.some((x) => x === w.id || x.toLowerCase() === w.name.toLowerCase())).map((w) => w.id);
 }
 
 async function setup(cfg) {
@@ -165,29 +157,15 @@ async function prepareChannel(cfg, api, { channel, created, invite }, automatic 
     // Point buy is the channel's own option (its GM's); servers before that had a server feature.
     const pointsMode = Boolean(channel?.point_buy ?? settings?.features?.coc7_points);
     const profile = rulesProfile(ruleSystemOf(channel));
-    let rules = await profile.fetchRules(api, channel.id);
-    log(`rules: ${profile.id}${pointsMode ? ", point buy on" : ""}${profile.id === "dnd2024" ? `; new co-players at level ${cfg.level}` : ""}`);
-    const windows = await api.windows(channel.id);
-    const seats = seatWindows(cfg, windows);
+    log(`rules: ${profile.id}${pointsMode ? ", point buy on" : ""}`);
     delete state.version;
-    // Co-players are GM-cast PCs (owned by this account): any the GM already made are adopted, and only the
-    // missing ones are generated.
-    const me = api.user ?? (await api.me());
-    const known = new Set((state.coplayers ?? []).map((c) => c.characterId));
-    const characters = await api.characters(channel.id);
-    const roster = new Roster(state).reconcile(characters, seats, { castBy: me.id });
     if (automatic && state.pbtaSetup?.ready && !awaitingReview(review.status)) {
       const wantsDesign = review.eligible && review.status === "none" && cfg.worldFile;
-      const savedCards = new Set(characters.filter(c => c.role_card?.pbta?.book).map(c => c.id));
-      if (!wantsDesign && (!cfg.coplayersSpecified || roster.coplayers.length >= cfg.coplayers) &&
-          roster.coplayers.every(c => savedCards.has(c.characterId))) return true;
+      if (!wantsDesign) return true;
     }
-    // Improvisation mode: the world setting the co-players are written into (and, later, the table plays in).
+    // Improvisation mode: the world setting the table plays in.
     const improv = improvChange(cfg, state.improv);
-    let coplayers = cfg.coplayers;
-    const world = ((improv?.on ?? state.improv?.on) && (improv?.world ?? state.improv?.world)) || "";
-    for (const c of roster.coplayers) if (!known.has(c.characterId)) log(`using ${c.name}, a PC this account already owns, as a co-player`);
-    // While `run` keeps the channel it is the only writer; it picks new co-players up by their owner.
+    // While `run` keeps the channel it is the only writer.
     const running = Boolean(lockHolder(cfg.stateDir, channel.id));
     if (improv && running) appendInbox(cfg.stateDir, channel.id, { cmd: "world", ...improv });
     else if (improv) state.improv = { ...(state.improv ?? {}), ...improv };
@@ -199,68 +177,19 @@ async function prepareChannel(cfg, api, { channel, created, invite }, automatic 
     if (improv) log(`improvisation mode ${improv.on ? `on (world ${String(improv.world ?? state.improv?.world ?? "").length} characters)` : "off"}${running ? "; handed to the running table" : "; the world setting is posted in the Main Chat when run starts"}`);
 
     if (pbta) {
-      if (automatic && !cfg.coplayersSpecified) {
-        // A resumed preparation keeps the original seat count. On an established table adopt its actual cast.
-        coplayers = review.eligible && !state.coplayers ? cfg.coplayers : roster.coplayers.length;
-        if (state.pbtaSetup?.ready === false) coplayers = state.pbtaSetup.coplayers;
-      }
-      state.pbtaSetup = { coplayers, ready: false };
-      if (!running) saveState(cfg.stateDir, { ...state, ...roster.toJSON() });
-      // The design leaves spare playbooks for the human players: it is told the table's size.
-      const players = (await api.channelMembers(channel.id).catch(() => [])).filter((m) => m.role === "player").length;
-      const draft = await reviewBeforePlay(api, llm, channel.id, rules,
-        improv?.world ?? state.improv?.world ?? "", language, review, automatic, { coplayers, players });
+      state.pbtaSetup = { ready: false };
+      if (!running) saveState(cfg.stateDir, state);
+      // The design leaves spare playbooks for the human players: it is told how many there are.
+      const players = (await api.channelMembers(channel.id).catch(() => [])).filter((m) => m.role === "player" && !m.is_bot).length;
+      const draft = await reviewBeforePlay(api, llm, channel.id, await profile.fetchRules(api, channel.id),
+        improv?.world ?? state.improv?.world ?? "", language, review, automatic, { players });
       if (awaitingReview(draft.status)) return false;
-      // The GM may have edited the official rules and the cast while the host was waiting.
-      if (draft.revision !== rules.revision) rules = await api.pbtaRules(channel.id);
-      if (automatic) roster.reconcile(await api.characters(channel.id), seats, { castBy: me.id });
+      state.pbtaSetup.ready = true;
     }
-    // A PbtA co-player whose card cannot be built (the model's reply unusable twice, a timeout) is tried once more
-    // from scratch, then left for later: the table starts without it and the next start tries again (pbtaSetup stays
-    // not ready), instead of the whole host exiting.
-    let incomplete = false;
-    const actorOrLater = async (what, args) => {
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        try { return await prepareActor(api, llm, channel.id, args); }
-        catch (e) { log(`${what}: no card yet (${String(e.message).replace(/\s+/g, " ").slice(0, 200)})${attempt === 1 ? "; trying once more" : "; left for the next start"}`); }
-      }
-      incomplete = true;
-      return null;
-    };
-    for (const existing of roster.coplayers) {
-      if(pbta) {
-        const current=(await api.characterSpace(channel.id,existing.characterId)).character;
-        const takenBooks=(await api.characters(channel.id)).filter((c)=>c.id!==current.id).map((c)=>c.role_card?.pbta?.book).filter(Boolean);
-        await actorOrLater(`co-player ${current.name ?? existing.name}`, {rules,language,world,existing:current,takenBooks});
-        continue;
-      }
-      await completeExistingCharacter(api, llm, channel.id, existing.characterId, { rules, language, era: channel.era, pointsMode, world, profile, level: cfg.level, log });
-    }
-
-    const missing = coplayers - roster.coplayers.length;
-    if (missing < 0) log(`the channel already has ${roster.coplayers.length} co-players (asked for ${coplayers}); keeping them`);
-    for (let i = 0; i < missing; i++) {
-      log(`preparing co-player ${roster.coplayers.length + 1}/${coplayers} with ${modelOf(cfg, "coplayer_card")}`);
-      const characters = await api.characters(channel.id);
-      const takenNames = characters.map((c) => c.name);
-      const partyNotes = characters.map((c) => `- ${c.name}${roster.isCoplayer(c.id) ? " (co-player)" : c.kind === "pc" ? " (player character)" : " (NPC)"}`).join("\n");
-      const takenBooks = characters.map((c) => c.role_card?.pbta?.book).filter(Boolean);
-      const args = { language, era: channel.era, rules, pointsMode, takenNames, takenBooks, partyNotes, index: roster.coplayers.length, total: coplayers, world, profile, level: cfg.level, log };
-      let saved;
-      if(pbta) {
-        const actor=await actorOrLater(`co-player ${roster.coplayers.length + 1}/${coplayers}`, args);
-        if (!actor) continue;
-        saved={id:actor.id,name:actor.name,persona:actor.bio,speakingStyle:actor.speaking_style};
-      } else saved=await saveCharacter(api,channel.id,await generateCoplayer(llm,args),{kind:"pc",rules,llm,language,pointsMode,profile,level:cfg.level});
-      roster.coplayers.push({ characterId: saved.id, name: saved.name, persona: saved.persona, speakingStyle: saved.speakingStyle, seats: seats.map((w) => openSeat(w)) });
-      if (!running) saveState(cfg.stateDir, { ...loadState(cfg.stateDir, channel.id), ...state, ...roster.toJSON() });
-      log(`co-player ${roster.coplayers.length}/${coplayers}: ${saved.name} (${profile.castNote(saved.card) || saved.card?.basic?.occupation || profile.vocab.pc})`);
-    }
-    if (pbta) state.pbtaSetup.ready = !incomplete;
-    if (!running) saveState(cfg.stateDir, { ...loadState(cfg.stateDir, channel.id), ...state, ...roster.toJSON() });
+    if (!running) saveState(cfg.stateDir, { ...loadState(cfg.stateDir, channel.id), ...state });
     if (automatic) return true;
     const file = running ? "(kept by the running table)" : `${cfg.stateDir}/${channel.id}.json`;
-    console.log(`\nchannel: ${channel.name}${created ? " (created)" : ""}\n  CHANNEL_ID=${channel.id}\n  server: ${channel.server_id}${invite ? `\n  invite code for players: ${invite.code}` : ""}\n  state: ${file}\n  co-players: ${roster.coplayers.map((c) => c.name).join(", ") || "(none)"}\n  models: ${modelsLine(cfg)}${cfg.llm.provider === "mock" ? " (mock: placeholder text, for testing only)" : ""}\n\n${created ? "Invite players to the server with the code and add them to the channel in the web app, then: " : "Make sure the players are channel members, then: "}CHANNEL_ID=${channel.id} npm start`);
+    console.log(`\nchannel: ${channel.name}${created ? " (created)" : ""}\n  CHANNEL_ID=${channel.id}\n  server: ${channel.server_id}${invite ? `\n  invite code for players: ${invite.code}` : ""}\n  state: ${file}\n  models: ${modelsLine(cfg)}${cfg.llm.provider === "mock" ? " (mock: placeholder text, for testing only)" : ""}\n\n${created ? "Invite players to the server with the code and add them to the channel in the web app, then: " : "Make sure the players are channel members, then: "}CHANNEL_ID=${channel.id} npm start`);
     return true;
   } finally { store.close(); }
 }
@@ -563,7 +492,7 @@ export async function main() {
   const command = args._[0] ?? "run";
   const commands = { setup, run, status, usage, split, rejoin, advance, world, casual, plan, date, bond, bots };
   if (!commands[command]) {
-    console.error(`usage: acerciae-gm <setup|run|status|usage|split|rejoin|advance|world|casual|plan|date|bond|bots handoff> [--coplayers N] [--channel ID] [--kickoff] …  (see README.md)`);
+    console.error(`usage: acerciae-gm <setup|run|status|usage|split|rejoin|advance|world|casual|plan|date|bond|bots handoff> [--channel ID] [--kickoff] …  (see README.md)`);
     process.exit(2);
   }
   await commands[command](cfg, args);

@@ -20,9 +20,9 @@ import { PassThrough } from 'node:stream';
 function fixture(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gm-host-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  fs.writeFileSync(path.join(dir, 'a.yml'), 'table:\n  coplayers: 0\ncalendar:\n  max_days: 1\n');
-  // Channel b routes its co-players to the shared file's gateway; the shared file routes everyone's memory to "fast".
-  fs.writeFileSync(path.join(dir, 'b.yml'), 'table:\n  level: 4\nautonomy:\n  enabled: false\nmodels:\n  coplayers:\n    provider: gw\n    model: gpt-mini\n');
+  fs.writeFileSync(path.join(dir, 'a.yml'), 'table:\n  level: 2\ncalendar:\n  max_days: 1\n');
+  // Channel b routes its scene readers to the shared file's gateway; the shared file routes everyone's memory to "fast".
+  fs.writeFileSync(path.join(dir, 'b.yml'), 'table:\n  level: 4\nautonomy:\n  enabled: false\nmodels:\n  readers:\n    provider: gw\n    model: gpt-mini\n');
   fs.writeFileSync(path.join(dir, 'host.yml'), JSON.stringify({ account: { username: 'fixture', password: 'password-secret' }, llm: { provider: 'mock', api_base: 'http://endpoint', api_key: 'shared-secret' },
     providers: { gw: { provider: 'openai_compatible', api_base: 'http://gateway/v1', api_key: 'gateway-secret', model: 'gpt-x' }, fast: { provider: 'mock' } }, models: { memory: 'fast' },
     webui: { enabled: true, token: 'test-token-longer-than-24-characters', port: 0 }, channels: [{ id: 'a', config: 'a.yml' }, { id: 'b', config: 'b.yml' }] }));
@@ -45,8 +45,8 @@ test('shared credentials, independent policies, relative paths and invalid overr
   assert.throws(() => channelConfig(host, host.channels[0], 'mystery: true'), /unknown section/);
   // Providers are the host's; a channel routes its functions to them by name, over the shared file's own routes.
   assert.equal(b.providers.gw.apiKey, 'gateway-secret'); assert.equal(a.providers.gw.apiKey, 'gateway-secret');
-  assert.deepEqual([routeFor(b, 'coplayer_turn').name, routeFor(b, 'coplayer_turn').model, routeFor(b, 'compact').name, routeFor(b, 'director').name], ['gw', 'gpt-mini', 'fast', 'default']);
-  assert.deepEqual([routeFor(a, 'coplayer_turn').name, routeFor(a, 'compact').name], ['default', 'fast'], 'the shared routes hold where a channel says nothing');
+  assert.deepEqual([routeFor(b, 'scene_presence').name, routeFor(b, 'scene_presence').model, routeFor(b, 'compact').name, routeFor(b, 'director').name], ['gw', 'gpt-mini', 'fast', 'default']);
+  assert.deepEqual([routeFor(a, 'scene_presence').name, routeFor(a, 'compact').name], ['default', 'fast'], 'the shared routes hold where a channel says nothing');
   assert.throws(() => channelConfig(host, host.channels[0], 'providers:\n  mine:\n    provider: mock\n'), /shared configuration/);
   assert.throws(() => channelConfig(host, host.channels[0], 'models:\n  readers: nowhere\n'), /no provider "nowhere"/);
   assert.ok(secretsOf(host).includes('gateway-secret'), "a provider's key is redacted like the others");
@@ -62,7 +62,7 @@ test('saving one active channel restarts only it; failures do not stop peers; sa
   assert.equal(made[2].cfg.calendarMaxDays, 5);
   made[2].emit('exit', 1); assert.equal(manager.status()[0].status, 'failed');
   assert.equal(manager.status()[1].status, 'running');
-  await manager.save('a', 'table:\n  coplayers: 1\n'); assert.equal(made.length, 3);
+  await manager.save('a', 'table:\n  level: 3\n'); assert.equal(made.length, 3);
   const release = acquireLock(host.stateDir, 'test'); assert.ok(release);
   assert.equal(acquireLock(host.stateDir, 'test'), null); release();
 });
@@ -76,7 +76,7 @@ test('Web UI authenticates, blocks cross-origin writes, redacts shared secrets a
   const listing = await (await fetch(base + '/api/channels', { headers })).text();
   assert.ok(!listing.includes('shared-secret') && !listing.includes('password-secret'));
   const config = await (await fetch(base + '/api/channels/a/config', { headers })).json();
-  const write = extra => fetch(base + '/api/channels/a/config', { method: 'POST', headers: { ...headers, ...extra }, body: JSON.stringify({ yaml: 'table:\n  coplayers: 3\n', revision: config.revision }) });
+  const write = extra => fetch(base + '/api/channels/a/config', { method: 'POST', headers: { ...headers, ...extra }, body: JSON.stringify({ yaml: 'table:\n  level: 3\n', revision: config.revision }) });
   assert.equal((await write({ Origin: 'http://foreign.example' })).status, 403);
   assert.equal((await write({})).status, 200); assert.equal((await write({})).status, 409);
   fs.writeFileSync(host.channels[0].config, 'llm:\n  api_key: private-value\n');
@@ -151,7 +151,7 @@ test('two real workers host CoC and D&D concurrently and restart independently',
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   host.data.api_base = `http://127.0.0.1:${server.address().port}`;
   for (const entry of host.channels) entry.prepareOnStart = false;
-  for (const entry of host.channels) fs.writeFileSync(entry.config, 'table:\n  coplayers: 0\nautonomy:\n  enabled: false\nplanner:\n  enabled: false\n');
+  for (const entry of host.channels) fs.writeFileSync(entry.config, 'table:\n  level: 2\nautonomy:\n  enabled: false\nplanner:\n  enabled: false\n');
   const manager = new HostManager(host, { stopTimeout: 1000 });
   t.after(async () => { await manager.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
   await manager.startAll();
@@ -195,30 +195,31 @@ test('redaction masks known secrets and anything shaped like a credential', () =
 
 test('the settings form edits YAML in place, keeps comments, and knows every key it offers', () => {
   for (const x of FIELDS) {
-    const sample = { bool: true, tri: false, int: x.min ?? 1, enum: x.options?.find(Boolean), list: ['Main Chat'], text: '白描。\n多写动作，少解释。', string: x.key.endsWith('.model') ? 'some-model' : 'value' }[x.type];
+    const sample = { bool: true, tri: false, int: x.min ?? 1, enum: x.options?.find(Boolean), text: '白描。\n多写动作，少解释。', string: x.key.endsWith('.model') ? 'some-model' : 'value' }[x.type];
     const data = x.key.split('.').reduceRight((inner, k) => ({ [k]: inner }), sample);
     assert.deepEqual(buildConfig({}, {}, { data }).warnings, [], x.key);
     assert.doesNotThrow(() => parseChannel(applyChanges('', { [x.key]: sample })), x.key);
   }
   // The model of each function: keys three deep, the providers a host offers, a scalar route replaced by a mapping.
-  assert.deepEqual(schema(['gw', 'fast']).fields.find(x => x.key === 'models.coplayers.provider').options, ['', 'default', 'gw', 'fast']);
-  const routed = applyChanges('models:\n  director: fast # a bare provider\n', { 'models.director.model': 'claude-x', 'models.coplayers.provider': 'gw', 'models.coplayers.effort': 'low' }, { providers: ['gw', 'fast'] });
-  assert.deepEqual(parseChannel(routed, { gw: { provider: 'mock' }, fast: { provider: 'mock' } }).models, { director: { model: 'claude-x' }, coplayers: { provider: 'gw', effort: 'low' } });
+  assert.deepEqual(schema(['gw', 'fast']).fields.find(x => x.key === 'models.readers.provider').options, ['', 'default', 'gw', 'fast']);
+  const routed = applyChanges('models:\n  director: fast # a bare provider\n', { 'models.director.model': 'claude-x', 'models.readers.provider': 'gw', 'models.readers.effort': 'low' }, { providers: ['gw', 'fast'] });
+  assert.deepEqual(parseChannel(routed, { gw: { provider: 'mock' }, fast: { provider: 'mock' } }).models, { director: { model: 'claude-x' }, readers: { provider: 'gw', effort: 'low' } });
   assert.throws(() => parseChannel(routed), /no provider "gw"/, 'a channel file alone cannot name a provider the host does not have');
-  assert.equal(applyChanges('models:\n  coplayers:\n    provider: gw\n', { 'models.coplayers.provider': null }), '{}\n', 'an emptied function and section are removed');
-  assert.throws(() => applyChanges('', { 'models.coplayers.provider': 'elsewhere' }, { providers: ['gw'] }), /必须是 default \/ gw/);
-  const routes = { providers: { gw: { provider: 'openai_compatible', api_base: 'http://g/v1', model: 'gpt-x' } }, models: { coplayers: { provider: 'gw' } } };
+  assert.equal(applyChanges('models:\n  readers:\n    provider: gw\n', { 'models.readers.provider': null }), '{}\n', 'an emptied function and section are removed');
+  assert.throws(() => applyChanges('', { 'models.readers.provider': 'elsewhere' }, { providers: ['gw'] }), /必须是 default \/ gw/);
+  const routes = { providers: { gw: { provider: 'openai_compatible', api_base: 'http://g/v1', model: 'gpt-x' } }, models: { readers: { provider: 'gw' } } };
   const routeValues = formValues({ models: routes.models }, buildConfig({}, {}, { data: { llm: { provider: 'mock' }, ...routes } }), data => buildConfig({}, {}, { data: { llm: { provider: 'mock' }, providers: routes.providers, ...data } }));
-  assert.deepEqual(routeValues['models.coplayers.provider'], { set: 'gw', effective: 'gw', default: 'mock' });
-  assert.deepEqual(routeValues['models.coplayers.model'], { set: undefined, effective: 'gpt-x', default: 'gpt-x' });
+  assert.deepEqual(routeValues['models.readers.provider'], { set: 'gw', effective: 'gw', default: 'mock' });
+  assert.deepEqual(routeValues['models.readers.model'], { set: undefined, effective: 'gpt-x', default: 'gpt-x' });
   const text = '# night table\npacing:\n  debounce_ms: 4000 # wait for slow typists\n  post_delay_ms: 1200\ncalendar:\n  max_days: 2\n';
-  const out = applyChanges(text, { 'pacing.debounce_ms': 2500, 'calendar.max_days': null, 'timelines.scene_forks': 'true', 'llm.effort': 'high', 'table.coplayer_windows': 'Main Chat, Docks' });
+  const out = applyChanges(text, { 'pacing.debounce_ms': 2500, 'calendar.max_days': null, 'timelines.scene_forks': 'true', 'llm.effort': 'high', 'table.level': '5' });
   assert.match(out, /^# night table\npacing:\n  debounce_ms: 2500 # wait for slow typists\n  post_delay_ms: 1200\n/);
   assert.ok(!out.includes('calendar'), 'an emptied section is removed');
-  assert.deepEqual(parseChannel(out).table.coplayer_windows, ['Main Chat', 'Docks']); assert.equal(parseChannel(out).timelines.scene_forks, true);
+  assert.equal(parseChannel(out).table.level, 5); assert.equal(parseChannel(out).timelines.scene_forks, true);
   assert.equal(applyChanges(text, { 'pacing.debounce_ms': null, 'pacing.post_delay_ms': '', 'calendar.max_days': undefined }), '{}\n', 'every key removed: an empty mapping, still a valid channel file');
   assert.throws(() => applyChanges(text, { 'pacing.debounce_ms': -5 }), /不能小于 0/);
-  assert.throws(() => applyChanges(text, { 'table.coplayers': 9 }), /不能大于 8/);
+  assert.throws(() => applyChanges(text, { 'table.level': 21 }), /不能大于 20/);
+  assert.throws(() => applyChanges(text, { 'table.coplayers': 2 }), /Unknown setting table\.coplayers/, 'a retired setting is no field of the form');
   assert.throws(() => applyChanges(text, { 'llm.effort': 'extreme' }), /必须是/);
   assert.throws(() => applyChanges(text, { 'llm.api_key': 'x' }), /Unknown setting/);
   assert.throws(() => applyChanges(text, { 'channel.era': 'a\nb' }), /一行/);
@@ -266,7 +267,7 @@ test('the manager keeps runtime facts, a redacted log, the reason a channel fail
   const before = manager.config('a');
   assert.equal(before.values['calendar.max_days'].set, 1);
   const saved = await manager.saveForm('a', { 'calendar.max_days': 3, 'pacing.debounce_ms': 1500 }, before.revision);
-  assert.equal(saved.restarted, true); assert.match(fs.readFileSync(host.channels[0].config, 'utf8'), /table:\n  coplayers: 0\ncalendar:\n  max_days: 3\npacing:\n  debounce_ms: 1500\n/);
+  assert.equal(saved.restarted, true); assert.match(fs.readFileSync(host.channels[0].config, 'utf8'), /table:\n  level: 2\ncalendar:\n  max_days: 3\npacing:\n  debounce_ms: 1500\n/);
   await assert.rejects(manager.saveForm('a', { 'calendar.max_days': 4 }, before.revision), /reload before saving/);
   assert.equal((await manager.detail('a')).runtime.starts, 2);
   // The worker stops answering: the last snapshot is shown, marked stale.
@@ -303,11 +304,11 @@ test('Web UI: host summary, schema, status, logs, validation and form saves, all
   assert.equal((await post('/api/channels/a/validate', { yaml: 'mystery: 1\n' })).status, 400);
   assert.equal((await post('/api/channels/a/validate', { yaml: 'pacing:\n  debounce_ms: 700\n' })).body.values['pacing.debounce_ms'].effective, 700);
   const config = JSON.parse((await get('/api/channels/a/config')).text);
-  assert.equal(config.values['table.coplayers'].set, 0); assert.equal(config.values['table.coplayers'].default, 2, 'what removing the key would give');
-  assert.equal((await post('/api/channels/a/form', { changes: { 'table.coplayers': 99 }, revision: config.revision })).status, 400);
-  const saved = await post('/api/channels/a/form', { changes: { 'table.coplayers': 2, 'llm.model': 'claude-sonnet-5-5' }, revision: config.revision });
+  assert.equal(config.values['table.level'].set, 2); assert.equal(config.values['table.level'].default, 1, 'what removing the key would give');
+  assert.equal((await post('/api/channels/a/form', { changes: { 'table.level': 99 }, revision: config.revision })).status, 400);
+  const saved = await post('/api/channels/a/form', { changes: { 'table.level': 3, 'llm.model': 'claude-sonnet-5-5' }, revision: config.revision });
   assert.equal(saved.status, 200); assert.equal(saved.body.restarted, true); assert.equal(saved.body.values['llm.model'].set, 'claude-sonnet-5-5');
-  assert.equal((await post('/api/channels/a/form', { changes: { 'table.coplayers': 1 }, revision: config.revision })).status, 409);
+  assert.equal((await post('/api/channels/a/form', { changes: { 'table.level': 4 }, revision: config.revision })).status, 409);
   assert.equal((await post('/api/channels/a/form', { changes: { 'llm.api_key': 'x' }, revision: saved.body.revision })).status, 400);
   const page = await (await fetch(base)).text();
   assert.match(page, /GM 控制台/); assert.ok(!/<script>|style="/.test(page), 'no inline script or style (CSP)');
@@ -352,11 +353,11 @@ test('hosting tasks: attach a kept channel or create one on the platform, toggle
   assert.equal(view.account, 'fixture');
   assert.deepEqual(view.channels.map(c => [c.id, c.rule, c.knowledge, c.hosted]), [['kept-1', 'coc7e', 'public', false], ['kept-2', 'dnd2024', 'isolated', false]], 'only channels the account is GM of');
   assert.deepEqual(view.servers, [{ id: 's1', name: 'Thursday' }]);
-  assert.equal(view.defaults['table.coplayers'].default, 2);
+  assert.equal(view.defaults['table.level'].default, 1);
   // Attach a kept channel, with settings, started at once.
-  const attached = await manager.create({ source: 'existing', channel_id: 'kept-2', settings: { 'table.level': '3', 'table.coplayers': 1 } });
+  const attached = await manager.create({ source: 'existing', channel_id: 'kept-2', settings: { 'table.level': '3', 'table.kickoff': true } });
   assert.deepEqual(attached, { id: 'kept-2', name: 'Kept Two', rule: 'dnd2024', created: false, invite: null, config: 'kept-2.yml' });
-  assert.equal(fs.readFileSync(path.join(loaded.root, 'kept-2.yml'), 'utf8'), 'table:\n  level: 3\n  coplayers: 1\n');
+  assert.equal(fs.readFileSync(path.join(loaded.root, 'kept-2.yml'), 'utf8'), 'table:\n  level: 3\n  kickoff: true\n');
   assert.equal(made.at(-1).cfg.channelId, 'kept-2'); assert.equal(made.at(-1).cfg.level, 3);
   await settle(); assert.equal(manager.status().find(c => c.id === 'kept-2').status, 'running');
   const shared = fs.readFileSync(host.file, 'utf8');
@@ -365,7 +366,7 @@ test('hosting tasks: attach a kept channel or create one on the platform, toggle
   assert.equal((fs.statSync(host.file).mode & 0o777).toString(8), '600');
   await assert.rejects(manager.create({ source: 'existing', channel_id: 'kept-2' }), /已经在主持中/);
   await assert.rejects(manager.create({ source: 'existing', channel_id: 'other' }), /not the GM/);
-  await assert.rejects(manager.create({ source: 'existing', channel_id: 'kept-1', settings: { 'table.coplayers': 99 } }), /不能大于 8/);
+  await assert.rejects(manager.create({ source: 'existing', channel_id: 'kept-1', settings: { 'table.level': 99 } }), /不能大于 20/);
   assert.equal(platform.state.made.length, 0);
   // Create a new channel on a new server: casual makes it isolated; the invite code comes back; not started.
   const created = await manager.create({ source: 'new', server_name: 'Weekend', channel_name: 'The Shadow', rule_system: 'coc7e', era: '1920s', settings: { 'modes.casual': 'true' }, start: false, enabled: false, prepare_on_start: false });

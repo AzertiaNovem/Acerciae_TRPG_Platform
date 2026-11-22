@@ -5,7 +5,7 @@ export const FEATURES = [
   { key: 'timelines.scene_forks', title: '私有场景分叉', help: '适合多人分头行动：主聊天成为大厅，故事在各自的场景窗口进行。每位玩家还需分属独立玩家组。', children: ['timelines.max_active'] },
   { key: 'illustrations.enabled', title: '剧情插画', help: '为剧情中的时刻配图，也可让玩家请求回顾插画。需要平台配置图像服务，绘图费用另计。', children: ['illustrations.max_per_hour', 'illustrations.requests_per_hour', 'illustrations.allow_cloud'] },
 ];
-export const BASICS = ['table.language', 'table.coplayers', 'table.level'];
+export const BASICS = ['table.language', 'table.level'];
 const PHONE_FIELDS = ['modes.casual_max_delay_minutes', 'calendar.max_days'];
 const RULES = { coc7e: 'CoC 7e', dnd2024: 'D&D 2024', pbta: 'PbtA' };
 const STEPS = ['频道', '故事模式', '配套功能', '邀请玩家', '确认启动'];
@@ -236,7 +236,7 @@ export class CreateWizard {
     if (this.channel()?.hasModule && b.improv) notices.push('频道仍绑定模组：即兴主持会忽略模组线索。');
     $('c-review').replaceChildren(h('div', { class: 'wizard-review' }, ...items), ...notices.map(text => h('p', { class: 'wizard-note', text })));
     const preparing = $('c-prepare').checked;
-    $('c-start-help').textContent = b.playedForge ? '直接恢复已经共创确认的故事与角色；无需重复准备。' : !preparing ? '跳过准备适合沿用已有模式的频道；不会补齐 AI 队友，也不会应用新的世界与日常模式。' : !$('c-start').checked ? '先保存主持任务；手动启动后才会准备频道或进入共创。' : b.forge || b.pendingForge ? '会启动共创准备窗口，等待玩家参与；不会直接替玩家开始正式故事。' : '创建后准备频道并开始监听消息。';
+    $('c-start-help').textContent = b.playedForge ? '直接恢复已经共创确认的故事与角色；无需重复准备。' : !preparing ? '跳过准备适合沿用已有模式的频道；不会应用新的世界与日常模式。' : !$('c-start').checked ? '先保存主持任务；手动启动后才会准备频道或进入共创。' : b.forge || b.pendingForge ? '会启动共创准备窗口，等待玩家参与；不会直接替玩家开始正式故事。' : '创建后准备频道并开始监听消息。';
   }
   redraw() {
     const focused = document.activeElement?.id;

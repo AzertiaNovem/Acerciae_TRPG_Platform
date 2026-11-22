@@ -137,17 +137,18 @@ function cardApi() {
   };
 }
 
-test("a co-player card: a near-miss sheet is used at once, and only a playbook nobody holds is offered", async () => {
+test("an NPC's card: a near-miss sheet is used at once, and the playbook its move needs is the one offered", async () => {
   const api = cardApi();
   const calls = [];
   const llm = { complete: async (r) => { calls.push(JSON.parse(r.messages[0].content)); return JSON.stringify({ name: "闻砚舟", persona: "p", speaking_style: "s", role_card: { pbta: { book: "Warden", stats: { nerve: "+1" }, resources: { supply: "2" }, conditions: ["Shaken"] } } }); } };
-  const actor = await prepareActor(api, llm, "ch", { rules: { pack: SHEET_PACK, revision: 1 }, language: "Chinese", takenBooks: ["smuggler", "scribe"] });
+  const actor = await prepareActor(api, llm, "ch", { rules: { pack: SHEET_PACK, revision: 1 }, language: "Chinese", requiredBook: "warden" });
   assert.equal(calls.length, 1, "no second call");
-  assert.deepEqual(calls[0].books.map((b) => b.id), ["warden"], "only the free playbook is offered");
+  assert.deepEqual(calls[0].books.map((b) => b.id), ["warden"], "only the playbook its move needs is offered");
   assert.deepEqual(actor.role_card.pbta, { book: "warden", stats: { nerve: 1 }, resources: { supply: 2 }, conditions: { shaken: true } });
+  assert.equal(api.made[0].kind, "npc");
 });
 
-test("a co-player that picks a taken playbook is asked again with the free ones; with none free, all are offered", async () => {
+test("an NPC that picks another playbook than its move needs is asked again; without a move, every playbook is offered", async () => {
   const api = cardApi();
   const asks = [];
   const llm = { complete: async (r) => {
@@ -155,31 +156,26 @@ test("a co-player that picks a taken playbook is asked again with the free ones;
     return asks.length === 1 ? JSON.stringify({ name: "陆听榆", role_card: { pbta: { book: "smuggler", stats: {}, resources: {}, conditions: {} } } })
       : JSON.stringify({ repairs: [{ path: "/role_card/pbta/book", value: "warden" }] });
   } };
-  const actor = await prepareActor(api, llm, "ch", { rules: { pack: SHEET_PACK, revision: 1 }, language: "Chinese", takenBooks: ["smuggler", "scribe"] });
+  const actor = await prepareActor(api, llm, "ch", { rules: { pack: SHEET_PACK, revision: 1 }, language: "Chinese", requiredBook: "warden" });
   assert.equal(actor.role_card.pbta.book, "warden");
-  assert.match(asks[1], /\/role_card\/pbta\/book: Choose one of warden/, "only the free playbook is allowed");
+  assert.match(asks[1], /\/role_card\/pbta\/book: Choose warden/, "only the playbook its move needs is allowed");
   const seen = [];
   const all = { complete: async (r) => { seen.push(JSON.parse(r.messages[0].content).books.length); return JSON.stringify({ name: "岑听桥", role_card: { pbta: { book: "scribe", stats: {}, resources: {}, conditions: {} } } }); } };
-  await prepareActor(cardApi(), all, "ch", { rules: { pack: SHEET_PACK, revision: 1 }, language: "Chinese", takenBooks: ["smuggler", "scribe", "warden"] });
+  await prepareActor(cardApi(), all, "ch", { rules: { pack: SHEET_PACK, revision: 1 }, language: "Chinese" });
   assert.deepEqual(seen, [3]);
 });
 
-test("the PbtA design asks for spare playbooks for the human players, and refuses a pack with none to spare", async () => {
-  assert.equal(playbookTarget({ coplayers: 5, players: 0 }), 7);
-  assert.equal(playbookTarget({ coplayers: 5, players: 3 }), 9);
-  assert.equal(playbookTarget({ coplayers: 0, players: 0 }), 3);
+test("the PbtA design asks for a playbook for each human player and spares for later ones", async () => {
+  assert.equal(playbookTarget({ players: 0 }), 3);
+  assert.equal(playbookTarget({ players: 3 }), 4);
+  assert.equal(playbookTarget(), 3);
   const systems = [];
-  const asks = [];
-  const more = [...PACK.books, { id: "b2", name: "B2" }, { id: "b3", name: "B3" }];
-  const llm = { complete: async (r) => {
-    systems.push(r.system); asks.push(r.messages.at(-1).content);
-    return asks.length === 1 ? JSON.stringify({ pack: PACK, reasons: ["One.", "Two."] }) : JSON.stringify({ repairs: [{ path: "/pack/books", value: more }] });
-  } };
+  const llm = { complete: async (r) => { systems.push(r.system); return JSON.stringify({ pack: PACK, reasons: ["One.", "Two."] }); } };
   const api = { pbtaDraft: async () => ({ status: "none", version: 1, eligible: true }), previewPbta: async () => ({}), reviewPbta: async (_c, b) => ({ status: b.op, version: 2, pack: b.pack }) };
-  const r = await preparePack(api, llm, "ch", { pack: PACK }, "World.", "English", undefined, () => {}, { coplayers: 2, players: 1 });
-  assert.match(systems[0], /Design at least 4 playbooks: the table has 2 AI co-player\(s\) and 1 human player\(s\) so far, every character takes a different playbook/);
-  assert.match(asks[1], /\/pack\/books: Design at least 4 playbooks: one for each character \(2 AI co-player\(s\) and 1 human player\(s\)\), and spares for the human players/, "one playbook for two co-players is sent back for repair");
-  assert.equal(r.status, "submit"); assert.equal(r.pack.books.length, 3, "more playbooks than co-players");
+  const r = await preparePack(api, llm, "ch", { pack: PACK }, "World.", "English", undefined, () => {}, { players: 1 });
+  assert.match(systems[0], /Design at least 3 playbooks: the table has 1 human player\(s\) so far, every character takes a different playbook, and a player who joins later must still have playbooks to choose from\./);
+  assert.doesNotMatch(systems[0], /co-player/);
+  assert.equal(r.status, "submit"); assert.equal(systems.length, 1, "a valid pack needs no repair");
 });
 
 test("the PbtA design stops, retries included, once the GM has decided while the model was still designing", async () => {

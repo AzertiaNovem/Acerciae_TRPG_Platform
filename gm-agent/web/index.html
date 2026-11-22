@@ -58,7 +58,7 @@
           <div class="field" id="c-server-name-row"><label for="c-server-name"><span>新服务器名称</span></label><div class="control"><input id="c-server-name" type="text" maxlength="100" placeholder="例如：周四跑团"></div><p class="help">会同时生成一个邀请码，玩家用它加入服务器。</p></div>
           <div class="field"><label for="c-name"><span>频道名称</span></label><div class="control"><input id="c-name" type="text" maxlength="100" placeholder="例如：印斯茅斯之影"></div><p class="help">频道建成后，GM 账户就是它的 GM。</p></div>
           <div class="field"><label for="c-rule"><span>规则</span></label><div class="control"><select id="c-rule"><option value="coc7e">克苏鲁的呼唤 7 版（CoC 7e）</option><option value="dnd2024">D&amp;D 2024（SRD 5.2）</option><option value="pbta">PbtA</option></select></div><p id="c-rule-help" class="help">规则系统之后可在平台的 GM 工作区中更改。</p></div>
-          <div class="field"><label for="c-era"><span>时代</span></label><div class="control"><input id="c-era" type="text" maxlength="200" placeholder="例如：1920s"></div><p class="help">生成 AI 队友时参考。</p></div>
+          <div class="field"><label for="c-era"><span>时代</span></label><div class="control"><input id="c-era" type="text" maxlength="200" placeholder="例如：1920s"></div><p class="help">新频道的时代，GM 生成 NPC 时参考。</p></div>
         </div>
       </section>
       <section class="card step" data-create-step="1" aria-labelledby="create-heading-1" hidden>
@@ -88,7 +88,7 @@
         <div id="c-review"></div>
         <h4>启动方式</h4>
         <label class="check"><input id="c-enabled" type="checkbox" checked> 随主机自动启动</label>
-        <label class="check"><input id="c-prepare" type="checkbox" checked> 启动时准备频道（沿用已有 AI 队友并补齐数量）</label>
+        <label class="check"><input id="c-prepare" type="checkbox" checked> 启动时准备频道（应用世界与日常模式；PbtA 频道先确认规则）</label>
         <label class="check"><input id="c-start" type="checkbox" checked> 创建后立即启动</label>
         <p id="c-start-help" class="help"></p>
       </section>
@@ -142,7 +142,7 @@
           <h3>主持任务</h3>
           <div class="task-row">
             <label class="check"><input id="r-enabled" type="checkbox"> 随主机自动启动</label>
-            <label class="check"><input id="r-prepare" type="checkbox"> 启动时准备频道（沿用并补齐 AI 队友）</label>
+            <label class="check"><input id="r-prepare" type="checkbox"> 启动时准备频道（应用世界与日常模式；PbtA 频道先确认规则）</label>
           </div>
           <p class="muted small">这两项写入公共配置，下次启动时生效。顶部“删除主持任务”会停止主持并移出任务列表；平台频道、本地配置与状态保留，之后可以重新接入。</p>
         </section>

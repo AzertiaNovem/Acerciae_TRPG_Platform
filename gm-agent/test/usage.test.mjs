@@ -127,40 +127,48 @@ test("usage CLI reads local statistics as JSON without platform login, including
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("setup records character generation in the same channel database even before run", async () => {
+test("setup records its model calls (a PbtA design) in the same channel database even before run", async () => {
   const { default: http } = await import("node:http");
+  // A pack the design keeps as it is (the mock adds the playbooks it is asked for), so the setup asks the model once.
+  const template = { schemaVersion: 1, name: "Harbour Nights", stats: [{ id: "nerve", name: "Nerve" }], bands: [{ id: "miss", name: "Miss", min: null, max: 6 }, { id: "hit", name: "Hit", min: 7, max: null }],
+    books: [{ id: "smuggler", name: "Smuggler" }], resources: [], conditions: [], gmMoves: [],
+    moves: [{ id: "run", name: "Run the blockade", trigger: "When you run the blockade", stat: "nerve", book: "", outcomes: { miss: "The patrol catches up.", hit: "You slip past them." }, playerChoiceBands: [] },
+      { id: "deal", name: "Strike a deal", trigger: "When you strike a deal", stat: "", book: "smuggler", outcomes: {}, playerChoiceBands: [] }] };
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gm-usage-setup-"));
+  fs.writeFileSync(path.join(dir, "world.md"), "A harbour town where the night crews smuggle what the sea brings in.");
   const unexpected = [];
   const server = http.createServer(async (req, res) => {
-    for await (const _chunk of req) { /* consume request, never log its password */ }
+    let text = "";
+    for await (const chunk of req) text += chunk;   // never logged: the login carries the password
+    const body = text ? JSON.parse(text) : {};
     const routes = {
-      "POST /api/auth/login": { token: "fixture", user: { id: "gm" } },
-      "GET /api/channels/ch": { id: "ch", server_id: "s", name: "test", my_role: "gm", rule_system: "coc7e" },
-      "GET /api/servers/s/settings": { language: "en", features: {} },
-      "GET /api/coc7/rules": { skills: [], families: [] },
-      "GET /api/channels/ch/windows": [{ id: "main", kind: "main" }],
-      "GET /api/channels/ch/characters": [],
-      "POST /api/channels/ch/characters": { id: "cp" },
-      "PUT /api/channels/ch/characters/cp/card": {},
-      "PUT /api/channels/ch/characters/cp/appearance": {},
+      "POST /api/auth/login": () => ({ token: "fixture", user: { id: "gm" } }),
+      "GET /api/channels/ch": () => ({ id: "ch", server_id: "s", name: "test", my_role: "gm", rule_system: "pbta" }),
+      "GET /api/servers/s/settings": () => ({ language: "en", features: {} }),
+      "GET /api/channels/ch/pbta": () => ({ revision: 1, pack: template }),
+      "GET /api/channels/ch/pbta/draft": () => ({ status: "none", eligible: true, version: 1, revision: 1 }),
+      "GET /api/channels/ch/members": () => [{ id: "gm", role: "gm" }, { id: "p1", role: "player" }],
+      "POST /api/channels/ch/pbta/preview": () => ({}),
+      "POST /api/channels/ch/pbta/draft": () => ({ status: body.op === "start" ? "designing" : "pending", version: 2, revision: 1 }),
     };
     const key = `${req.method} ${req.url}`;
     if (!(key in routes)) unexpected.push(key);
     res.writeHead(key in routes ? 200 : 404, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(routes[key] ?? {}));
+    res.end(JSON.stringify(routes[key]?.() ?? {}));
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   try {
     const { stdout } = await promisify(execFile)(process.execPath, [new URL("../src/cli.mjs", import.meta.url).pathname,
-      "setup", "--channel", "ch", "--state-dir", dir, "--config", path.join(dir, "missing.yml"),
+      "setup", "--channel", "ch", "--state-dir", dir, "--config", path.join(dir, "missing.yml"), "--world", path.join(dir, "world.md"),
       "--api", `http://127.0.0.1:${server.address().port}`, "--username", "fixture", "--password", "fixture",
-      "--llm-provider", "mock", "--llm-trace", "", "--coplayers", "1"], { cwd: dir });
+      "--llm-provider", "mock", "--llm-trace", ""], { cwd: dir });
     assert.deepEqual(unexpected, []);
-    assert.match(stdout, /LLM tokens #1 coplayer_card/);
+    assert.match(stdout, /LLM tokens #1 pbta_design/);
+    assert.match(stdout, /Review the rule draft/);
     const store = Store.open(dir, "ch");
     try {
       const rows = store.usageCalls({});
-      assert.equal(rows.length, 1); assert.equal(rows[0].purpose, "coplayer_card");
+      assert.equal(rows.length, 1); assert.equal(rows[0].purpose, "pbta_design");
       assert.equal(rows[0].usageKnown, true); assert.equal(rows[0].estimated, true); assert.equal(rows[0].output, 50);
     } finally { store.close(); }
   } finally { await new Promise((resolve) => server.close(resolve)); fs.rmSync(dir, { recursive: true, force: true }); }

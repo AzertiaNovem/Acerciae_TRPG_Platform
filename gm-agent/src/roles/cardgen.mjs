@@ -1,16 +1,16 @@
-// Role cards written by the model: co-players (fellow investigators) at setup, real NPCs on demand. The model's card is
+// Role cards written by the model for real NPCs, on demand (the Forge writes the cast's own). The model's card is
 // checked against the rule system before it is saved; for COC7 (this file): characteristics clamped to the creation
 // ranges, derived values computed, skill names matched to the platform's list (GET /api/coc7/rules), so the
 // platform's dice read it correctly. A rules profile (rules/*.mjs) names the system's words and card functions; the
 // CoC ones live here as COC_CARD and are the default, so the D&D ones (dndcard.mjs) never touch this path.
 import { completeJson } from "../llm/index.mjs";
-import { allocatePointBuy, careerCatalog, findCareer, needsPointBuy } from "./pointbuy.mjs";
+import { allocatePointBuy, careerCatalog, findCareer } from "./pointbuy.mjs";
 import { COC_VOCAB } from "../rules/vocab.mjs";
 
 const CHARS = ["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUK"];
 const BASIC = ["player", "occupation", "age", "sex", "residence", "birthplace"];
 const BACKGROUND = ["personal_description", "ideology", "significant_people", "meaningful_locations", "treasured_possessions", "traits", "injuries", "phobias", "arcane", "encounters"];
-const APPEARANCE = "Also write appearance_prompt in the same response: a concise image prompt describing stable visible traits (age, build, face, hair, period clothing, distinguishing accessories), consistent with the card and campaign era. No story spoilers, scene actions, framing instructions or text overlays. Fill every basic and background field; use a localized 'None' for absent injuries, phobias, magic or Mythos encounters instead of inventing them. Set basic.player to AI co-player (or NPC).";
+const APPEARANCE = "Also write appearance_prompt in the same response: a concise image prompt describing stable visible traits (age, build, face, hair, period clothing, distinguishing accessories), consistent with the card and campaign era. No story spoilers, scene actions, framing instructions or text overlays. Fill every basic and background field; use a localized 'None' for absent injuries, phobias, magic or Mythos encounters instead of inventing them. Set basic.player to NPC.";
 
 export function missingDetails(character) {
   const paths = [];
@@ -125,7 +125,7 @@ function validateCard(x) {
 
 // The CoC card functions as a rules profile sees them (rules/coc7e.mjs): the shape the model is asked for, the
 // creation hint, the rules summary, what is missing, normalisation, the local check (none: the platform owns the
-// COC7 point formula), the generated card's validation, the point-buy repair and the completion prompt.
+// COC7 point formula), the generated card's validation and the point-buy repair.
 export const COC_CARD = Object.freeze({
   shape: CARD_SHAPE,
   creationHint: () => "Use COC7 creation values: STR CON DEX APP POW LUK 15-90, SIZ INT EDU 40-90, occupation skills at 40-75, a few hobby skills at 20-50.",
@@ -142,49 +142,12 @@ export const COC_CARD = Object.freeze({
     }
     return x;
   },
-  needsRepair: (card, rules, report) => needsPointBuy(card, rules, report),
   repair: (llm, card, { rules, language, feedback }) => allocatePointBuy(llm, card, { rules, language, feedback }),
-  completion: {
-    system: (language) => `Complete ONLY the requested missing fields of this existing COC7 investigator. Preserve the existing identity, appearance, background, characteristic values and occupation. Write text in ${language}. Reply with {"appearance_prompt":"...", "role_card":{"basic":{...},"characteristics":{...},"background":{...},"career":{"id":123,"name":"...","choices":[],"specialties":[]}}}, including the missing fields only. appearance_prompt describes stable visible age, build, face, hair, clothing and accessories consistent with the card and era (max 1000 characters). Missing characteristics use COC7 creation ranges (15–90; SIZ/INT/EDU 40–90). Use a localized 'None' for absent injuries, phobias, magic and Mythos encounters; do not invent them. basic.player is AI co-player. If a career is requested, choose a matching entry from CAREERS and copy its numeric id and exact name field; do not invent a synonym for the name.`,
-    check: (path, v, rules) => {
-      if (path === 'role_card.career') {
-        const career = findCareer(rules, v);
-        if (!career) throw new Error(`Choose role_card.career with a numeric id and exact name from CAREERS; received ${JSON.stringify(v)}`);
-        if (v && typeof v === 'object') v.name = career.name;   // the canonical name, whatever synonym the model wrote
-        return;
-      }
-      if (path.startsWith('role_card.characteristics.')) {
-        const minimum = ['SIZ', 'INT', 'EDU'].includes(path.split('.').at(-1)) ? 40 : 15;
-        if (!Number.isInteger(v) || v < minimum || v > 90) throw new Error(`${path} must be ${minimum}–90`);
-      } else if (typeof v !== 'string' || !v.trim()) throw new Error(`Missing text: ${path}`);
-    },
-  },
   appearanceNote: APPEARANCE,
 });
 // The default profile for the functions below when none is given (tests, older callers): the CoC words and card.
 const DEFAULT = { id: "coc7e", vocab: COC_VOCAB, card: COC_CARD };
 const brief = (profile) => profile.vocab.gmShort.toUpperCase();
-
-// One co-player: a fellow investigator who plays alongside the real players.
-// `world` (improvisation mode) is the setting the investigator comes from: their persona and background are written
-// into it. `profile` is the rules profile; `level` the level of a new D&D character.
-export async function generateCoplayer(llm, { language, era, rules, pointsMode, takenNames, partyNotes, index, total, world = "", profile = DEFAULT, level = 1, log = () => {} }) {
-  const { vocab, card: C } = profile;
-  const system = `You create ${vocab.pc} characters for ${vocab.campaign}. They are co-players: AI-played ${vocab.pcs} who join the human players' party as equals. Make them distinct, playable and grounded in the ${profile.id === "coc7e" ? "era; no Mythos knowledge beyond a trace" : "world"}. Write every text field in ${language}. Reply with only one JSON object of this shape: ${C.shape}`;
-  const user = [
-    `CAMPAIGN ERA: ${era || (profile.id === "coc7e" ? "1920s" : "(not set)")}`,
-    `CO-PLAYER: ${index + 1} of ${total}`,
-    `TAKEN NAMES: ${takenNames.join(", ")}`,
-    partyNotes ? `THE PARTY SO FAR:\n${partyNotes}` : "",
-    world ? `WORLD SETTING (there is no module: the story is improvised in this world). Make the ${vocab.pc} someone from it: a full personality in the persona and a background story rooted in its places, people and tensions:\n${world}` : "",
-    C.creationHint(level),
-    C.rulesSummary(rules, pointsMode, level),
-  ].filter(Boolean).join("\n");
-  const generated = await completeJson(llm, { system: system + '\n' + C.appearanceNote, user, purpose: "coplayer_card" }, (x) => C.validateGenerated(x, { rules, pointsMode }));
-  if (profile.id === "coc7e") { if (pointsMode) generated.role_card = await allocatePointBuy(llm, normalizeCard(generated.role_card, { rules }), { rules, language }); return generated; }
-  generated.role_card = await checkedBuild(llm, C.normalize(generated.role_card, { rules, kind: "pc", level, pointsMode }), { profile, rules, language, pointsMode, level, log, who: generated.name });
-  return generated;
-}
 
 // A D&D build checked locally against the platform's rules, repaired once by the model when it breaks them; a build
 // that still breaks them is refused under point buy (the platform would), and saved as it is otherwise.

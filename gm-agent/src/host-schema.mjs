@@ -6,7 +6,7 @@ import { FUNCTION_NAMES, MODEL_FUNCTIONS, providerLabel, routeFor } from "./llm/
 import { WRITING_MAX_LENGTH } from "./writing.mjs";
 
 export const GROUPS = [
-  { id: "table", title: "牌桌", help: "语言、AI 队友与开场。频道的规则系统来自平台（在 GM 工作区中修改）。" },
+  { id: "table", title: "牌桌", help: "语言与开场。频道的规则系统来自平台（在 GM 工作区中修改）。" },
   { id: "writing", title: "纯文本写作指导", help: "第一步：决定故事怎么写，包括文风、细节和总篇幅。预填原有指导，保存后替换该项默认文本；只发送给写作模型。规则、角色权限和无人值守限制仍由系统管理。" },
   { id: "presentation", title: "消息呈现指导（结构化输出）", help: "第二步：决定原文在聊天中怎么呈现。可要求每条短一些、合并成长消息，或按句子分多条；只发送给排版模型。不同说话人、收件人和私聊内容仍分别呈现。" },
   { id: "llm", title: "主持模型", help: "GM、NPC 与 AI 队友所用的模型。服务商、地址与密钥在公共配置中设置。" },
@@ -40,10 +40,8 @@ const modelFields = FUNCTION_NAMES.flatMap((fn) => {
 });
 export const FIELDS = [
   f("table.language", "enum", "语言", "GM 与 AI 角色写作的语言。留空则跟随频道设置。", (c) => c.language, { options: ["", "zh-CN", "zh-TW", "en", "ja", "ko", "es", "fr", "de", "ru", "pt", "it"] }),
-  f("table.coplayers", "int", "AI 队友数量", "启动时准备的 GM 扮演队友数（已有的会被沿用）。", (c) => c.coplayers, { min: 0, max: 8 }),
-  f("table.level", "int", "新队友等级（D&D）", "D&D 频道中新建 AI 队友的等级；已有角色保持原等级。", (c) => c.level, { min: 1, max: 20 }),
-  f("table.coplayer_windows", "list", "队友初始窗口", "AI 队友起始所在的窗口名，逗号分隔。留空则为主聊天。", (c) => c.coplayerWindows),
-  f("channel.era", "string", "时代", "生成队友时参考的时代（例如 1920s）。", (c) => c.era),
+  f("table.level", "int", "新角色等级（D&D）", "D&D 频道中开局共创（Forge）新建角色的等级；已有角色保持原等级。", (c) => c.level, { min: 1, max: 20 }),
+  f("channel.era", "string", "时代", "新建频道的时代（例如 1920s），GM 生成 NPC 时参考。", (c) => c.era),
   f("table.kickoff", "bool", "启动时开场", "启动后 GM 立即在主场景开场。", (c) => c.kickoff),
   f("table.verbose", "bool", "详细日志", "在日志中记录更多细节。", (c) => c.verbose),
   f("writing.gm", "text", "GM 与 NPC 写作指导", "用于 GM 的叙述、NPC 台词和短信。支持多段文字；留空或恢复默认会使用原有指导。", (c) => c.writing.gm, { maxLength: WRITING_MAX_LENGTH }),
@@ -175,11 +173,6 @@ function coerce(x, v) {
     case "enum":
       if (!x.options.includes(String(v))) bad(`必须是 ${x.options.filter(Boolean).join(" / ")} 之一`);
       return String(v);
-    case "list": {
-      const items = (Array.isArray(v) ? v : String(v).split(",")).map((s) => String(s).trim()).filter(Boolean);
-      if (items.some((s) => s.length > 120)) bad("的每一项不能超过 120 个字符");
-      return items;
-    }
     default: {
       const s = String(v);
       if (s.length > 500 || /[\r\n]/.test(s)) bad("必须是一行文本（不超过 500 字符）");

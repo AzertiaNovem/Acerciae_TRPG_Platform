@@ -9,9 +9,10 @@ import os from "node:os";
 import { DND_RULES } from "./fixtures/dndRules.mjs";
 import { PBTA_RULES } from "./fixtures/pbtaRules.mjs";
 import { Store } from "../src/store.mjs";
+import { loadState } from "../src/state.mjs";
 
 for (const scenario of ["create D&D", "attach D&D", "review PbtA"]) {
-  test(`CLI setup: ${scenario} selects its own rules, saves its card and records usage`, async (t) => {
+  test(`CLI setup: ${scenario} keeps the channel's own rules and makes no character`, async (t) => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gm-rules-setup-"));
     t.after(() => fs.rm(dir, { recursive: true, force: true }));
     const pbta = scenario === "review PbtA";
@@ -51,30 +52,26 @@ for (const scenario of ["create D&D", "attach D&D", "review PbtA"]) {
     const args = [new URL("../src/cli.mjs", import.meta.url).pathname, "setup",
       "--state-dir", dir, "--config", path.join(dir, "missing.yml"),
       "--api", `http://127.0.0.1:${server.address().port}`, "--username", "fixture", "--password", "fixture",
-      "--llm-provider", "mock", "--llm-trace", "", "--coplayers", "1", "--level", "3",
+      "--llm-provider", "mock", "--llm-trace", "",
       ...(scenario === "create D&D" ? ["--create", "--server", "s", "--rules", "dnd2024"] : ["--channel", "ch"]),
     ];
     const run = () => promisify(execFile)(process.execPath, args, { cwd: dir, timeout: 15000 });
     if (pbta) {
       const pending = await run();
       assert.match(pending.stdout, /Review the rule draft/);
-      assert.equal(character, null, "review must finish before character generation");
+      assert.equal(loadState(dir, "ch").pbtaSetup.ready, false, "play waits for the GM's review");
       review = "kept";
     }
-    await run();
+    const done = await run();
     assert.deepEqual(unexpected, []);
-    assert.equal(character.kind, "pc");
-    const write = requests.find(r => r.key.endsWith("/cp/card"));
-    if (pbta) {
-      assert.equal(character.role_card.pbta.book, "scout");
-      assert.equal(write.body.pack_revision, 1);
-    } else {
-      assert.equal(character.role_card.dnd.level, 3);
-      assert.equal(character.role_card.dnd.class, "Rogue");
-    }
+    assert.match(done.stdout, /CHANNEL_ID=ch/);
+    if (scenario === "create D&D") assert.ok(requests.some(r => r.key === "POST /api/servers/s/channels"), "the new channel plays D&D");
+    assert.equal(character, null, "setup makes no character");
+    assert.ok(!requests.some(r => r.key.startsWith("POST /api/channels/ch/characters")));
+    if (pbta) assert.equal(loadState(dir, "ch").pbtaSetup.ready, true);
     const store = Store.open(dir, "ch");
     try {
-      assert.deepEqual(store.usageCalls({}).map(r => r.purpose), [pbta ? "pbta_card" : "coplayer_card"]);
+      assert.deepEqual(store.usageCalls({}).map(r => r.purpose), [], "nothing to ask a model");
     } finally { store.close(); }
   });
 }

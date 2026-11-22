@@ -96,14 +96,17 @@ test('empty Forge waits; all arrivals can use one invitation, including after a 
   assert.deepEqual(deliveries.at(-1).seats,['a','b','late']);assert.ok(deliveries.at(-1).doc.hypertext.body.some(n=>n.label==='加入共创'));
 });
 
-test('private initial state maps C keys to real IDs exactly once and cannot assign NPC feelings to a co-player',async()=>{
+test('private initial state maps C keys to real IDs exactly once and gives feelings only to NPCs',async()=>{
   const {importSeed,createSeed}=await import('../src/forge/seed.mjs');
   const s=setup();s.characterIds={C1:'npc-id',C2:'pc-id'};
   s.worldStateSeed={definitions:[{id:'trust',label:'Trust',description:'NPC trust toward one person',scope:'relation',type:'number',initial:0,min:0,max:100,changeRule:'Changes after kept promises',thresholds:[]}],values:[{metric:'trust',subject:'C1',target:'C2',value:20}]};
   const characters=[{id:'npc-id',kind:'npc'},{id:'pc-id',kind:'pc'}];const first=importSeed({},s,characters);assert.deepEqual(importSeed(first,s,characters),first);
   assert.ok(Object.values(first.worldState.values).some(x=>x.subject==='npc-id'&&x.target==='pc-id'&&x.value===20));
-  const wrong={...s,candidate:{world:'World',characters:[{key:'C1',kind:'coplayer'},{key:'C2',kind:'player'}]}};
+  const wrong={...s,candidate:{world:'World',characters:[{key:'C1',kind:'player'},{key:'C2',kind:'player'}]}};
   await assert.rejects(createSeed({complete:async()=>JSON.stringify(s.worldStateSeed)},wrong),/NPC/);
+  // A stored draft from before may still name an AI co-player: it is cast as an NPC now.
+  const old={...s,candidate:{world:'World',characters:[{key:'C1',kind:'coplayer'},{key:'C2',kind:'player'}]}};
+  assert.deepEqual((await createSeed({complete:async()=>JSON.stringify(s.worldStateSeed)},old)).values.map(v=>[v.subject,v.target,v.value]),[['C1','C2',20]]);
   assert.equal(JSON.stringify(publicDossier(s)).includes('worldStateSeed'),false);
 });
 

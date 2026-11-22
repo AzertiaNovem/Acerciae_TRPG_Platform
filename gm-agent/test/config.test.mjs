@@ -31,8 +31,8 @@ test("old environment variables are ignored, with a warning naming the file key"
 });
 
 test("unknown sections and keys in the file are reported, known ones are not", () => {
-  const cfg = buildConfig({}, {}, file({ table: { coplayers: 3, colour: "red" }, misc: { a: 1 } }));
-  assert.equal(cfg.coplayers, 3);
+  const cfg = buildConfig({}, {}, file({ table: { level: 3, colour: "red" }, misc: { a: 1 } }));
+  assert.equal(cfg.level, 3);
   assert.deepEqual(cfg.warnings.sort(), ['gm-agent.yml: unknown key "table.colour"', 'gm-agent.yml: unknown section "misc"']);
 });
 
@@ -100,16 +100,16 @@ test("modes are three-valued: unset leaves the state file alone", () => {
 
 test("the file is found by flag, variable or beside the working directory, and read as YAML", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gm-cfg-"));
-  fs.writeFileSync(path.join(dir, "gm-agent.yml"), "table:\n  coplayers: 4\nllm:\n  provider: mock\n");
+  fs.writeFileSync(path.join(dir, "gm-agent.yml"), "table:\n  level: 4\nllm:\n  provider: mock\n");
   assert.equal(configPath({}, {}, dir), path.join(dir, "gm-agent.yml"));
   assert.equal(configPath({}, {}, "/nowhere", dir), path.join(dir, "gm-agent.yml"), "the client's own directory as a fallback");
   assert.equal(configPath({ config: "x.yml" }, {}, dir), path.resolve("x.yml"));
   assert.equal(configPath({}, { GM_AGENT_CONFIG: "/etc/gm.yml" }, dir), "/etc/gm.yml");
   assert.equal(configPath({}, {}, "/nowhere"), null);
   const loaded = loadConfigFile(path.join(dir, "gm-agent.yml"));
-  assert.equal(buildConfig({}, {}, loaded).coplayers, 4);
-  assert.equal(buildConfig({}, {}, loadConfigFile(null)).coplayers, 2, "no file: defaults");
-  assert.equal(buildConfig({}, {}, loadConfigFile(path.join(dir, "missing.yml"))).coplayers, 2);
+  assert.equal(buildConfig({}, {}, loaded).level, 4);
+  assert.equal(buildConfig({}, {}, loadConfigFile(null)).level, 1, "no file: defaults");
+  assert.equal(buildConfig({}, {}, loadConfigFile(path.join(dir, "missing.yml"))).level, 1);
   fs.writeFileSync(path.join(dir, "bad.yml"), "- a\n- b\n");
   assert.throws(() => loadConfigFile(path.join(dir, "bad.yml")), /YAML mapping/);
 });
@@ -133,7 +133,7 @@ test("the GM's calendar pace: defaults, the calendar section, flags, and 0 for n
   assert.equal(buildConfig({}, {}, file({ calendar: { min_minutes: -5 } })).calendarMinMinutes, 0);
 });
 
-test("the rule system of a new channel and the level of new D&D co-players", () => {
+test("the rule system of a new channel and the level of the D&D characters the Forge makes", () => {
   assert.equal(buildConfig({}, {}, file({})).ruleSystem, "coc7e"); assert.equal(buildConfig({}, {}, file({})).level, 1);
   assert.equal(buildConfig({}, {}, file({ channel: { rule_system: "dnd2024" }, table: { level: 5 } })).ruleSystem, "dnd2024");
   assert.equal(buildConfig({ rules: "dnd2024", level: "30" }, {}, file({})).level, 20, "clamped to 1–20");

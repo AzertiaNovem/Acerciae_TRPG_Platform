@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeCard, derived, skillIndex, generateCoplayer } from "../src/roles/cardgen.mjs";
+import { normalizeCard, derived, skillIndex } from "../src/roles/cardgen.mjs";
 import { MockLlm } from "../src/llm/mock.mjs";
 import { completeJson } from "../src/llm/index.mjs";
 import { normalizeDnd } from "../src/roles/dndcard.mjs";
@@ -53,13 +53,8 @@ test("NPC cards may go beyond investigator limits", () => {
 test("a reply that is not JSON gets one repair round", async () => {
   const replies = ["Sure! Here it is", "```json\n{\"name\": \"Ada\", \"role_card\": {}}\n```"];
   const llm = { calls: 0, async complete() { return replies[this.calls++]; } };
-  const out = await completeJson(llm, { system: "s", user: "u", purpose: "coplayer_card" }, (x) => x);
+  const out = await completeJson(llm, { system: "s", user: "u", purpose: "npc_card" }, (x) => x);
   assert.equal(out.name, "Ada");
   assert.equal(llm.calls, 2);
 });
 
-test("improvisation: a co-player is written into the GM's world setting", async () => {
-  const llm = new MockLlm();
-  await generateCoplayer(llm, { language: "English", era: "1920s", rules: null, pointsMode: false, takenNames: [], partyNotes: "", index: 0, total: 1, world: "WORLD-GEN: Kingsport, 1923" });
-  assert.ok(llm.calls[0].messages[0].content.includes("WORLD-GEN: Kingsport, 1923"));
-});
