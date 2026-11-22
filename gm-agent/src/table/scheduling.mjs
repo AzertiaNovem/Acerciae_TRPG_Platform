@@ -2,7 +2,6 @@
 import { billableTokens } from "../store.mjs";
 import { recall } from "../context/recall.mjs";
 import { investigatorsFor } from "../context/profiles.mjs";
-import { openWindows } from "../roles/roster.mjs";
 import { MAIN } from "../timelines.mjs";
 import { noteCalendarLine } from "../calendar.mjs";
 import { TRIGGER_KINDS, HOUR } from "./shared.mjs";
@@ -181,14 +180,6 @@ export function checkInvariants(table) {
     for (const t of table.timelines.active()) for (const id of t.members) counts.set(id, (counts.get(id) ?? 0) + 1);
     if ([...counts.values()].some((n) => n !== 1)) { table.log("invariant: an investigator was in zero or several timelines; repaired"); table.timelines.reconcile(ids); }
     for (const t of table.timelines.active()) if (t.id !== MAIN && !t.windowId) { table.log(`invariant: thread "${t.name}" had no window; merged`); table.timelines.merge(t.id, MAIN, table.lastSeq + 1); }
-    for (const cp of table.roster.coplayers) {
-      const want = table.windowOf(table.timelines.of(cp.characterId));
-      const open = openWindows(cp);
-      if (want && !(open.length === 1 && open[0] === want)) {
-        table.log(`invariant: ${cp.name}'s seat did not match its timeline; repaired`);
-        table.roster.moveSeats([cp], [want], (w) => table.windowSeq.get(w) ?? table.lastSeq);
-      }
-    }
   }
 
 export function startTicker(table) {

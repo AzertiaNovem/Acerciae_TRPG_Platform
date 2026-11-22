@@ -1,8 +1,7 @@
 import { isPlayerCharacter } from "../roles/roster.mjs";
 import { distinctiveTraits } from "./traits.mjs";
 // The investigators' basic details and backgrounds, as written on their role cards (and the character's bio). The GM
-// and the real NPCs read every investigator's profile; a co-player reads its companions' profiles, the way a human
-// player can open any player character's page. Real NPCs are never investigators. Numbers (characteristics, skills)
+// and the real NPCs read every investigator's profile. Real NPCs are never investigators. Numbers (characteristics, skills)
 // are not part of a profile; only the most distinctive characteristics are, in words (traits.mjs).
 
 const BASIC = ["player", "occupation", "age", "sex", "residence", "birthplace"];
@@ -36,8 +35,7 @@ export function renderProfile(character, note = "", profile = null) {
   return [`- ${character.name}${note ? ` (${note})` : ""}`, ...investigatorProfile(character, profile).map((l) => `    ${l}`)].join("\n");
 }
 
-// The investigators at the table: player characters first, then co-players; never real NPCs.
+// The investigators at the table: the player characters; never real NPCs.
 export function investigatorsFor(characters, roster, { except } = {}) {
-  const others = characters.filter((c) => c.id !== except);
-  return [...others.filter((c) => isPlayerCharacter(c, roster)), ...others.filter((c) => roster.isCoplayer(c.id))];
+  return characters.filter((c) => c.id !== except && isPlayerCharacter(c, roster));
 }

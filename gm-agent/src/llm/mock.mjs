@@ -9,7 +9,7 @@ const field = (text, label) => (String(text).match(new RegExp(`^${label}:\\s*(.+
 
 // Keep the offline fixtures expressed as game actions. Emit their prose as a draft and carry the
 // remaining fixture decisions in a mock-only direction, so the real paragraph binding still runs.
-function draftFor(purpose, plan) {
+function draftFor(plan) {
   const paragraphs = [];
   const part = (text, label = "") => {
     if (!String(text ?? "").trim()) return undefined;
@@ -17,19 +17,14 @@ function draftFor(purpose, plan) {
     const ids = rows.map(row => paragraphs.push(label ? `${label}: ${row}` : row));
     return ids.length === 1 ? ids[0] : ids;
   };
-  if (purpose === "director") {
-    const label = a => ({
-      npc: `NPC ${a.name}`, new_npc: `New NPC ${a.name}`, whisper: `Whisper to ${a.to}`,
-      note: "GM only", text: `Phone from ${a.from} to ${a.to}`,
-    })[a.type];
-    const withOpening = a => a.opening ? { ...a, opening: part(a.opening, "Opening") } : a;
-    const sourced = new Set(["narrate", "npc", "new_npc", "whisper", "note", "text", "request_roll", "ask", "dice"]);
-    plan = { ...plan, actions: plan.actions.map(a => sourced.has(a.type) ? { ...a, text: part(a.text, label(a)) } : withOpening(a)) };
-    if (plan.whereabouts) plan.whereabouts = plan.whereabouts.map(withOpening);
-  } else {
-    plan = { ...plan, text: part(plan.text, plan.action === "text" ? `Phone to ${plan.to}` : plan.kind === "ooc" ? "Out of character" : "") };
-    if (plan.defer) plan.defer = { ...plan.defer, question: part(plan.defer.question, "Question for later") };
-  }
+  const label = a => ({
+    npc: `NPC ${a.name}`, new_npc: `New NPC ${a.name}`, whisper: `Whisper to ${a.to}`,
+    note: "GM only", text: `Phone from ${a.from} to ${a.to}`,
+  })[a.type];
+  const withOpening = a => a.opening ? { ...a, opening: part(a.opening, "Opening") } : a;
+  const sourced = new Set(["narrate", "npc", "new_npc", "whisper", "note", "text", "request_roll", "ask", "dice"]);
+  plan = { ...plan, actions: plan.actions.map(a => sourced.has(a.type) ? { ...a, text: part(a.text, label(a)) } : withOpening(a)) };
+  if (plan.whereabouts) plan.whereabouts = plan.whereabouts.map(withOpening);
   paragraphs.push(`Table directions: ${JSON.stringify(plan)}`);
   return paragraphs.join("\n\n");
 }
@@ -70,11 +65,10 @@ export class MockLlm {
       case "event_illustration": return JSON.stringify({ ...this.scenarioMoment(user), moment: this.scenarioMoment(user).moment.replace("[mock moment]", "[mock event]") });
       case "plot_search": return JSON.stringify(this.plotChoose(user));
       case "plot_illustration": return JSON.stringify(this.plotMoment(user));
-      case "director": return draftFor(purpose, this.director(user));
-      case "coplayer_turn": return draftFor(purpose, this.coplayer(user, system));
+      case "director": return draftFor(this.director(user));
       case "chat_format": return JSON.parse(messages[0].content).findLast(p => p.kind === "directions")?.text ?? "{}";
       case "planner": return JSON.stringify(this.planner(user));
-      case "compact": case "coplayer_memory": return JSON.stringify({ summary: `[mock ${purpose}] ${field(user, "LINES") || field(user, "CHAPTERS") || "(nothing)"}`.slice(0, 400) });
+      case "compact": return JSON.stringify({ summary: `[mock ${purpose}] ${field(user, "LINES") || field(user, "CHAPTERS") || "(nothing)"}`.slice(0, 400) });
       default: return "{}";
     }
   }
@@ -242,7 +236,7 @@ export class MockLlm {
     // The players' words in the planner window: "never", "not" or "no" make a correction, anything else a wish.
     const wordsAt = user.indexOf("## The players' words to you");
     const words = (wordsAt < 0 ? "" : user.slice(user.indexOf("\n", wordsAt) + 1).split("\n\n")[0]).split("\n").map((l) => l.replace(/^- [^:]+: /, "").trim()).filter(Boolean);
-    const table = /"table_notes"/.test(user) ? { table_notes: words.map((w) => ({ id: "new", kind: /\b(never|not|no)\b/i.test(w) ? "correction" : "wish", text: `[mock note] ${w}`, about: (w.match(/\b(Harriet Vance|Harriet|Alice Hale|Alice)\b/) ?? []).slice(0, 1).map((n) => (n.startsWith("Harriet") ? "Harriet Vance" : "Alice Hale")) })), reply: words.length ? `[mock reply] Noted ${words.length} line(s): the story will follow.` : "" } : {};
+    const table = /"table_notes"/.test(user) ? { table_notes: words.map((w) => ({ id: "new", kind: /\b(never|not|no)\b/i.test(w) ? "correction" : "wish", text: `[mock note] ${w}`, about: (w.match(/\b(Alice Hale|Alice)\b/) ?? []).slice(0, 1).map(() => "Alice Hale") })), reply: words.length ? `[mock reply] Noted ${words.length} line(s): the story will follow.` : "" } : {};
     const between = final ? { advance_days: 2, time: "morning", why: "[mock] the town sleeps on it", ...(pace ? {} : { offscreen: [{ text: "[mock offscreen] The Guild doubled the night watch at the docks.", secret: true }] }), opening: "[mock opening] A knock at the door at dawn.", recap: "[mock recap] They asked around the harbour." } : undefined;
     if (pace) return { beat, verdict: { move_on: false, why: "the scene is still fresh" }, played: "[mock] as planned", changed: step === "revise" ? "[mock] nothing" : "", calendar, ...table, ...(between ? { between } : {}) };
     return {
@@ -252,15 +246,5 @@ export class MockLlm {
       verdict: { move_on: false, why: "the scene is still fresh" },
       played: "[mock] as planned", changed: step === "revise" ? "[mock] nothing" : "", calendar, ...table, ...(between ? { between } : {}),
     };
-  }
-
-  coplayer(user, system = "") {
-    const me = field(user, "YOU ARE");
-    const last = field(user, "NEWEST LINE");
-    if (!last) return { action: "pass" };
-    // "Harriet, text Tomas Leclerc: …" makes Harriet text (casual mode).
-    const text = [...user.matchAll(/^#\d+ [^:"]+: (\S+), text ([^:]+): (.+)$/gm)].at(-1);
-    if (text && me.startsWith(text[1]) && /Phone to <name>/.test(system)) return { action: "text", to: text[2].trim(), text: text[3].trim() };
-    return { action: "speak", kind: "ic", text: `[mock ${me}] I stay close and keep my eyes open.` };
   }
 }

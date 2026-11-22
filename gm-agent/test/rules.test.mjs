@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { RULE_SYSTEMS, adaptPrompt, ruleSystemOf, rulesProfile } from "../src/rules/index.mjs";
 import { directorFormatSchema, directorSystem } from "../src/director.mjs";
-import { coplayerSystem } from "../src/coplayer.mjs";
 import { plannerSystem } from "../src/planner.mjs";
 
 test("the rule system comes from the channel; unknown ids are refused", () => {
@@ -35,7 +34,6 @@ test("every rule system's prompts call the GM \"GM\"", () => {
     const prompts = {
       director: directorSystem("English", { profile, pbta, improv: true, casual: true, calendar: true, planner: true, forks: true }),
       legacy: directorSystem("English", { profile, pbta, auto: false }),
-      coplayer: coplayerSystem("English", { profile, improv: true, casual: true, ...(pbta ? { pbta: { moves: [] } } : {}) }),
     };
     for (const [k, v] of Object.entries(prompts)) {
       assert.doesNotMatch(v, OLD_TITLES, `${id} ${k}`);
@@ -54,7 +52,6 @@ test("a CoC table's prompts preserve main's continuity and calendar pacing befor
   const got = {
     // The snapshot was taken with scene forks; without them (the default) only the scenario rule differs.
     director: { base: directorSystem("English", { forks: true }), improv: directorSystem("English", { improv: true, forks: true }), full: directorSystem("English", { casual: true, calendar: true, planner: true, forks: true }), legacy: directorSystem("English", { auto: false, forks: true }) },
-    coplayer: { base: coplayerSystem("English", {}), improvCasual: coplayerSystem("English", { improv: true, casual: true }) },
     planner: { full: plannerSystem("English", { mode: "full" }), paceFinal: plannerSystem("English", { mode: "pace", final: true, calendar: true, table: true }) },
   };
   for (const [group, prompts] of Object.entries(got)) for (const [k, v] of Object.entries(prompts)) assert.equal(v, snap[group][k], `${group}.${k}`);
@@ -74,9 +71,6 @@ test("PbtA keeps sourced moves and player choices without CoC or D&D dice", () =
   assert.doesNotMatch(format, /"type": "dice"|"type": "request_roll"/);
   assert.match(director, /quote the options and wait for their actual reply/);
   assert.doesNotMatch(director, /Keeper|\bMC\b|Sealdice|"type": "dice"|"type": "request_roll"|undefined/);
-  const coplayer = coplayerSystem("English", { profile, pbta: { moves: [] } });
-  assert.match(coplayer, /\.move <move-id>[^\n]*Table directions:/);
-  assert.doesNotMatch(coplayer, /Keeper|\bMC\b|Sealdice|\.rc |\.ra |undefined/);
 });
 
 test("a D&D table's prompts name the GM and the D20 commands, never the Keeper, the Dungeon Master or sanity", () => {
@@ -90,10 +84,4 @@ test("a D&D table's prompts name the GM and the D20 commands, never the Keeper, 
   assert.match(format, /\{"type": "dice", "command": "<exact command>"/); assert.match(format, /"type": "request_roll"/);
   assert.match(director, /GM only: for a private note/); assert.match(format, /"whereabouts": \[\{"who":/);
   assert.match(director, /nothing needs the GM now/);
-  const coplayer = coplayerSystem("English", { profile: dnd });
-  assert.match(coplayer, /^You play one adventurer in a fifth-edition fantasy game \(D&D 2024 rules\) on an online table/);
-  assert.doesNotMatch(coplayer, /Keeper|Dungeon Master|Sealdice|\.ra Spot Hidden/);
-  assert.match(coplayer, /The GM runs the world\. You are a fellow player with a stake in the story\./);
-  assert.match(coplayer, /"\.rc Stealth dc 15" for a check, "\.rc WIS save dc 13" for a save/); assert.match(coplayer, /\.rc <skill> dc N[^\n]*Table directions:/);
-  assert.match(coplayerSystem("English", { profile: dnd, improv: true }), /a fifth-edition fantasy game \(D&D 2024 rules\) whose genre and tone follow its world setting, on an online table/);
 });

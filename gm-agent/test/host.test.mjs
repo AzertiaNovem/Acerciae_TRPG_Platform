@@ -166,7 +166,7 @@ test('two real workers host CoC and D&D concurrently and restart independently',
   assert.ok(seen.includes('/api/coc7/rules') && seen.includes('/api/dnd/rules'));
   const live = await manager.detail('b');
   assert.equal(live.status, 'running'); assert.equal(live.live.channel.rule, 'dnd2024'); assert.equal(live.live.channel.name, 'b');
-  assert.equal(live.live.channel.gm, true); assert.equal(typeof live.live.usage.today.billable, 'number'); assert.deepEqual(live.live.cast.coplayers, []);
+  assert.equal(live.live.channel.gm, true); assert.equal(typeof live.live.usage.today.billable, 'number'); assert.deepEqual(live.live.cast.players, []);
   assert.equal(live.live.timelines[0].handle, 'T0'); assert.equal(live.live.settings.sceneForks, false); assert.ok(!live.live.errors, JSON.stringify(live.live.errors));
   // The ready message and stdout use separate worker channels; readiness does not mean the log was delivered yet.
   const logged = () => manager.logs('a').lines.some(l => /keeping "a"/.test(l.text));

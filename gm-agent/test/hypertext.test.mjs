@@ -185,7 +185,7 @@ test("the card check catches what the platform would refuse", () => {
 
 // ---- the table
 
-test("request_roll for a person's character posts a roll card in their scene; a co-player still rolls itself", async () => {
+test("request_roll for a person's character posts a roll card in their scene; a character the GM voices still rolls itself", async () => {
   const { t, api } = await setup();
   assert.equal(await ask(t), 1);
   assert.equal(api.posts.length, 0, "no plain line");
@@ -199,10 +199,10 @@ test("request_roll for a person's character posts a roll card in their scene; a 
   assert.equal(m.kind, "hypertext");
   assert.ok(t.botMessageIds.has(m.id) && !t.isHuman(m), "the card is this client's own line");
   assert.deepEqual([...t.rollCards.values()].map((c) => [c.id, c.windowId, c.pcId, c.command]), [[m.id, "w-main", "c-alice", ".ra Library Use"]]);
-  // Harriet is a co-player: the client rolls for her, against her sheet, with no card.
-  await t.requestRoll("w-main", { type: "request_roll", who: "Harriet Vance", command: ".ra Spot Hidden", text: "Harriet, look around." });
+  // Mr. Grimsby is the GM's: the client rolls for him, against his sheet, with no card.
+  await t.requestRoll("w-main", { type: "request_roll", who: "Mr. Grimsby", command: ".ra Spot Hidden", text: "Grimsby looks around." });
   assert.equal(api.hypertextPosts.length, 1);
-  assert.deepEqual(api.posts.map((p) => [p.kind, p.content, p.character_id ?? null]), [["narration", "Harriet, look around.", null], ["ic", ".ra Spot Hidden", "c-harriet"]]);
+  assert.deepEqual(api.posts.map((p) => [p.kind, p.content, p.character_id ?? null]), [["narration", "Grimsby looks around.", null], ["ic", ".ra Spot Hidden", "c-butler"]]);
 });
 
 test("asking for the same roll again replaces the open card; a different roll keeps its own", async () => {
@@ -254,7 +254,7 @@ test("the card closes when its roll arrives: tapped (via the card) or typed by t
   const card = api.lines.at(-1);
   assert.deepEqual(saved.at(-1).map((c) => c.id), [card.id], "open cards are kept in the state file");
   // Another character's roll, or another roll, answers nothing.
-  await event(t, line({ kind: "roll", content: ".ra Library Use", character_id: "c-harriet", author_id: "u-bot" }));
+  await event(t, line({ kind: "roll", content: ".ra Library Use", character_id: "c-butler", author_id: "u-bot" }));
   await event(t, line({ kind: "roll", content: ".ra Spot Hidden" }));
   assert.deepEqual(api.closedCards ?? [], []);
   // The player taps the button: the platform posts the roll as Alice, from the card.

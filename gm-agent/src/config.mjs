@@ -80,10 +80,10 @@ const SETTINGS = [
   ["planner-window", null, "planner.wish_window"],
   ["final-review", null, "planner.final_review"], ["final-review-min-lines", null, "planner.final_review_min_lines"], ["final-review-max-days", null, "planner.final_review_max_days"],
   ["debounce-ms", null, "pacing.debounce_ms"], ["post-delay-ms", null, "pacing.post_delay_ms"], ["max-actions", null, "pacing.max_actions_per_turn"],
-  ["context-recall-tokens", null, "context.recall_tokens"], ["gm-context-tokens", null, "context.gm_tokens"], ["coplayer-context-tokens", null, "context.coplayer_tokens"], ["context-lines", null, "context.page_lines"], ["history-backfill-lines", null, "context.backfill_lines"], ["llm-daily-token-budget", null, "context.daily_token_budget"],
+  ["context-recall-tokens", null, "context.recall_tokens"], ["gm-context-tokens", null, "context.gm_tokens"], ["context-lines", null, "context.page_lines"], ["history-backfill-lines", null, "context.backfill_lines"], ["llm-daily-token-budget", null, "context.daily_token_budget"],
   ["autonomy", null, "autonomy.enabled"], ["autonomy-tick-ms", null, "autonomy.tick_ms"], ["autonomy-quiet-ms", null, "autonomy.quiet_ms"], ["autonomy-quiet-turns", null, "autonomy.quiet_turns"],
   ["autonomy-max-turns-per-hour", null, "autonomy.max_turns_per_hour"], ["autonomy-idle-minutes", null, "autonomy.idle_minutes"],
-  ["timeline-auto", null, "timelines.auto"], ["scene-forks", null, "timelines.scene_forks"], ["timeline-guard-turns", null, "timelines.guard_turns"], ["timeline-guard-ms", null, "timelines.guard_ms"], ["timeline-max-active", null, "timelines.max_active"], ["timeline-pc-cooldown-ms", null, "timelines.pc_cooldown_ms"], ["timeline-max-arrivals-per-hour", null, "timelines.max_arrivals_per_hour"],
+  ["timeline-auto", null, "timelines.auto"], ["scene-forks", null, "timelines.scene_forks"], ["timeline-max-active", null, "timelines.max_active"], ["timeline-pc-cooldown-ms", null, "timelines.pc_cooldown_ms"], ["timeline-max-arrivals-per-hour", null, "timelines.max_arrivals_per_hour"],
   ["scenario-auto", null, "scenarios.auto"], ["scenario-min-minutes", null, "scenarios.min_minutes"], ["scenario-min-lines", null, "scenarios.min_lines"],
   ["calendar-min-minutes", null, "calendar.min_minutes"], ["calendar-min-lines", null, "calendar.min_lines"], ["calendar-max-days", null, "calendar.max_days"],
   ["improv", null, "modes.improv"], ["world", null, "modes.world_file"], ["secrets", null, "modes.secrets_file"], ["casual", null, "modes.casual"], ["casual-max-delay-minutes", null, "modes.casual_max_delay_minutes"],
@@ -107,7 +107,7 @@ const LEGACY_ENV = {
 // platform's bots took: docs/BOTS.md). Older files may still set them: they are read without a warning, and ignored.
 const RETIRED_KEYS = ["autonomy.coplayer_idle_lines", "autonomy.coplayer_idle_minutes", "planner.impulse_lines",
   "modes.casual_ai_texts_per_hour", "modes.casual_ai_chain", "autonomy.side_interval_ms", "autonomy.away_side_interval_ms",
-  "table.coplayers", "table.coplayer_windows"];
+  "table.coplayers", "table.coplayer_windows", "context.coplayer_tokens", "timelines.guard_turns", "timelines.guard_ms"];
 // Model functions and purposes of those features (`models.<name>`), likewise.
 const RETIRED_MODELS = ["coplayer_phone", "coplayer_card", "coplayer_repair"];
 const SECTIONS = ["forge", "worldbook", "account", "channel", "table", "writing", "llm", "planner", "models", "providers", "pacing", "context", "autonomy", "timelines", "scenarios", "calendar", "modes", "illustrations"];
@@ -262,7 +262,6 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     // the token budgets, with older history compacted into chapters (memory.mjs).
     contextLines: Math.max(10, Math.min(200, int(pick("context-lines", 100), 100))),
     gmContextTokens: Math.max(8000, int(pick("gm-context-tokens", 60000), 60000)),
-    coplayerContextTokens: Math.max(4000, int(pick("coplayer-context-tokens", 24000), 24000)),
     recallTokens: Math.max(0, Math.min(4000, int(pick("context-recall-tokens", 1200), 1200))),
     historyBackfillLines: Math.max(0, int(pick("history-backfill-lines", 1000), 1000)),
     // The worldbook (worldbook.mjs): how much of it a GM or co-player prompt may carry, and how far back a mention counts.
@@ -284,8 +283,6 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     // story stays in the Main Chat with the players; only those who go elsewhere get a window (a single player is
     // always in the Main Chat; co-players move around them).
     sceneForks: bool(pick("scene-forks"), false),
-    timelineGuardTurns: Math.max(0, int(pick("timeline-guard-turns", 2), 2)),
-    timelineGuardMs: Math.max(0, int(pick("timeline-guard-ms", 180000), 180000)),
     timelineMaxActive: Math.max(1, int(pick("timeline-max-active", 4), 4)),
     timelinePcCooldownMs: Math.max(0, int(pick("timeline-pc-cooldown-ms", 300000), 300000)),
     timelineMaxArrivalsPerHour: Math.max(0, int(pick("timeline-max-arrivals-per-hour", 12), 12)),

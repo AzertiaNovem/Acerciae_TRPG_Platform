@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // acerciae-gm: an AI GM (Game master) for an Acerciae channel.
 //   setup   sign in, and create or attach to a channel the account is GM of (PbtA: have its rule pack designed)
-//   run     play: the GM and real NPCs answer the table, then the co-players act; side timelines and quiet windows
-//           move on their own clock
+//   run     play: the GM and real NPCs answer the table, then the platform's bots seated there take their turn; quiet
+//           windows move on their own clock
 //   split   send investigators off to a place of their own (a window with the GM); rejoin brings a thread back
 //   advance open the next scenario now
 //   status  show the channel, the cast, the timelines and how each role is fed (read-only)
@@ -20,7 +20,7 @@ import { createModels } from "./llm/index.mjs";
 import { describeModels, providerLabel, routeFor } from "./llm/routes.mjs";
 import { withProgress } from "./llm/progress.mjs";
 import { Realtime } from "./realtime.mjs";
-import { Roster, openSeat, openWindows } from "./roles/roster.mjs";
+import { Roster } from "./roles/roster.mjs";
 import { SECRETS_MAX, WORLD_MAX, readSetting } from "./improv.mjs";
 import { channelListAdvice, chooseChannel, keptChannels, noChannelAdvice } from "./channels.mjs";
 import { metered } from "./llm/parts.mjs";
@@ -269,7 +269,7 @@ export async function run(cfg, { managed = false, onLock = () => {} } = {}) {
   const inbox = inboxPath(cfg.stateDir, channel.id);
   fs.watchFile(inbox, { interval: 1000 }, take);
   take();
-  log(`keeping "${channel.name}" in ${table.language}; co-players: ${roster.coplayers.map((c) => c.name).join(", ") || "(none)"}; NPCs: ${roster.npcs.length}; models: ${modelsLine(cfg)}; autonomy: ${cfg.autonomy ? `on (quiet after ${cfg.autonomyQuietMs / 1000}s, idle after ${cfg.autonomyIdleMinutes} min)` : "off"}; planner: ${cfg.planner.enabled ? "on" : "off"}; timelines: ${cfg.timelineAuto ? "proactive" : "model-led"}; scenarios: ${cfg.scenarioAuto ? `GM-driven (≥ ${cfg.scenarioMinMinutes} min, ≥ ${cfg.scenarioMinLines} lines)` : "manual"}`);
+  log(`keeping "${channel.name}" in ${table.language}; NPCs: ${roster.npcs.length}; models: ${modelsLine(cfg)}; autonomy: ${cfg.autonomy ? `on (quiet after ${cfg.autonomyQuietMs / 1000}s, idle after ${cfg.autonomyIdleMinutes} min)` : "off"}; planner: ${cfg.planner.enabled ? "on" : "off"}; timelines: ${cfg.timelineAuto ? "proactive" : "model-led"}; scenarios: ${cfg.scenarioAuto ? `GM-driven (≥ ${cfg.scenarioMinMinutes} min, ≥ ${cfg.scenarioMinLines} lines)` : "manual"}`);
   if (cfg.kickoff) {
     const main = table.primaryWindowId();
     if (main) table.schedule(main, { kickoff: true, delay: 0 });
@@ -367,8 +367,6 @@ async function status(cfg) {
   if (table.splitWarning) console.log(`warning: ${table.splitWarning}`);
   console.log("GM and real NPCs share the GM's context: all chat, the GM board, reminders, script knowledge, documents, highlights.");
   console.log(`real NPCs: ${roster.npcs.map((n) => n.name).join(", ") || "(none)"}`);
-  console.log("co-players see only the chat lines their character witnessed, during their seats:");
-  for (const c of roster.coplayers) console.log(`  ${c.name} — now in ${openWindows(c).map(wname).join(", ") || "(nowhere)"}; ${c.seats.length} seat(s) so far`);
   console.log("timelines:");
   for (const t of timelines.list) console.log(`  T${t.handle} ${t.name} [${t.status}${t.mergedInto ? ` → ${timelines.get(t.mergedInto)?.name}` : ""}${t.status === "active" && t.id !== "main" ? `, ${t.span}${t.opened ? "" : ", not opened yet"}` : ""}]${t.windowId ? ` in "${wname(t.windowId)}"` : ""}: ${t.members.map(cname).join(", ") || "(no one)"}${t.narrativeTime ? `; ${t.narrativeTime}` : ""}${t.location ? ` @ ${t.location}` : ""}`);
   if (table.owedArrivals.length) console.log(`opening turns waiting for run: ${table.owedArrivals.map((a) => wname(a.windowId)).join(", ")}`);
@@ -378,8 +376,8 @@ async function status(cfg) {
   console.log(`model usage, last 7 days: ${usage(Date.now() - 7 * 86400000)}${cfg.dailyTokenBudget ? `; daily budget for autonomous turns: ${cfg.dailyTokenBudget}` : ""}`);
   console.log("model usage today by type / phase / model:");
   printUsageSummary(table.store.usageByPurpose(day.getTime()));
-  const chapters = table.store.db.prepare("SELECT scope LIKE 'coplayer:%' AS cp, count(*) AS n FROM chapters GROUP BY 1").all();
-  console.log(`memory: ${table.store.db.prepare("SELECT count(*) AS n FROM lines").get().n} chat lines kept locally; ${chapters.find((x) => !x.cp)?.n ?? 0} GM chapter(s), ${chapters.find((x) => x.cp)?.n ?? 0} co-player memory chapter(s); context budgets ${cfg.gmContextTokens} tokens (GM), ${cfg.coplayerContextTokens} (each co-player); prompt cache ${cfg.llm.cacheTtl}`);
+  const gmChapters = table.store.db.prepare("SELECT count(*) AS n FROM chapters WHERE scope = 'gm'").get().n;
+  console.log(`memory: ${table.store.db.prepare("SELECT count(*) AS n FROM lines").get().n} chat lines kept locally; ${gmChapters} GM chapter(s); context budget ${cfg.gmContextTokens} tokens (GM); prompt cache ${cfg.llm.cacheTtl}`);
   const ca = table.casual;
   console.log(`casual mode: ${ca.on ? (table.splitWarning ? `on, but not active here (${table.splitWarning})` : `on — ${Object.keys(ca.phones).length} phone(s), ${ca.pending.length} text(s) on their way (replies within ${cfg.casualMaxDelayMinutes} min)`) : "off (a solemn game: no phones)"}`);
   const pace = table.calendarPaceCfg(), held = calendarPace(table.calendar, { minMinutes: pace.minMinutes, minLines: pace.minLines });
@@ -460,8 +458,9 @@ async function usage(cfg, args) {
   } finally { store.close(); }
 }
 
-// `bots handoff --character NAME --bot NAME`: one of this account's characters (a former AI co-player) goes to one of
-// the server's platform bots, with what it remembered of the campaign as the bot's briefing (src/handoff.mjs).
+// `bots handoff --character NAME --bot NAME`: one of this account's characters (a PC the GM voices, or an AI co-player
+// of an older version) goes to one of the server's platform bots, with what it remembered of the campaign as the bot's
+// briefing (src/handoff.mjs).
 async function bots(cfg, args) {
   if (args._[1] !== "handoff" || typeof args.character !== "string" || typeof args.bot !== "string")
     throw new Error('usage: acerciae-gm bots handoff --character "NAME" --bot "BOT NAME" [--channel ID]');

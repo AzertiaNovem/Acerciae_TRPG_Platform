@@ -5,7 +5,6 @@ import { parseChannel } from '../src/host-config.mjs';
 import { applyChanges, formValues, FIELDS } from '../src/host-schema.mjs';
 import { DEFAULT_WRITING, WRITING_MAX_LENGTH } from '../src/writing.mjs';
 import { directorSystem } from '../src/director.mjs';
-import { coplayerSystem } from '../src/coplayer.mjs';
 import { rulesProfile } from '../src/rules/index.mjs';
 
 test('writing defaults are editable values and multiline guidance survives saving and resetting', () => {
@@ -52,8 +51,4 @@ test('custom prose guidance replaces the original and leaves the rules in the pr
   assert.match(gm, /Never write words, thoughts or decisions for player characters or co-players/);
   assert.match(gm, /Write the turn as plain text/);
   assert.match(gm, /Players come and go/);
-  const cp = coplayerSystem('Chinese', { writing: custom });
-  assert.ok(cp.includes(custom));
-  assert.ok(!cp.includes(DEFAULT_WRITING.coplayer));
-  assert.match(cp, /Play your own agenda/);
 });

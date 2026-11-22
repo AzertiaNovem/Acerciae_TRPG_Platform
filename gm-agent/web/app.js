@@ -309,20 +309,6 @@ function renderOverview() {
       // The functions routed to another provider or model than the default (llm/routes.mjs).
       ...(s.models ?? []).filter(m => m.function !== 'default').map(m => kv(`模型 · ${FUNCTIONS[m.function] ?? m.function}`, `${m.model && m.model !== m.provider ? `${m.provider} ${m.model}` : m.provider}${m.effort ? ` · ${m.effort}` : ''}`)),
       c.warning ? h('p', { class: 'warn-text', text: c.warning }) : null));
-    const coplayerLocations = card(`AI 队友所在窗口（${cast.coplayers?.length ?? 0}）`,
-      live.stale ? h('p', { class: 'warn-text', text: `上次记录 · ${time(live.at)}` }) : null,
-      cast.coplayers?.length ? h('ul', { class: 'list coplayer-locations' }, ...cast.coplayers.map(cp => {
-        const windows = cp.windowDetails ?? (cp.windows ?? []).map(name => ({ name, status: 'active' }));
-        const timeline = live.timelines?.find(t => t.handle === `T${cp.timeline}`);
-        return h('li', { 'data-character-id': cp.characterId },
-          h('div', { class: 'coplayer-heading' }, h('strong', { text: cp.name }),
-            cp.timeline != null ? h('span', { class: 'tag', text: `T${cp.timeline}`, title: timeline?.name }) : null),
-          windows.length ? h('ul', { class: 'coplayer-windows', 'aria-label': `${cp.name}的当前窗口` }, ...windows.map(w => h('li', {},
-            h('span', { class: 'coplayer-window-name', text: w.name, title: w.id ? `窗口 ID：${w.id}` : undefined }),
-            w.status !== 'active' ? h('span', { class: 'warn-text small', text: { archived: '窗口已归档', ended: '场景已结束', missing: '窗口暂不可用' }[w.status] ?? '状态未知' }) : null)))
-            : h('p', { class: 'muted', text: '当前不在任何对话窗口' }));
-      })) : h('p', { class: 'muted', text: '暂无 AI 队友' }));
-    coplayerLocations.id = 'coplayer-locations'; cards.push(coplayerLocations);
     if (u) cards.push(usageCard(u));
     cards.push(card('活动',
       kv('状态', a.paused ? '主持已暂停（玩家 /pause）' : a.away ? '玩家离开（共享窗口暂停）' : '玩家在场', a.paused ? 'warn-text' : ''),
@@ -360,7 +346,7 @@ function renderOverview() {
       cal.on ? kv('日期推进', cal.mayMove ? `可以推进（一次最多 ${cal.maxDays || '不限'} 天）` : `需等待 ${cal.wait}`) : null,
       kv('即兴', im.on ? `开 · 世界设定 ${num(im.world)} 字 · 秘密 ${num(im.secrets)} 字 · ${num(im.truths)} 条隐藏真相` : '关'),
       kv('自主推进', yesNo(s.autonomy)), kv('GM 推进场景', yesNo(s.scenarioAuto)),
-      live.memory ? kv('记忆', `${num(live.memory.lines)} 行 · GM 章节 ${num(live.memory.gmChapters)} · 队友章节 ${num(live.memory.coplayerChapters)}`) : null));
+      live.memory ? kv('记忆', `${num(live.memory.lines)} 行 · GM 章节 ${num(live.memory.gmChapters)}`) : null));
     if (live.bonds?.length) cards.push(card('关系', h('ul', { class: 'list' }, ...live.bonds.map(b => h('li', { text: `${b.a} — ${b.b}：${b.kind}${b.secret ? '（秘密）' : ''}` })))));
     if (live.errors) cards.push(card('无法读取的部分', ...Object.entries(live.errors).map(([k, v]) => kv(k, v, 'error-text'))));
   }

@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Table } from "../src/loop.mjs";
+import { botBrief } from "../src/table/bots.mjs";
 import { Roster } from "../src/roles/roster.mjs";
 import { MockLlm } from "../src/llm/mock.mjs";
 import { buildConfig } from "../src/config.mjs";
@@ -47,10 +48,10 @@ test("worldbook: created from the world setting, never posted, and an edit reach
   assert.match(gm, /- Drowned keeper \[secret: yours alone\]/);
   assert.ok(gm.includes("LORE-GUILD") && gm.includes("LORE-KEEPER"), "the entries mentioned are in play for the GM, the secret one too");
   assert.ok(!gm.includes("LORE-MARKET"), "an entry nobody mentioned stays a title");
-  const cp = last(llm, "coplayer_turn");
-  assert.ok(cp.includes("LORE-GUILD"), "the co-player knows what came up where it was");
-  assert.ok(!cp.includes("LORE-KEEPER") && !cp.includes("Drowned keeper"), "never a secret entry");
-  assert.ok(!cp.includes("Fish market"), "no index for a co-player");
+  const brief = botBrief(t);
+  assert.ok(brief.includes("LORE-GUILD"), "the platform's bots are told what came up where everyone could read it");
+  assert.ok(!brief.includes("LORE-KEEPER") && !brief.includes("Drowned keeper"), "never a secret entry");
+  assert.ok(!brief.includes("Fish market"), "no index for the bots");
   assert.ok(!api.posts.some((p) => /WORLD-PUBLIC|LORE-/.test(p.content)), "nothing of the world is posted");
 });
 

@@ -99,7 +99,7 @@ export function onPhoneLine(table, m) {
     const from = m.character_id;
     table.speakers.delete(m.chat_window_id);   // a text never moves anyone between scenes
     if (from !== table.phoneOwner(m.chat_window_id)) return undefined;
-    const contacts = table.characters.filter((c) => c.id !== from && (table.isPc(c.id) || table.roster.isCoplayer(c.id) || table.roster.isNpc(c.id))).map((c) => ({ id: c.id, name: c.name }));
+    const contacts = table.characters.filter((c) => c.id !== from && (table.isPc(c.id) || table.roster.isNpc(c.id))).map((c) => ({ id: c.id, name: c.name }));
     const { to: named, body, addressed } = parseAddress(m.content, contacts);
     const to = named ?? (addressed ? null : table.casual.last[from] ?? null);
     if (!to || !body) {

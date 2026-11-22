@@ -12,7 +12,6 @@ import { botBrief } from "../src/table/bots.mjs";
 // for their turn (paced), and the GM's answer to their lines asks nothing more of them.
 async function table({ improv = null, mayAct = true } = {}) {
   const api = new FakeApi();
-  api.characters_ = api.characters_.filter((c) => c.id !== "c-harriet");   // no co-player of this client's own here
   api.characters_.push({ id: "c-wren", name: "Wren Ashby", kind: "pc", user_id: "u-wren", player_name: "Wren", player_is_bot: true, role_card: {} });
   api.windows_[0].members.push({ user_id: "u-wren", character_id: "c-wren", character_name: "Wren Ashby" });
   api.channelUsers.push("u-wren");

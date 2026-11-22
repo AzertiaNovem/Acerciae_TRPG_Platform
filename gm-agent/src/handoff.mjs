@@ -1,9 +1,9 @@
-// Hands one of this client's characters (a former AI co-player: a PC the GM account owns) to one of the server's
-// platform bots (docs/BOTS.md), so the character plays on with a bot of its own:
+// Hands one of this client's characters (a PC the GM account owns, which the GM voices like an NPC; an older version
+// played it as an AI co-player) to one of the server's platform bots (docs/BOTS.md), so it plays on with a bot of its own:
 //   * the bot joins the channel if it is not there yet (the GM may invite whatever the channel's switch says);
 //   * the character becomes the bot's; the platform has the bot take the part up with one line in character;
 //   * the bot sits, with the character, in every window the character sat in;
-//   * what the character remembered of the campaign (this client's memory chapters of it, oldest first), with its
+//   * what the character remembered of the campaign (an older version's memory chapters of it, oldest first), with its
 //     persona and standing intention, becomes the bot's private briefing at this table.
 // Nothing here needs the model, and the table may be running meanwhile.
 
@@ -31,8 +31,9 @@ export function handoffBriefing({ name, persona = "", intention = "", chapters =
   return out;
 }
 
-// `state`: this client's saved state of the channel (its roster's seats, when it has them); `chapters(characterId)`:
-// the character's memory chapters; `intentionOf(characterId)`: its standing intention. Returns what was done.
+// `state`: this client's saved state of the channel (an older version's co-player seats, when it has them);
+// `chapters(characterId)`: the character's memory chapters; `intentionOf(characterId)`: its standing intention.
+// Returns what was done.
 export async function handoffToBot(api, { channelId, characterName, botName, state = null, chapters = () => [], intentionOf = () => "", log = () => {} }) {
   const channel = await api.channel(channelId);
   if (channel.my_role !== "gm") throw new Error("this account is not the GM of the channel");

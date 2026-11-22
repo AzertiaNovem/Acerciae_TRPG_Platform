@@ -45,7 +45,7 @@ export function presenceThreads(table) {
           keeper: m.author_role === "gm" && !m.character_id && m.kind === "narration",
           speaker: m.character_name || m.author_name || "GM", text: m.content }));
       return { key: "T" + t.handle, location: t.location, time: t.narrativeTime,
-        members: t.members.map(id => ({ id, name: table.nameOf(id), coplayer: table.roster.isCoplayer(id), since: table.guard.rec(id).changedSeq })), lines };
+        members: t.members.map(id => ({ id, name: table.nameOf(id) })), lines };
     });
   }
 
@@ -68,18 +68,12 @@ export async function reconcilePresence(table, windowId, turn) {
     (table.presenceChecked ??= new Map()).set(current, digest);
     if (!placements.length) return;
     const result = planWhereabouts({ timelines: table.timelines, scene: { timeline: scene, windowId },
-      reports: placements.map(p => ({ who: [table.nameOf(p.id)], thread: p.thread, ...(p.thread === "NEW" ? { place: p.place, ownScene: true, span: p.span, time: scene.narrativeTime } : {}) })),
+      reports: placements.map(p => ({ who: [table.nameOf(p.id)], thread: p.thread })),
       scopeIds: new Set(placements.map(p => p.id)), mode: "presence", resolve: n => table.investigatorByName(n),
       isPc: id => table.isPc(id), userOf: id => table.userOf(id), windowUsers: w => table.windowUsers(w),
       guard: table.guard, turn, now: table.now(), cfg: table.cfg });
     // If an entire thread is folded into the Main Chat, keep the confirmed room instead of its stale label.
     for (const p of placements) {
-      if (p.thread === "NEW") {
-        const split = result.ops.find(o => o.op === "split" && o.ids.includes(p.id));
-        const confirmed = threads.find(t => t.key === current)?.lines.find(l => l.seq === p.confirmationSeq);
-        if (split && confirmed) split.notes = [split.notes, `Already established in public play: ${JSON.stringify(confirmed.text)}. Continue after this; do not replay the arrival or assume the other room is here.`].filter(Boolean).join("\n");
-        continue;
-      }
       const destination = table.timelines.byHandle(p.thread);
       const regroup = result.ops.find(o => o.op === "split" && o.replaces === destination.id && o.ids.includes(p.id));
       if (regroup) { regroup.place = p.place; continue; }
@@ -90,7 +84,7 @@ export async function reconcilePresence(table, windowId, turn) {
       else if (result.ops.some(o => o.op === "move" && o.to === final && o.ids.includes(p.id)))
         result.ops.push({ op: "relocate", timeline: final, location: p.place });
     }
-    table.log("scene presence: " + placements.map(p => p.thread === "NEW" ? `${table.nameOf(p.id)} already left for ${p.place} (#${p.actorSeq}, #${p.confirmationSeq})` : `${table.nameOf(p.id)} joins ${table.nameOf(p.with)} at ${p.place} (#${p.actorSeq}, #${p.targetSeq})`).join("; "));
+    table.log("scene presence: " + placements.map(p => `${table.nameOf(p.id)} joins ${table.nameOf(p.with)} at ${p.place} (#${p.actorSeq}, #${p.targetSeq})`).join("; "));
     await table.applyPlan(result, { windowId, mode: "presence", turn });
   }
 
@@ -99,12 +93,9 @@ export async function checkDestinations(table, windowId, reports, scope, batch, 
     const messages = table.history.lines(windowId).filter(m => m.visibility === "window" && !hidden.has(m.id));
     const lines = publicLines(messages);
     const actors = [];
-    for (const id of scope) {
-      const pc = table.isPc(id);
-      if (pc && !["relay", "human"].includes(mode)) continue;
-      const sources = pc ? batch.filter(l => l.id === id).map(l => l.seq) : messages.filter(m =>
-        m.character_id === id && m.kind === "ic" && m.seq > table.guard.rec(id).changedSeq &&
-        table.timelines.timelineAt(id, m.seq).id === table.timelines.of(id).id).map(m => m.seq);
+    // Only a player's own lines of this turn can move them.
+    for (const id of ["relay", "human"].includes(mode) ? scope : []) {
+      const sources = batch.filter(l => l.id === id).map(l => l.seq);
       for (const l of batch.filter(l => l.id === id)) {
         if (!lines.some(m => m.seq === l.seq)) lines.push({ seq: l.seq, speaker: table.nameOf(id), text: l.content, kind: "ic" });
       }
@@ -159,7 +150,7 @@ export async function checkDestinations(table, windowId, reports, scope, batch, 
       for (const id of missing) ignored.push({ id, why: "their own latest decision does not support this destination" });
       if (who.length) checked.push({ ...r, who, ownScene: r.ownScene || decisions.some(d => d.destination === key && d.own_scene === true), opening: changed ? "" : r.opening });
     }
-    return { reports: checked, ignored, disputed, decisionSeqs: new Map(decisions.map(d => [d.id, d.seq])) };
+    return { reports: checked, ignored, disputed };
   }
 
 export async function correctPlacement(table, message) {
@@ -167,7 +158,7 @@ export async function correctPlacement(table, message) {
     const allowed = threads.filter(t => table.windowUsers(table.windowOf(t)).includes(message.author_id) ||
       t.members.some(id => table.isPc(id) && table.userOf(id) === message.author_id));
     if (!allowed.length) return;
-    const actors = threads.flatMap(t => t.members).filter(id => table.roster.isCoplayer(id) || table.userOf(id) === message.author_id)
+    const actors = threads.flatMap(t => t.members).filter(id => table.userOf(id) === message.author_id)
       .map(id => ({ id, name: table.nameOf(id), sources: [message.seq], current: "T" + table.timelines.of(id).handle }));
     const destinations = threads.map(t => ({ key: "T" + t.handle, place: t.location || t.name, companions: t.members.map(id => table.nameOf(id)) }));
     const lines = publicLines(table.history.lines(message.chat_window_id).filter(m => m.seq <= message.seq && !table.artLines.has(m.id))).slice(-24);
@@ -333,13 +324,6 @@ export async function applyPlan(table, result, { windowId, mode, turn, autonomou
     }
     const after = new Map([...before.keys()].map((id) => [id, table.timelines.of(id).id]));
     const moved = [...before.keys()].filter((id) => before.get(id) !== after.get(id) || beforeWindows.get(id) !== table.windowOf(table.timelines.of(id)));
-    // Co-players' seats follow their timeline's window, cut per window.
-    const cut = (w) => table.windowSeq.get(w) ?? lastSeq;
-    for (const id of moved) {
-      const cp = table.roster.coplayers.find((c) => c.characterId === id);
-      const target = table.windowOf(table.timelines.of(id));
-      if (cp && target) table.roster.moveSeats([cp], [target], cut, () => fromSeq);
-    }
     table.guard.apply(result.guard);
     const travelled = moved.filter(id => before.get(id) !== after.get(id));
     table.guard.commit(travelled, { turn, now: table.now(), seq: lastSeq, prevOf: (id) => before.get(id), windowed: created.flatMap((c) => c.op.ids.filter((id) => table.isPc(id))) });

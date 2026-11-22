@@ -77,7 +77,6 @@ export const FIELDS = [
   f("pacing.max_actions_per_turn", "int", "每回合最多动作", "GM 与队友一回合内的动作上限。", (c) => c.maxActionsPerTurn, { min: 1 }),
 
   f("context.gm_tokens", "int", "GM 上下文预算", "GM 提示词的令牌预算，较早的历史会被压缩为章节。", (c) => c.gmContextTokens, { min: 8000 }),
-  f("context.coplayer_tokens", "int", "队友上下文预算", "每位 AI 队友的令牌预算。", (c) => c.coplayerContextTokens, { min: 4000 }),
   f("context.recall_tokens", "int", "回忆片段预算", "从久远历史中召回的片段令牌数。", (c) => c.recallTokens, { min: 0, max: 4000 }),
   f("context.page_lines", "int", "同步分页行数", "同步聊天时每页读取的行数。", (c) => c.contextLines, { min: 10, max: 200 }),
   f("context.backfill_lines", "int", "历史回填行数", "首次启动时读取的历史行数。", (c) => c.historyBackfillLines, { min: 0 }),
@@ -93,8 +92,6 @@ export const FIELDS = [
   f("timelines.auto", "bool", "主动分头", "GM 报告行踪，牌桌自动分头与重聚。关闭则回到模型主导的分头。", (c) => c.timelineAuto),
   f("timelines.scene_forks", "bool", "场景分叉", "开启：首次分头后主线移入私有分叉窗口，主聊天变为 GM 不叙述的大厅（多名玩家）。关闭：主线留在主聊天（单人）。", (c) => c.sceneForks),
   f("timelines.max_active", "int", "同时最多线程", "包括主线在内。", (c) => c.timelineMaxActive, { min: 1 }),
-  f("timelines.guard_turns", "int", "防反复回合", "撤销近期移动前需要的一致回合数。", (c) => c.timelineGuardTurns, { min: 0 }),
-  f("timelines.guard_ms", "int", "防反复时长", "撤销近期移动前需要经过的时间。", (c) => c.timelineGuardMs, { min: 0, unit: "ms" }),
   f("timelines.pc_cooldown_ms", "int", "玩家新窗口冷却", "同一玩家两次获得新窗口的最短间隔。", (c) => c.timelinePcCooldownMs, { min: 0, unit: "ms" }),
   f("timelines.max_arrivals_per_hour", "int", "每小时到场回合", "开启新场景或重聚的回合上限。", (c) => c.timelineMaxArrivalsPerHour, { min: 0 }),
 

@@ -31,7 +31,7 @@ export class Forge {
   constructor({api,cfg,channel,store,llm,savePointer=()=>{},onStart=()=>{},log=()=>{}}) {
     Object.assign(this,{api,cfg,channel,channelId:channel.id,store,llm,savePointer,onStart,log});
     this.language=cfg.language || 'Simplified Chinese'; this.queue=Promise.resolve(); this.windows=[]; this.characters=[];
-    this.planner={on:false,table:[]}; this.improv={on:true}; this.casual={on:false}; this.roster={coplayers:[],npcs:[]}; this.generation={paused:true};
+    this.planner={on:false,table:[]}; this.improv={on:true}; this.casual={on:false}; this.roster={npcs:[]}; this.generation={paused:true};
     this.s=store.get(SESSION_KEY,null);
   }
   save() { this.store.set(SESSION_KEY,this.s); this.forge=status(this.s); this.savePointer(this.s); }

@@ -1,10 +1,10 @@
 // The GM writes a turn with the GM's whole context; a short second call arranges it for chat.
-// Real NPCs are voiced here, so they share the GM's knowledge. Co-players are not: the director only
-// says whether they may act now (and who has the spotlight), and never hands them anything to say.
+// Real NPCs are voiced here, so they share the GM's knowledge. The other players are not: the director only says
+// whether they may act now (`coplayers_may_act`, which asks the platform's bots seated in the window for their turn).
 //
 // A turn has a mode:
 //   human     – a person just posted;
-//   followup  – the co-players just acted: answer their moves now;
+//   followup  – the same scene goes on at once: a ruling's dice to answer, or a scene that moved to this window;
 //   quiet     – the humans in a shared window have been silent: move the scene on without them;
 //   arrival   – investigators just arrived somewhere (a new scene, or back with the others): open the scene for them;
 //   relay     – a player wrote in another window while their character is here: answer them here;
@@ -102,8 +102,7 @@ ${improv ? `  {"type": "truth", "text": "<a hidden fact you just decided, for yo
   {"type": "advance_scenario", "title": "...", "location": "...", "narrative_time": "...", ${calendar ? `"advance_days": 0, ` : ""}"reason": "<why now>"},
   {"type": "enter_scenario", "scenario": "<title of a prepared scenario>", "reason": "<why now>"}
  ],
- "coplayers_may_act": true | false,
- "spotlight": ["<co-player names invited to act first>"]${auto ? `,
+ "coplayers_may_act": true | false (whether the other players, the platform's bots included, may act now)${auto ? `,
  "whereabouts": [{"who": ["<character names>"], "thread": "<handle like T0>" | "new", "place": "...", "own_scene": true, "span": "short" | "long", "time": "...", "opening": 8}]` : ""}}`;
 }
 
@@ -119,7 +118,6 @@ export function validateDirector(x, { auto = true, improv = false, casual = fals
   return {
     actions,
     coplayersMayAct: x.coplayers_may_act !== false,
-    spotlight: Array.isArray(x.spotlight) ? x.spotlight.map(String) : [],
     whereabouts: auto ? validateWhereabouts(x.whereabouts) : [],
   };
 }
@@ -127,7 +125,7 @@ export function validateDirector(x, { auto = true, improv = false, casual = fals
 const list = (names) => (names ?? []).join(", ");
 const MODE_NOTES = {
   kickoff: ({ pcs = "investigators" }) => `KICKOFF: yes — open the session: set the scene for the ${pcs} in the current scenario and invite them to act.`,
-  followup: () => "MODE: followup — the co-players just acted (the lines after your last ones). Answer each of their choices now and push the story forward.",
+  followup: () => "MODE: followup — the scene goes on from the lines after your last ones (a ruling's result, or a scene that has just moved to this window). Answer what happened and push the story forward.",
   quiet: ({ quietMinutes }) => `MODE: quiet — the human players in this window have been silent for ${quietMinutes} minutes. Move the scene forward a little on your own: the world, the NPCs, or a question to a named player. Co-players may act. Never decide, speak or roll for a player character, and never resolve a roll a player still owes.`,
   arrival: ({ arrival }) => (arrival?.newcomer ? `MODE: arrival — a new player just joined the table with ${list(arrival.names)}. Bring ${arrival.names?.length > 1 ? "them" : "this character"} into the story here, naturally: who they are to the others, why they are here now, what they notice; then hand them the scene. Never decide for player characters.` : `MODE: arrival — ${list(arrival?.names)} ${arrival?.reunion ? "just rejoined the others here" : `just arrived at ${arrival?.place || "this place"}`}. Open the scene for them now: where they are, what they notice, an open situation. Do not repeat the departure${arrival?.opening ? ` or this opening, already posted: "${arrival.opening}"` : ""}. Never decide for player characters.`),
   phone: ({ phone }) => `MODE: phone — ${phone?.from ?? "a player character"} texted ${phone?.to ?? "an NPC"} on their phone${phone?.thread ? `. The thread so far (oldest first):\n${phone.thread}\n` : ": "}${JSON.stringify(phone?.text ?? "")}. Answer only as ${phone?.to ?? "the NPC"}, with one Phone from ${phone?.to ?? "the NPC"} to ${phone?.from ?? "the player character"} paragraph and a plausible delay in the directions; or pass if they would leave it unanswered. Nothing else happens in any scene this turn. You may add a note, truth or world_change.`,

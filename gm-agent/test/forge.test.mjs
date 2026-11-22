@@ -46,10 +46,11 @@ test('budget is checked before every attempt, including subsequent repair calls'
   const llm=budgeted({complete:async()=>{calls++;used+=10;return 'ok';}},store,{dailyTokenBudget:10});
   assert.equal(await llm.complete({purpose:'forge_compile'}),'ok');await assert.rejects(llm.complete({purpose:'forge_review'}),/预算/);assert.equal(calls,1);
 });
-test('handed-off PC is removed from roster, legacy marked NPC stays',()=>{
-  const roster=new Roster({coplayers:[{characterId:'c',seats:[]},{characterId:'legacy',seats:[]}]});
-  roster.reconcile([{id:'c',kind:'pc',user_id:'player'},{id:'legacy',kind:'npc',speaking_style:'[co-player]'}],[],{castBy:'gm'});
-  assert.equal(roster.isCoplayer('c'),false);assert.equal(roster.isCoplayer('legacy'),true);
+test('a PC handed to a player leaves the GM\'s cast; a PC the GM owns and an older marked co-player are its NPCs',()=>{
+  const roster=new Roster({npcs:[{characterId:'c',name:'C',brief:''}],coplayers:[{characterId:'c',seats:[]}]});
+  roster.reconcile([{id:'c',kind:'pc',user_id:'player'},{id:'legacy',kind:'npc',speaking_style:'[co-player] gruff'},{id:'own',kind:'pc',user_id:'gm'}],{castBy:'gm'});
+  assert.equal(roster.isNpc('c'),false);assert.equal(roster.isNpc('legacy'),true);assert.equal(roster.isNpc('own'),true);
+  assert.deepEqual(Object.keys(roster.toJSON()),['npcs'],'an older state\'s co-players are not carried on');
 });
 test('application resumes lost create response using same receipt and hands over only after cards',async()=>{
   const s=setup();s.rule='coc7e';s.candidate={world:'world',characters:[{key:'C1',kind:'player',owner_user_id:'a',name:'Alice',persona:'bio',speaking_style:'style',appearance_prompt:'appearance',role_card:{basic:{player:'A'}}}]};

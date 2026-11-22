@@ -1,6 +1,6 @@
 // The GM's context, shared by the GM and every real NPC: everything the GM account may read, including the
 // platform's AI tips (the pinned board, GM reminders, script knowledge, the six documents, highlights, module
-// hints), and every chat line in every window. Co-players never get this (see coplayerContext.mjs).
+// hints), and every chat line in every window.
 import { renderLine } from "./lines.mjs";
 import { renderProfile } from "./profiles.mjs";
 import { impression } from "./traits.mjs";
@@ -131,13 +131,10 @@ export class GmContext {
     const closed = (scenes ?? []).filter((s) => s.status === "closed" && s.summary).slice(-8);
     if (closed.length) a.push(`## Earlier scenarios\n${closed.map((s) => `- ${s.title}: ${clip(s.summary, 800)}`).join("\n")}`);
     const pcList = characters.filter((c) => isPlayerCharacter(c, roster));
-    const coplayers = characters.filter((c) => roster.isCoplayer(c.id));
     a.push([
       "## Cast",
       "Player characters (real people play them; never speak or decide for them), with their basic details and background:",
       ...(pcList.length ? pcList.map((c) => renderProfile(c, `played by ${c.player_name ?? "a player"}`, P) + wardrobeNote(c, "\n    ")) : ["- (none yet)"]),
-      `Co-players (AI ${pcs} that play alongside the players; they act on their own turn, so never speak or decide for them either), with their basic details and background:`,
-      ...(coplayers.length ? coplayers.map((c) => renderProfile(c, "", P) + wardrobeNote(c, "\n    ")) : ["- (none)"]),
       "Real NPCs (you voice them; known cast, not everyone currently active), with gender, age and what is most striking about them:",
       ...(roster.npcs.length ? roster.npcs.map((c) => { const ch = characters.find((x) => x.id === c.characterId); const look = impression(ch?.role_card); return `- ${c.name}${look ? ` ${look}` : ""}: ${clip(c.brief, 200)}${wardrobeNote(ch, " ")}`; }) : [`- (none yet; a new person who could bond with the ${pcs}, has more than one sentence to say and is one specific person enters with new_npc)`]),
     ].join("\n"));
@@ -198,7 +195,7 @@ export class GmContext {
       if (timelines?.retired(w.id)) return "(scene over: merged into another thread)";
       const scene = sceneOf(w.id);
       const memberChars = (w.members ?? []).filter((m) => m.character_id).map((m) => m.character_id);
-      if (!scene) return [...memberChars.map(who), ...roster.coplayersIn(w.id).map((x) => x.name)].join(", ") || `(no ${pcs})`;
+      if (!scene) return memberChars.map(who).join(", ") || `(no ${pcs})`;
       const here = scene.members.map(who);
       const away = memberChars.filter((id) => !scene.members.includes(id)).map((id) => `${nameOf(id)} (in ${timelines.of(id).name})`);
       return `${here.join(", ") || "(no one)"}${away.length ? `; members elsewhere: ${away.join(", ")}` : ""}`;
