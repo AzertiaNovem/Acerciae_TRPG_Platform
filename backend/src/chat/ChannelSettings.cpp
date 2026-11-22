@@ -88,7 +88,7 @@ Json::Value ChatService::updateChannel(const ChannelAccess& a, const Json::Value
             throw badRequest("unknown dice text group");
     }
     for (const auto* key : {"point_buy", "ai_enabled", "auto_scenarios", "studio_visible", "studio_player_access",
-                            "consistency_enabled", "inspiration_enabled", "atmosphere_enabled", "illustrations_enabled", "bot_invites_enabled"})
+                            "consistency_enabled", "inspiration_enabled", "atmosphere_enabled", "illustrations_enabled", "bot_invites_enabled", "bot_chatter_enabled"})
         if (body.isMember(key) && !body[key].isBool()) throw badRequest(std::string(key) + " must be boolean");
     auto flag = [&](const char* k) { return json::toBool(body, k, cur[k].asBool()); };
     // The rule system decides the dice commands, the character sheet and how the AI names the game and the GM; point
@@ -106,7 +106,7 @@ Json::Value ChatService::updateChannel(const ChannelAccess& a, const Json::Value
                  "consistency_enabled=$11, inspiration_enabled=$12, atmosphere_enabled=$13, illustrations_enabled=$14 WHERE id=$1",
             {a.channelId, json::str(body, "name", cur["name"].asString()), json::str(body, "description", cur["description"].asString()), mode, flag("ai_enabled"), group, flag("auto_scenarios"), text::utf8Prefix(json::str(body, "era", cur["era"].asString()), 80), flag("studio_visible"), flag("studio_player_access"),
              flag("consistency_enabled"), flag("inspiration_enabled"), flag("atmosphere_enabled"), flag("illustrations_enabled")});
-        Db::exec(w, "UPDATE channels SET bot_invites_enabled=$2 WHERE id=$1", {a.channelId, flag("bot_invites_enabled")});
+        Db::exec(w, "UPDATE channels SET bot_invites_enabled=$2, bot_chatter_enabled=$3 WHERE id=$1", {a.channelId, flag("bot_invites_enabled"), flag("bot_chatter_enabled")});
         if (from == ruleSystem) return;
         transition = CharacterSpaceService::transitionCards(w, a.channelId, from, ruleSystem, a.userId);
         auto main = Db::queryOne(w, "SELECT id FROM chat_windows WHERE channel_id=$1 AND kind='main' ORDER BY created_at LIMIT 1", {a.channelId});

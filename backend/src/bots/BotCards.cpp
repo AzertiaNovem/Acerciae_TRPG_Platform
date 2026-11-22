@@ -1,4 +1,5 @@
 #include "BotCards.h"
+#include "BotMemory.h"
 #include "../auth/AuthService.h"
 #include "../characters/CharacterSpaceService.h"
 #include "../characters/Coc7Rules.h"
@@ -278,6 +279,8 @@ std::string BotCards::make(const std::string& botId, const std::string& channelI
     if (!json::str(bot, "description").empty()) parts.push_back("THE CAMPAIGN:\n" + json::str(bot, "description"));
     if (!json::str(bot, "era").empty()) parts.push_back("ERA: " + json::str(bot, "era"));
     if (!json::str(bot, "bot_brief").empty()) parts.push_back("WHAT THE GM TELLS THE BOTS:\n" + json::str(bot, "bot_brief"));
+    const auto remembered = memory_.recall(botId, channelId, windowId, false);
+    if (!remembered.empty()) parts.push_back(remembered);
     parts.push_back("WHAT YOU HAVE IN MIND: " + (idea.empty() ? std::string("(nothing yet: surprise them)") : idea));
     LlmMessage ask; ask.role = "user"; ask.content = text::join(parts, "\n\n"); req.messages.push_back(ask);
     req.mockContext = mock;

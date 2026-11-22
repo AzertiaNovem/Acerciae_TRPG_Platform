@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useUi } from '../store/ui';
 import { BotTag } from './BotTag';
+import { BotMemoryEditor } from './BotMemoryEditor';
 import type { Bot, BotTurn } from '../types';
 
 // Server settings → Bots: the server's AI members (docs/BOTS.md). Maintainers give each a name, a persona for outside
@@ -19,6 +20,7 @@ export function ServerBots({ serverId, enabled }: { serverId: string; enabled: b
   const [editing, setEditing] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
   const [activity, setActivity] = useState<{ bot: string; turns: BotTurn[] } | null>(null);
+  const [memoryOf, setMemoryOf] = useState<string | null>(null);
   const showActivity = async (b: Bot) => {
     if (activity?.bot === b.id) { setActivity(null); return; }
     try { setActivity({ bot: b.id, turns: await api.botActivity(serverId, b.id) }); } catch (e: any) { toast(e.message, 'error'); }
@@ -79,10 +81,13 @@ export function ServerBots({ serverId, enabled }: { serverId: string; enabled: b
             <span className="grow">{b.name} <BotTag />{!b.enabled && <span className="pill">{tr('off')}</span>}
               <span className="tiny muted"> {b.channels?.length ? tr('in {list}', { list: b.channels.map((c) => c.name).join(', ') }) : tr('in no channel')}</span></span>
             <button className="small" aria-expanded={activity?.bot === b.id} onClick={() => showActivity(b)}>{tr('Activity')}</button>
+            <button className="small" aria-expanded={memoryOf === b.id} onClick={() => setMemoryOf(memoryOf === b.id ? null : b.id)}>{tr('Memory')}</button>
             <button className="small" disabled={!enabled} onClick={() => setEditing(draftOf(b))}>{tr('Edit')}</button>
             <button className="small" onClick={() => retire(b)}>{tr('Retire')}</button>
           </div>
-        )).flatMap((row, i) => activity?.bot === bots[i].id ? [row, <BotActivity key={`${bots[i].id}-activity`} turns={activity.turns} />] : [row])}
+        )).flatMap((row, i) => [row,
+          ...(activity?.bot === bots[i].id ? [<BotActivity key={`${bots[i].id}-activity`} turns={activity.turns} />] : []),
+          ...(memoryOf === bots[i].id ? [<BotMemoryEditor key={`${bots[i].id}-memory`} serverId={serverId} botId={bots[i].id} />] : [])])}
       </div>
       <div className="row"><span className="grow" /><button className="primary" disabled={!enabled} onClick={() => setEditing({ ...blank })}>{tr('New bot')}</button></div>
     </div>

@@ -38,6 +38,9 @@ struct Config {
     // speaks, and how long it waits for the GM to answer a player first. BOTS_ENABLED=false keeps every bot silent.
     bool botsEnabled = true;
     int botTickMs = 2000, botSettleMs = 6000, botGmWaitMs = 90000;
+    // How long a window must be quiet before a bot writes down a long stretch of play (bots/BotMemory); outside the
+    // table, how long a bot waits between asking itself whether to join in on its own, and the quiet it waits for.
+    int botMemoryQuietMs = 600000, botChatterGapMs = 300000, botChatterQuietMs = 20000;
     int consolidatorIntervalMs = 60000;
     int observerMaxBatch = 40;
     int highlightTtlSeconds = 900;

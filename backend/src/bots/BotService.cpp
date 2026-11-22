@@ -38,6 +38,14 @@ bool boolField(const Json::Value& b, const char* key, bool current) {
     if (!b[key].isBool()) throw badRequest(std::string(key) + " must be true or false");
     return b[key].asBool();
 }
+const char* MEMORY_SELECT =
+    "SELECT m.id, m.kind, m.channel_id, c.name AS channel_name, m.subject_user_id AS user_id, u.display_name AS name, m.text, m.highlight, m.source, m.updated_at "
+    "FROM bot_memories m LEFT JOIN channels c ON c.id=m.channel_id LEFT JOIN users u ON u.id=m.subject_user_id ";
+// The memories of bot $1 that user $2 may see as a maintainer ($3: the bot shares between tables).
+const char* MEMORY_VISIBLE =
+    "m.bot_id=$1 AND (m.kind IN ('note', 'person') "
+    "OR (m.kind='table' AND ($3 OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id=m.channel_id AND cm.user_id=$2))) "
+    "OR (m.kind IN ('table_private', 'briefing') AND EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id=m.channel_id AND cm.user_id=$2 AND cm.role='gm'))) ";
 const char* BOT_SELECT =
     "SELECT b.*, u.display_name AS name, u.username, "
     "(SELECT coalesce(json_agg(json_build_object('id', c.id, 'name', c.name) ORDER BY c.name), '[]'::json) FROM channel_members cm JOIN channels c ON c.id=cm.channel_id "
@@ -270,6 +278,81 @@ Json::Value BotService::activity(const Principal& p, const std::string& serverId
     return db_.queryJson(
         "SELECT t.id, t.trigger, t.mode, t.status, t.action, t.error, t.started_at, t.finished_at, cardinality(t.message_ids) AS lines, c.name AS channel_name, cw.name AS window_name "
         "FROM bot_turns t JOIN channels c ON c.id=t.channel_id JOIN chat_windows cw ON cw.id=t.chat_window_id WHERE t.bot_id=$1 ORDER BY t.started_at DESC LIMIT 50", {botId});
+}
+
+Json::Value BotService::memories(const Principal& p, const std::string& serverId, const std::string& botId) {
+    requireMaintainer(p, serverId);
+    auto bot = botRow(serverId, botId);
+    Json::Value out;
+    out["share_tables"] = bot["share_tables"];
+    out["memories"] = db_.queryJson(std::string(MEMORY_SELECT) + "WHERE " + MEMORY_VISIBLE + "ORDER BY m.kind, m.updated_at DESC LIMIT 500",
+                                    {botId, p.userId, bot["share_tables"].asBool()});
+    return out;
+}
+
+Json::Value BotService::addNote(const Principal& p, const std::string& serverId, const std::string& botId, const Json::Value& body) {
+    requireMaintainer(p, serverId);
+    botRow(serverId, botId);
+    if (!body.isObject()) throw badRequest("text is required");
+    const auto note = textField(body, "text", 4000, "", false, true);
+    db_.tx([&](pqxx::work& w) {
+        if (Db::queryOne(w, "SELECT count(*) AS n FROM bot_memories WHERE bot_id=$1 AND kind='note'", {botId})["n"].asInt64() >= 50) throw conflict("this bot already keeps 50 notes");
+        Db::exec(w, "INSERT INTO bot_memories(bot_id, kind, text, source) VALUES($1, 'note', $2, 'edited')", {botId, note});
+    });
+    return memories(p, serverId, botId);
+}
+
+Json::Value BotService::editMemory(const Principal& p, const std::string& serverId, const std::string& botId, const std::string& memoryId, const Json::Value& body) {
+    requireMaintainer(p, serverId);
+    auto bot = botRow(serverId, botId);
+    if (!Visibility::isUuid(memoryId)) throw notFound("memory not found");
+    auto cur = db_.queryOne(std::string(MEMORY_SELECT) + "WHERE " + MEMORY_VISIBLE + "AND m.id=$4", {botId, p.userId, bot["share_tables"].asBool(), memoryId});
+    if (cur.isNull()) throw notFound("memory not found");
+    if (!body.isObject()) throw badRequest("nothing to change");
+    const auto value = textField(body, "text", cur["kind"] == "note" ? 4000 : 8000, cur["text"].asString(), false);
+    if (value.empty()) throw badRequest("text is required");
+    const auto highlight = textField(body, "highlight", 600, cur["highlight"].asString(), true);
+    if (cur["kind"] != "table" && !highlight.empty() && highlight != cur["highlight"].asString()) throw badRequest("only a table's memory has a highlight");
+    db_.exec("UPDATE bot_memories SET text=$2, highlight=$3, source='edited', updated_at=now() WHERE id=$1", {memoryId, value, highlight});
+    return memories(p, serverId, botId);
+}
+
+Json::Value BotService::deleteMemory(const Principal& p, const std::string& serverId, const std::string& botId, const std::string& memoryId) {
+    requireMaintainer(p, serverId);
+    auto bot = botRow(serverId, botId);
+    if (!Visibility::isUuid(memoryId)) throw notFound("memory not found");
+    auto gone = db_.queryOne(std::string("DELETE FROM bot_memories m WHERE ") + MEMORY_VISIBLE + "AND m.id=$4 RETURNING m.id", {botId, p.userId, bot["share_tables"].asBool(), memoryId});
+    if (gone.isNull()) throw notFound("memory not found");
+    return memories(p, serverId, botId);
+}
+
+Json::Value BotService::tableMemory(const ChannelAccess& a, const std::string& botId) {
+    auth_.requireGm(a);
+    botRow(a.serverId, botId);
+    Json::Value out; out["table"] = Json::nullValue; out["table_private"] = Json::nullValue; out["briefing"] = Json::nullValue;
+    for (const auto& r : db_.queryJson(std::string(MEMORY_SELECT) + "WHERE m.bot_id=$1 AND m.channel_id=$2", {botId, a.channelId})) out[r["kind"].asString()] = r;
+    return out;
+}
+
+Json::Value BotService::setBriefing(const ChannelAccess& a, const std::string& botId, const Json::Value& body) {
+    auth_.requireGm(a);
+    botRow(a.serverId, botId);
+    if (!body.isObject() || !body["text"].isString()) throw badRequest("text is required");
+    const auto value = textField(body, "text", 8000, "", false);
+    if (value.empty()) db_.exec("DELETE FROM bot_memories WHERE bot_id=$1 AND kind='briefing' AND channel_id=$2", {botId, a.channelId});
+    else db_.exec("INSERT INTO bot_memories(bot_id, kind, channel_id, text, source) VALUES($1, 'briefing', $2, $3, 'edited') "
+                  "ON CONFLICT (bot_id, kind, channel_id) WHERE channel_id IS NOT NULL DO UPDATE SET text=EXCLUDED.text, updated_at=now()", {botId, a.channelId, value});
+    return tableMemory(a, botId);
+}
+
+Json::Value BotService::forgetTable(const ChannelAccess& a, const std::string& botId) {
+    auth_.requireGm(a);
+    botRow(a.serverId, botId);
+    db_.tx([&](pqxx::work& w) {
+        Db::exec(w, "DELETE FROM bot_memories WHERE bot_id=$1 AND channel_id=$2 AND kind IN ('table', 'table_private')", {botId, a.channelId});
+        Db::exec(w, "UPDATE bot_window_state SET memory_seq=cursor_seq, memory_flush=false WHERE bot_id=$1 AND channel_id=$2", {botId, a.channelId});
+    });
+    return tableMemory(a, botId);
 }
 
 } // namespace acerciae

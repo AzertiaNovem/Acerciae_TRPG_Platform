@@ -6,16 +6,16 @@
 #include <string>
 
 namespace acerciae {
-class AuthService; class ChatService; class CharacterSpaceService; class LlmGateway; class DiceService;
+class AuthService; class ChatService; class CharacterSpaceService; class LlmGateway; class DiceService; class BotMemory;
 
 // A bot makes its own character (docs/BOTS.md) when someone at the table asks it to: one model call (task bot_card)
-// proposes a character in keeping with the bot's persona, and the server builds a legal card from it, then saves it
+// proposes a character in keeping with the bot's persona and memory, and the server builds a legal card from it, then saves it
 // through the same routes a player uses (createCharacter, CharacterSpaceService::updateCard), so the channel's point
 // buy and every other check apply. Call of Cthulhu, D&D 2024 and PbtA; another rule system asks the GM for the card.
 class BotCards {
 public:
-    BotCards(Db& db, AuthService& auth, ChatService& chat, CharacterSpaceService& space, LlmGateway& llm, DiceService& dice)
-        : db_(db), auth_(auth), chat_(chat), space_(space), llm_(llm), dice_(dice) {}
+    BotCards(Db& db, AuthService& auth, ChatService& chat, CharacterSpaceService& space, LlmGateway& llm, DiceService& dice, BotMemory& memory)
+        : db_(db), auth_(auth), chat_(chat), space_(space), llm_(llm), dice_(dice), memory_(memory) {}
 
     // Makes the bot's character in the channel from `idea` and says so in the window. Returns the new character's
     // id, or "" when it could not (it then asks the GM, out of character, to make one).
@@ -45,6 +45,7 @@ private:
     CharacterSpaceService& space_;
     LlmGateway& llm_;
     DiceService& dice_;
+    BotMemory& memory_;   // what the bot remembers shapes whom it plays
 };
 
 } // namespace acerciae

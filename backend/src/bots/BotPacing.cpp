@@ -44,8 +44,9 @@ void ingest(State& s, const Self& me, const Line& l) {
         if (named && s.owed.empty() && s.chain < kChainMax) owe(s, "addressed", l, true);
         return;
     }
-    // Outside the table: only when someone names it; another bot only once per human line.
-    if (!named) return;
+    // Outside the table: only when someone names it; another bot only once per human line. People's other lines count
+    // toward joining in on its own.
+    if (!named) { if (!l.authorIsBot) ++s.heard; return; }
     if (l.authorIsBot) { if (s.owed.empty() && s.chain < 1) owe(s, "addressed", l, true); return; }
     if (s.chain < kChainMax) owe(s, "mention", l, true);
 }
@@ -55,6 +56,10 @@ bool due(const State& s, double now, const Timing& t) {
     if (now - s.lastLineAt < t.settle) return false;
     if (s.owed == "player") return s.gmSeen || now - s.owedAt >= t.gmWait;
     return true;
+}
+
+bool chatter(const State& s, double now, double lastEval, const Chatter& t) {
+    return s.owed.empty() && s.heard >= t.heard && now - lastEval >= t.gap && now - s.lastLineAt >= t.quiet;
 }
 
 } // namespace acerciae::bots

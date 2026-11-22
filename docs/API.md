@@ -118,6 +118,23 @@ with its own access through `POST /channels/{id}/characters` and `PUT /channels/
 `bot_card`), so point buy and the PbtA pack revision are checked as for a player; a refused card is deleted again. A
 PC the GM creates for a bot, or hands to one, owes the bot an `adopt` turn: one line in character.
 
+Outside the table a bot may also take an `unprompted` turn (within `unprompted_per_hour`) while the channel's
+`bot_chatter_enabled` is on (`PUT /channels/{id}`, GM; default true).
+
+What a bot remembers (`bot_memories`, task `bot_memory`; see `docs/BOTS.md`) has the kinds `note` (from its
+maintainers), `person` (`user_id`, `name`), `table` (`channel_id`, `channel_name`, with a `highlight`: the moment that
+struck it most), `table_private` (what was whispered to it at that table) and `briefing` (a channel GM's word for it).
+Rows are `{id, kind, channel_id, channel_name, user_id, name, text, highlight, source: auto|edited, updated_at}`.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/servers/{id}/bots/{bid}/memories` | maintainers: `{share_tables, memories[]}`. Notes and `person` rows for every maintainer; a `table` row for maintainers who are members of its channel (all of them while `share_tables`); `table_private` and `briefing` only for that channel's GMs |
+| POST | `/servers/{id}/bots/{bid}/memories` | maintainers: `{text}` (≤4000 bytes) adds a `note`; at most 50. Returns the list |
+| PUT/DELETE | `/servers/{id}/bots/{bid}/memories/{mid}` | maintainers, a row they may see: PUT `{text, highlight?}` (`highlight` only on `table` rows) marks it `edited`. Returns the list |
+| GET | `/channels/{id}/bots/{bid}/memory` | GM: `{table, table_private, briefing}` for this channel (each a row or null) |
+| PUT | `/channels/{id}/bots/{bid}/briefing` | GM: `{text}` (≤8000 bytes; empty removes it): read by this bot at this table only |
+| DELETE | `/channels/{id}/bots/{bid}/memory` | GM: forget this table: its `table` and `table_private` rows go, and the lines the bot saw here so far are not remembered later. The briefing stays |
+
 ## Character space
 | GET | `/channels/{id}/characters/{cid}/space` | `{character (with role_card, bio, asset_mode, appearance_prompt, editable), avatar, portrait, subtitles[{subtitle, id, version, …}], jobs[], era, narrative_time, attrs, generation_available, card_archives[{id, rule_system, numbers, attrs, reason: rule_change|restore|legacy, archived_at, archived_by_name}]}`; `character.card_pending` is true while the numbers still need rebuilding for the channel's rule system (also on the character list). Former cards are read-only. Players read any PC's space; NPC spaces are 404 for players. |
 | GET/PUT | `/channels/{id}/pbta` | Channel rule pack and revision. GM-only replacement, import preview, playbooks, move commands and character fields are described in [PbtA](PBTA.md). |

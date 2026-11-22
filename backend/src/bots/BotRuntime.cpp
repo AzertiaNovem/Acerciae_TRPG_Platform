@@ -1,6 +1,7 @@
 #include "BotRuntime.h"
 #include "BotPacing.h"
 #include "BotCards.h"
+#include "BotMemory.h"
 #include "../auth/AuthService.h"
 #include "../chat/ChatService.h"
 #include "../inspiration/InspirationService.h"
@@ -47,8 +48,15 @@ std::string flat(const std::string& s) {
 void replaceAll(std::string& s, const std::string& from, const std::string& to) {
     for (std::size_t at = s.find(from); at != std::string::npos; at = s.find(from, at + to.size())) s.replace(at, from.size(), to);
 }
+std::string commandWord(const std::string& command) {
+    std::string w;
+    for (std::size_t i = 1; i < command.size() && std::isalpha((unsigned char)command[i]); ++i) w += (char)std::tolower((unsigned char)command[i]);
+    return w;
+}
+}  // namespace
+
 // One chat line as the bot reads it: who (a character's name in play, a person's name otherwise), how, and what.
-std::string renderLine(const Json::Value& m, const std::string& gm, const std::string& me) {
+std::string BotRuntime::renderLine(const Json::Value& m, const std::string& gm, const std::string& me) {
     const auto kind = json::str(m, "kind");
     std::string who = !json::str(m, "character_name").empty() && kind != "ooc" ? json::str(m, "character_name") : json::str(m, "author_name");
     if (who.empty()) who = "someone";
@@ -61,15 +69,10 @@ std::string renderLine(const Json::Value& m, const std::string& gm, const std::s
     if (kind == "roll" && m["dice"].isObject() && !json::str(m["dice"], "text").empty()) content = flat(json::str(m["dice"], "text"));
     return "#" + std::to_string(json::toInt(m, "seq", 0)) + " " + who + tag + ": " + content;
 }
-std::string commandWord(const std::string& command) {
-    std::string w;
-    for (std::size_t i = 1; i < command.size() && std::isalpha((unsigned char)command[i]); ++i) w += (char)std::tolower((unsigned char)command[i]);
-    return w;
-}
-}  // namespace
 
 BotRuntime::BotRuntime(const Config& cfg, Db& db, AuthService& auth, ChatService& chat, LlmGateway& llm, ServerSettingsService& settings, CharacterSpaceService& space, DiceService& dice)
-    : cfg_(cfg), db_(db), auth_(auth), chat_(chat), llm_(llm), settings_(settings), cards_(std::make_unique<BotCards>(db, auth, chat, space, llm, dice)) {}
+    : cfg_(cfg), db_(db), auth_(auth), chat_(chat), llm_(llm), settings_(settings), memory_(std::make_unique<BotMemory>(cfg, db, llm)),
+      cards_(std::make_unique<BotCards>(db, auth, chat, space, llm, dice, *memory_)) {}
 BotRuntime::~BotRuntime() { stop(); }
 
 void BotRuntime::start() {
@@ -86,6 +89,7 @@ void BotRuntime::stop() {
 void BotRuntime::loop() {
     while (running_) {
         try { tick(false); } catch (const std::exception& e) { ALOG_ERROR << "bots: " << e.what(); }
+        try { memoryTick(false); } catch (const std::exception& e) { ALOG_ERROR << "bots: memory: " << e.what(); }
         std::unique_lock<std::mutex> lk(mu_);
         cv_.wait_for(lk, std::chrono::milliseconds(cfg_.botTickMs), [&] { return !running_.load(); });
     }
@@ -140,9 +144,14 @@ std::vector<BotRuntime::Claim> BotRuntime::scan() {
     std::vector<Claim> claims;
     // A turn left running by a process that stopped is given up: never posted twice.
     db_.exec("UPDATE bot_turns SET status='failed', error='interrupted', finished_at=now() WHERE status='running' AND started_at < now() - interval '10 minutes'");
+    // A bot that left a window, once it has written down what it saw there, forgets its place: invited back, it starts
+    // again from the window's end.
+    db_.exec("DELETE FROM bot_window_state s USING server_bots b WHERE b.id=s.bot_id AND s.memory_seq >= s.cursor_seq AND (s.lease_until IS NULL OR s.lease_until < now()) "
+             "AND NOT EXISTS (SELECT 1 FROM chat_window_members wm WHERE wm.chat_window_id=s.chat_window_id AND wm.user_id=b.user_id)");
     // Every bot starts reading a window it is in from that window's current end.
-    db_.exec("INSERT INTO bot_window_state(bot_id, chat_window_id, channel_id, cursor_seq) "
-             "SELECT b.id, wm.chat_window_id, cw.channel_id, coalesce((SELECT max(m.seq) FROM messages m WHERE m.chat_window_id=wm.chat_window_id), 0) "
+    db_.exec("INSERT INTO bot_window_state(bot_id, chat_window_id, channel_id, cursor_seq, memory_seq) "
+             "SELECT b.id, wm.chat_window_id, cw.channel_id, coalesce((SELECT max(m.seq) FROM messages m WHERE m.chat_window_id=wm.chat_window_id), 0), "
+             "coalesce((SELECT max(m.seq) FROM messages m WHERE m.chat_window_id=wm.chat_window_id), 0) "
              "FROM server_bots b JOIN chat_window_members wm ON wm.user_id=b.user_id JOIN chat_windows cw ON cw.id=wm.chat_window_id "
              "WHERE b.deleted_at IS NULL AND cw.archived_at IS NULL ON CONFLICT DO NOTHING");
     auto rows = db_.queryJson(
@@ -158,7 +167,8 @@ std::vector<BotRuntime::Claim> BotRuntime::scan() {
         db_.tx([&](pqxx::work& w) {
             auto st = Db::queryOne(w,
                 "SELECT s.*, coalesce(extract(epoch FROM s.owed_at), 0) AS owed_at_s, coalesce(extract(epoch FROM s.last_line_at), 0) AS last_line_s, extract(epoch FROM now()) AS now_s, "
-                "b.user_id, b.turns_per_hour, u.display_name AS name, coalesce(c.bot_pacing_until > now(), false) AS agent_pacing, cw.purpose, c.story_status "
+                "extract(epoch FROM s.last_eval_at) AS last_eval_s, b.user_id, b.turns_per_hour, b.unprompted_per_hour, c.bot_chatter_enabled, "
+                "u.display_name AS name, coalesce(c.bot_pacing_until > now(), false) AS agent_pacing, cw.purpose, c.story_status "
                 "FROM bot_window_state s JOIN server_bots b ON b.id=s.bot_id JOIN users u ON u.id=b.user_id JOIN channels c ON c.id=s.channel_id "
                 "JOIN chat_windows cw ON cw.id=s.chat_window_id WHERE s.bot_id=$1 AND s.chat_window_id=$2 AND (s.lease_until IS NULL OR s.lease_until < now()) "
                 "FOR UPDATE OF s SKIP LOCKED", {botId, windowId});
@@ -174,7 +184,7 @@ std::vector<BotRuntime::Claim> BotRuntime::scan() {
             me.table = st["purpose"] == "story" && st["story_status"] != "ended" && !bound.isNull() && !bound["character_id"].isNull();
             bots::State s;
             s.owed = json::str(st, "owed"); s.owedSeq = st["owed_seq"].asInt64(); s.owedAt = st["owed_at_s"].asDouble();
-            s.gmSeen = st["gm_seen"].asBool(); s.lastLineAt = st["last_line_s"].asDouble(); s.chain = st["chain"].asInt();
+            s.gmSeen = st["gm_seen"].asBool(); s.lastLineAt = st["last_line_s"].asDouble(); s.chain = st["chain"].asInt(); s.heard = st["heard"].asInt();
             long long cursor = st["cursor_seq"].asInt64();
             for (const auto& l : Db::queryJson(w,
                      "SELECT m.seq, extract(epoch FROM m.created_at) AS at, m.author_id, m.author_role, coalesce(u.is_bot, false) AS is_bot, m.kind, m.content, m.visibility, "
@@ -190,6 +200,18 @@ std::vector<BotRuntime::Claim> BotRuntime::scan() {
                 bots::ingest(s, me, line);
             }
             bool claim = bots::due(s, st["now_s"].asDouble(), timing);
+            // Outside the table, people talked a while without naming it: it may join in on its own, within its hourly
+            // allowance and while the GM lets bots chatter here. Asking itself counts, whatever it answers.
+            bool evaluated = false;
+            const bots::Chatter chatter{bots::kChatterHeard, cfg_.botChatterGapMs / 1000.0, cfg_.botChatterQuietMs / 1000.0};
+            if (!claim && !me.table && !me.agentPacing && st["bot_chatter_enabled"].asBool() && st["unprompted_per_hour"].asInt() > 0 &&
+                bots::chatter(s, st["now_s"].asDouble(), st["last_eval_s"].asDouble(), chatter)) {
+                evaluated = true; s.heard = 0;
+                if (Db::queryOne(w, "SELECT count(*) AS n FROM bot_turns WHERE bot_id=$1 AND trigger='unprompted' AND status='posted' AND started_at > now() - interval '1 hour'",
+                                 {botId})["n"].asInt64() < st["unprompted_per_hour"].asInt64()) {
+                    s.owed = "unprompted"; s.owedSeq = cursor; s.owedAt = st["now_s"].asDouble(); s.gmSeen = true; claim = true;
+                }
+            }
             // Someone is writing: let them finish (but not for ever).
             if (claim && st["now_s"].asDouble() - s.owedAt < 45 && WsGateway::instance().someoneTyping(windowId, user)) claim = false;
             if (claim && Db::queryOne(w, "SELECT count(*) AS n FROM bot_turns WHERE bot_id=$1 AND started_at > now() - interval '1 hour'", {botId})["n"].asInt64() >= st["turns_per_hour"].asInt64()) {
@@ -199,14 +221,25 @@ std::vector<BotRuntime::Claim> BotRuntime::scan() {
             const std::string token = claim ? crypto::randomHex(12) : "";
             Db::exec(w,
                 "UPDATE bot_window_state SET cursor_seq=$3, owed=$4, owed_seq=$5, owed_at=CASE WHEN $6::float8 > 0 THEN to_timestamp($6::float8) END, gm_seen=$7, "
-                "last_line_at=CASE WHEN $8::float8 > 0 THEN to_timestamp($8::float8) END, chain=$9, "
+                "last_line_at=CASE WHEN $8::float8 > 0 THEN to_timestamp($8::float8) END, chain=$9, heard=$11, last_eval_at=CASE WHEN $12 THEN now() ELSE last_eval_at END, "
                 "lease_until=CASE WHEN $10='' THEN lease_until ELSE now() + interval '3 minutes' END, lease_token=CASE WHEN $10='' THEN lease_token ELSE $10 END "
                 "WHERE bot_id=$1 AND chat_window_id=$2",
-                {botId, windowId, (int64_t)cursor, s.owed.empty() ? dbNull() : DbParam(s.owed), (int64_t)s.owedSeq, s.owedAt, s.gmSeen, s.lastLineAt, (int64_t)s.chain, token});
+                {botId, windowId, (int64_t)cursor, s.owed.empty() ? dbNull() : DbParam(s.owed), (int64_t)s.owedSeq, s.owedAt, s.gmSeen, s.lastLineAt, (int64_t)s.chain, token,
+                 (int64_t)s.heard, evaluated});
             if (claim) claims.push_back({botId, windowId, token});
         });
     }
     return claims;
+}
+
+int BotRuntime::memoryTick(bool inlineRuns) {
+    auto claims = memory_->due();
+    for (const auto& c : claims) {
+        if (inlineRuns || !pool_) { memory_->refresh(c); continue; }
+        if (!pool_->submit([this, c] { memory_->refresh(c); }))
+            db_.exec("UPDATE bot_window_state SET memory_lease_until=NULL, memory_lease_token=NULL WHERE bot_id=$1 AND chat_window_id=$2 AND memory_lease_token=$3", {c.botId, c.windowId, c.token});
+    }
+    return (int)claims.size();
 }
 
 int BotRuntime::tick(bool inlineTurns) {
@@ -262,6 +295,8 @@ void BotRuntime::runTurn(const Claim& c) {
         std::vector<std::string> parts;
         if (!json::str(st, "description").empty()) parts.push_back("THE CAMPAIGN:\n" + json::str(st, "description"));
         if (!json::str(st, "bot_brief").empty()) parts.push_back("WHAT THE " + profile.gm + " TELLS THE BOTS AT THIS TABLE:\n" + json::str(st, "bot_brief"));
+        const auto remembered = memory_->recall(c.botId, channelId, c.windowId, table);
+        if (!remembered.empty()) parts.push_back(remembered);
         if (table) {
             Json::Value attrs = pc["sheet"].isObject() ? pc["sheet"]["attrs"] : Json::Value(Json::objectValue);
             parts.push_back("YOUR CHARACTER: " + pc["name"].asString() + (json::str(pc, "speaking_style").empty() ? "" : " (speaks: " + json::str(pc, "speaking_style") + ")") +
@@ -279,6 +314,7 @@ void BotRuntime::runTurn(const Claim& c) {
         LlmMessage ask; ask.role = "user"; ask.content = text::join(parts, "\n\n"); req.messages.push_back(ask);
         Json::Value mock; mock["mode"] = table ? "table" : "self"; mock["trigger"] = trigger; mock["name"] = name; mock["pc"] = table ? pc["name"] : Json::Value(""); mock["can_make"] = canMake && !table;
         mock["newest"] = log.empty() ? Json::Value(Json::objectValue) : log[log.size() - 1];
+        mock["memory"] = remembered;
         req.mockContext = mock;
         auto out = llm_.runStructured(req);
         if (!out.ok) throw std::runtime_error(out.error.empty() ? "the model gave no answer" : out.error);

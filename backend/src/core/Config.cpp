@@ -66,6 +66,9 @@ Config Config::fromEnv() {
     c.botTickMs = std::max(100, envInt("BOT_TICK_MS", c.botTickMs));
     c.botSettleMs = std::max(0, envInt("BOT_SETTLE_MS", c.botSettleMs));
     c.botGmWaitMs = std::max(0, envInt("BOT_GM_WAIT_MS", c.botGmWaitMs));
+    c.botMemoryQuietMs = std::max(0, envInt("BOT_MEMORY_QUIET_MS", c.botMemoryQuietMs));
+    c.botChatterGapMs = std::max(0, envInt("BOT_CHATTER_GAP_MS", c.botChatterGapMs));
+    c.botChatterQuietMs = std::max(0, envInt("BOT_CHATTER_QUIET_MS", c.botChatterQuietMs));
     c.consolidatorIntervalMs = envInt("AI_CONSOLIDATOR_INTERVAL_MS", c.consolidatorIntervalMs);
     c.observerMaxBatch = envInt("AI_OBSERVER_MAX_BATCH", c.observerMaxBatch);
     c.highlightTtlSeconds = envInt("HIGHLIGHT_TTL_SECONDS", c.highlightTtlSeconds);

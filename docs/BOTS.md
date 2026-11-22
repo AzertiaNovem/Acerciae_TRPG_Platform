@@ -31,11 +31,29 @@ plan, and what is done so far, is in [BOTS_PLAN.md](BOTS_PLAN.md).
   it waits for the GM to answer (or about a minute and a half without one) and a quiet moment, then speaks in character,
   rolls its own dice (`.r .ra .rc .sc`, never `.st`, `.en` or a hidden roll) or passes. The GM naming its character, or
   another bot naming it, also gives it a turn, but a bot takes at most two turns per human line, so neither a GM agent nor
-  other bots can keep it talking. Outside the table (no character there) it answers only when someone names it, out of
+  other bots can keep it talking. Outside the table (no character there) it answers when someone names it, out of
   character, as itself. If a person speaks while it composes, it drops its draft and answers the newer moment instead.
   With nobody talking, bots stay quiet. The GM can take back any line of a bot. A bot's turns per hour are capped by
   its settings and by the server's AI budget; the channel's AI switch silences it too. While it composes at the table,
   its character shows as writing; it waits for anyone already writing (up to 45 seconds).
+- **Joining in on its own** — outside the table, once people have talked a while without naming it (two lines) and
+  the window has been quiet for 20 seconds, a bot asks itself whether it has something to add, at most every five
+  minutes; it speaks no more often than its "lines on its own per hour" (it may also pass). The GM turns this off for
+  a channel in the GM workspace ("Bots may join in on their own outside the table").
+- **Memory** — a bot writes down what it saw at each table: when a scenario closes or the story ends, when it leaves
+  the channel, and after a long stretch of play (60 lines, then ten quiet minutes). Its account of a table is in the
+  first person, with the moment that struck it most, and is written from the window's lines only; what was whispered
+  to its characters goes into a private part that it reads at that table alone. It also keeps notes on the people it
+  played with (what they are like as players, not the story's secrets). At a table it reads that table's account, the
+  whispers and the GM's private briefing for it, and its notes on the people in the window; never another table's
+  story. As itself it brings up the tables that everyone in the window played at too, or every table when its
+  maintainers switch on "Share memories between tables" (the private parts and briefings never). The characters it
+  makes are in keeping with its memory too.
+- **Reading and correcting memory** — Server settings → Bots → Memory lists what a bot remembers: maintainers add
+  notes for it to keep in mind everywhere, and correct or delete what it wrote. A table's account shows to the
+  maintainers who are in that channel (to all of them while the bot shares between tables); the whispers and briefings
+  only to that channel's GMs. In the channel sidebar (Bots → +), the GM opens a bot's Memory: its account of this
+  table, what was whispered to it, a private briefing only this bot reads here, and "Forget this table".
 - **The GM's tools** — "Bots' turn" above a chat window asks every bot there to take a turn now. "Notes for bots" in
   the GM workspace is what every bot at the table is told each turn (the situation, what the characters know of the
   world, how to play here); players never see it. Server settings → Bots → Activity lists each bot's latest turns:
@@ -46,9 +64,7 @@ joins a player group (it will read only what it witnessed itself). Deleting a se
 
 ## Coming next
 
-1. Memory: after each table, a summary of what the bot saw and the most striking moment, so players can keep them as
-   regular friends; notes on the people it meets.
-2. The GM agent paces the bots at its tables, and its own co-players are retired.
-3. Private one-to-one chats with a bot.
+1. The GM agent paces the bots at its tables, and its own co-players are retired.
+2. Private one-to-one chats with a bot.
 
 The API is in [API.md](API.md) (Bots); the model use is `text_bots` ([AI_PROVIDERS.md](AI_PROVIDERS.md)).
