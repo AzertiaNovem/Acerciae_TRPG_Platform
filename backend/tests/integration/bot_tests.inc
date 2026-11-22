@@ -117,23 +117,24 @@
         auto harriet = S.chat->createCharacter(keeper, pc)["id"].asString();
         Json::Value sheet; sheet["set"]["Spot Hidden"] = 60;
         S.dice->updateAttributes(keeper, harriet, sheet);
-        S.botRuntime->tick(true);   // seats the bot at the window's end
+        S.botRuntime->tick(true);   // seats the bot at the window's end; it takes up the character it was given (one line)
+        CHECK(S.db->queryOne("SELECT trigger FROM bot_turns WHERE bot_id=$1", {bot["id"].asString()})["trigger"] == "adopt");
         auto post = [&](const std::string& uid, const std::string& content, const char* kind = "ic", Json::Value extra = Json::Value(Json::objectValue)) {
             Json::Value m = extra; m["content"] = content; m["kind"] = kind; return S.chat->postMessage(S.auth->channelAccess(uid, ch), win, m); };
         auto byBot = [&] { return S.db->queryJson("SELECT kind, content, character_id, dice FROM messages WHERE chat_window_id=$1 AND author_id=$2 ORDER BY seq", {win, botUser}); };
         post(p1User, "I push the cellar door open.");
         CHECK(S.botRuntime->tick(true) == 1);
         auto lines = byBot();
-        CHECK(lines.size() == 1);
-        CHECK(lines[0]["kind"] == "ic"); CHECK(lines[0]["character_id"].asString() == harriet);
-        CHECK(lines[0]["content"].asString().find("Harriet answers") != std::string::npos);
+        CHECK(lines.size() == 2);
+        CHECK(lines[1]["kind"] == "ic"); CHECK(lines[1]["character_id"].asString() == harriet);
+        CHECK(lines[1]["content"].asString().find("Harriet answers") != std::string::npos);
         CHECK(S.botRuntime->tick(true) == 0);   // its own line owes nothing
         // The GM speaks to its character: it rolls its own dice, against its own sheet.
         post(gmUser, "Harriet, roll Spot Hidden.", "narration");
         CHECK(S.botRuntime->tick(true) == 1);
         lines = byBot();
-        CHECK(lines.size() == 3);
-        CHECK(lines[2]["kind"] == "roll"); CHECK(lines[2]["dice"].isObject());
+        CHECK(lines.size() == 4);
+        CHECK(lines[3]["kind"] == "roll"); CHECK(lines[3]["dice"].isObject());
         // A whisper to someone else is never witnessed; a GM-only note neither.
         Json::Value secret; secret["visibility"] = "gm_only";
         post(gmUser, "Harriet is secretly a smuggler.", "narration", secret);
@@ -141,11 +142,11 @@
         // The run stops at two turns per human line, however often the GM names it.
         post(gmUser, "Harriet, anything else?", "narration");
         CHECK(S.botRuntime->tick(true) == 0);
-        CHECK(byBot().size() == 3);
+        CHECK(byBot().size() == 4);
         // "[quiet]" makes the mock pass: logged, nothing posted.
         post(p1User, "[quiet] We wait.");
         CHECK(S.botRuntime->tick(true) == 1);
-        CHECK(byBot().size() == 3);
+        CHECK(byBot().size() == 4);
         CHECK(S.db->queryOne("SELECT status FROM bot_turns WHERE bot_id=$1 ORDER BY started_at DESC LIMIT 1", {bot["id"].asString()})["status"] == "passed");
         // The turn log never runs one trigger twice: a debt whose turn already exists is dropped unposted.
         post(p1User, "Anyone?");
@@ -205,8 +206,8 @@
         auto called = S.bots->callTurn(keeper, win, Json::Value(Json::objectValue));
         CHECK(called["called"].size() == 1); CHECK(called["called"][0]["name"] == "Moss");
         CHECK(S.botRuntime->tick(true) >= 1);   // other tests' bots may have a turn due too
-        CHECK(lines() == 1);
-        CHECK(S.db->queryOne("SELECT trigger FROM bot_turns WHERE bot_id=$1", {bot["id"].asString()})["trigger"] == "called");
+        CHECK(lines() == 2);   // the line taking up Quill, then the called turn
+        CHECK(S.db->queryOne("SELECT trigger FROM bot_turns WHERE bot_id=$1 ORDER BY started_at DESC LIMIT 1", {bot["id"].asString()})["trigger"] == "called");
         // Only the characters named are called.
         Json::Value some; some["character_ids"] = Json::Value(Json::arrayValue); some["character_ids"].append("00000000-0000-0000-0000-000000000000");
         CHECK(S.bots->callTurn(keeper, win, some)["called"].empty());
@@ -233,8 +234,55 @@
         CHECK(outcome([&] { S.bots->setBrief(keeper, tooLong); }) == "bad_request");
         // The activity: maintainers only.
         auto act = S.bots->activity(gmP, sid, bot["id"].asString());
-        CHECK(act.size() >= 2); CHECK(act[act.size() - 1]["trigger"] == "called"); CHECK(act[act.size() - 1]["channel_name"] == "Called table");
+        CHECK(act.size() >= 2); CHECK(act[act.size() - 1]["trigger"] == "adopt"); CHECK(act[act.size() - 2]["trigger"] == "called"); CHECK(act[act.size() - 1]["channel_name"] == "Called table");
         CHECK(outcome([&] { S.bots->activity(p1P, sid, bot["id"].asString()); }) == "forbidden");
+        S.cfg.botSettleMs = 6000; S.cfg.botGmWaitMs = 90000;
+    });
+
+    test("bots make their own character when asked (Call of Cthulhu, point buy), or take up one the GM makes", [&] {
+        S.cfg.botSettleMs = 0; S.cfg.botGmWaitMs = 0;
+        const auto sid = server["id"].asString();
+        Json::Value cb; cb["name"] = "Character table"; cb["knowledge_mode"] = "isolated";
+        auto ch = S.chat->createChannel(gmP, sid, cb)["id"].asString();
+        auto keeper = S.auth->channelAccess(gmUser, ch);
+        Json::Value pb; pb["point_buy"] = true; S.chat->updateChannel(keeper, pb);
+        S.chat->addChannelMember(keeper, "p1" + suffix, "player");
+        auto win = S.chat->listWindows(keeper)[0]["id"].asString();
+        Json::Value b; b["name"] = "Sable"; b["persona"] = "Loves old books and quiet mysteries.";
+        auto bot = S.bots->create(gmP, sid, b);
+        const auto botUser = bot["user_id"].asString();
+        S.bots->invite(keeper, bot["id"].asString());
+        S.botRuntime->tick(true);
+        auto p1a = S.auth->channelAccess(p1User, ch);
+        auto say = [&](const std::string& content) { Json::Value m; m["content"] = content; m["kind"] = "ooc"; S.chat->postMessage(p1a, win, m); };
+        say("Sable, make your character for tonight!");
+        S.botRuntime->tick(true);
+        auto pcs = S.db->queryJson("SELECT id, name, role_card, sheet FROM characters WHERE channel_id=$1 AND user_id=$2", {ch, botUser});
+        CHECK(pcs.size() == 1);
+        if (pcs.size() == 1) {
+            CHECK(pcs[0]["name"].asString().find("Sable Vale") != std::string::npos);
+            CHECK(pcs[0]["role_card"]["career"]["name"] == "自定义职业");
+            CHECK(!pcs[0]["role_card"]["skills"].isMember("Cthulhu Mythos"));
+            CHECK(pcs[0]["role_card"]["skills"]["Library Use"].asInt() > 20);
+            // Bound to the window: from now on it plays it at the table.
+            CHECK(S.db->queryOne("SELECT character_id FROM chat_window_members WHERE chat_window_id=$1 AND user_id=$2", {win, botUser})["character_id"] == pcs[0]["id"]);
+        }
+        CHECK(!S.db->queryOne("SELECT 1 AS ok FROM messages WHERE chat_window_id=$1 AND author_id=$2 AND content LIKE '%character is ready%'", {win, botUser}).isNull());
+        // Asked again, it has one already: nothing more is made.
+        say("Sable, make your character again?");
+        S.botRuntime->tick(true);
+        CHECK(S.db->queryOne("SELECT count(*) AS n FROM characters WHERE channel_id=$1 AND user_id=$2", {ch, botUser})["n"].asInt() == 1);
+        // A character the GM makes for a bot is taken up: one turn, in character.
+        Json::Value b2; b2["name"] = "Fern";
+        auto fern = S.bots->create(gmP, sid, b2);
+        S.bots->invite(keeper, fern["id"].asString());
+        S.botRuntime->tick(true);
+        Json::Value pc; pc["name"] = "Old Tom"; pc["user_id"] = fern["user_id"];
+        S.chat->createCharacter(keeper, pc);
+        S.botRuntime->tick(true);
+        auto took = S.db->queryOne("SELECT m.kind, m.content FROM messages m JOIN characters c ON c.id=m.character_id WHERE m.chat_window_id=$1 AND m.author_id=$2 AND c.name='Old Tom' ORDER BY m.seq DESC LIMIT 1", {win, fern["user_id"].asString()});
+        CHECK(!took.isNull());
+        CHECK(S.db->queryOne("SELECT trigger FROM bot_turns WHERE bot_id=$1 ORDER BY started_at DESC LIMIT 1", {fern["id"].asString()})["trigger"] == "adopt");
         S.cfg.botSettleMs = 6000; S.cfg.botGmWaitMs = 90000;
     });
 

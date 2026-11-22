@@ -1,6 +1,7 @@
 #include "logstudio/VnScriptRecovery.h"
 #include "bots/BotPacing.h"
 #include "bots/BotRuntime.h"
+#include "bots/BotCards.h"
 #include "core/Json.h"
 #include "logstudio/ContentPolicy.h"
 #include "documents/NarrativeMemoryPolicy.h"
@@ -1870,6 +1871,58 @@ int main() {
             CHECK(roll["command"] == ".ra Spot Hidden"); CHECK(roll["kind"] == "ic");
             auto said = acerciae::BotRuntime::checkTurn(acerciae::json::parse(R"({"action":"speak","kind":"ic","messages":["a","b","c"]})"), false, "coc7e");
             CHECK(said["kind"] == "ooc"); CHECK(said["messages"].size() == 2); CHECK(said["messages"][1] == "b\n\nc");
+        });
+        test("bots: a bot's character wish becomes a legal Call of Cthulhu card, within point buy when it is on", [&] {
+            auto wish = acerciae::json::parse(R"J({"occupation":"Librarian","age":34,"characteristics":{"STR":5,"CON":55,"SIZ":50,"DEX":60,"APP":55,"INT":75,"POW":60,"EDU":80,"LUK":99},
+                "skills":{"Library Use":99,"Spot Hidden":90,"History":85,"Psychology":80,"Persuade":75,"Credit Rating":40,"Occult":70,"Language (Other) (Latin)":70,
+                          "Stealth":60,"Dodge":60,"Listen":60,"Drive Auto":50,"Swim":40,"Cthulhu Mythos":30},"items":["notebook",{"name":"lamp"}]})J");
+            auto free = acerciae::BotCards::cocCard(wish, false);
+            CHECK(free["characteristics"]["STR"] == 15); CHECK(free["characteristics"]["LUK"] == 90);
+            CHECK(free["skills"]["Library Use"] == 99); CHECK(!free["skills"].isMember("Cthulhu Mythos")); CHECK(free["skills"].size() == 12);
+            CHECK(free["basic"]["age"] == "34"); CHECK(free["items"].size() == 2); CHECK(!free.isMember("career"));
+            auto bought = acerciae::BotCards::cocCard(wish, true);
+            auto report = acerciae::coc7::apply(bought);
+            CHECK(report["violations"].empty());
+            CHECK(bought["career"]["name"] == "自定义职业"); CHECK(bought["career"]["specialties"].size() <= 8);
+            CHECK(report["career_spent"].asInt() <= report["career_budget"].asInt()); CHECK(report["hobby_spent"].asInt() <= report["hobby_budget"].asInt());
+            CHECK(bought["skills"]["Library Use"].asInt() > 20);   // the points went where they were wanted most
+        });
+        test("bots: a bot's D&D 2024 wish becomes a legal level 1 standard-array build", [&] {
+            using acerciae::BotCards; namespace dnd = acerciae::dnd2024;
+            auto ok = [](const Json::Value& card) { return dnd::check(card["dnd"])["violations"].empty(); };
+            auto wizard = BotCards::dndCard(acerciae::json::parse(R"({"class":"wizard","species":"Elf","background":"Sage","abilities":["INT","CON","DEX"],
+                "skills":["Arcana","Investigation","Perception","History","Stealth","Nonsense"],"spells":"Light","story":{"traits":"Curious"},"occupation":"Scholar"})"));
+            const auto& d = wizard["dnd"];
+            CHECK(ok(wizard)); CHECK(d["class"] == "Wizard"); CHECK(d["method"] == "standard_array"); CHECK(d["level"] == 1);
+            CHECK(d["base"]["INT"] == 15); CHECK(d["base"]["CON"] == 14); CHECK(d["base"]["DEX"] == 13); CHECK(d["base"]["STR"] == 12); CHECK(d["base"]["CHA"] == 8);
+            CHECK(d["increases"]["INT"] == 2); CHECK(d["increases"]["CON"] == 1);   // Sage: CON, INT, WIS
+            CHECK(d["saves"].size() == 2); CHECK(d["skills"].isMember("Arcana")); CHECK(d["skills"].isMember("History"));
+            CHECK(d["skills"].isMember("Investigation")); CHECK(d["skills"].isMember("Perception"));   // the Elf's pick
+            CHECK(!d["skills"].isMember("Stealth"));
+            CHECK(d["hp_max"] == 8); CHECK(d["hit_dice"] == "1d6"); CHECK(d["spellcasting_ability"] == "INT"); CHECK(d["slots"]["1"] == 2); CHECK(d["ac"] == 11);
+            CHECK(wizard["background"]["traits"] == "Curious"); CHECK(wizard["basic"]["occupation"] == "Scholar");
+            // Nothing usable: a Human Fighter with the background that suits the abilities, still legal.
+            auto blank = BotCards::dndCard(acerciae::json::parse(R"({"class":"Spaceman","abilities":["CHA","WIS","INT"]})"));
+            CHECK(ok(blank)); CHECK(blank["dnd"]["class"] == "Fighter"); CHECK(blank["dnd"]["species"] == "Human"); CHECK(blank["dnd"]["background"] == "Acolyte");
+            CHECK(blank["dnd"]["skills"].size() == 5);   // Acolyte 2, Fighter 2, Human 1
+            // Every class, species and background together stays legal.
+            int bad = 0;
+            for (const auto& c : dnd::rules()["classes"]) for (const auto& sp : dnd::rules()["species"]) for (const auto& bg : dnd::rules()["backgrounds"]) {
+                Json::Value w; w["class"] = c["name"]; w["species"] = sp["name"]; w["background"] = bg["name"];
+                for (const auto& sk : dnd::rules()["skills"]) w["skills"].append(sk["name"]);
+                if (!ok(BotCards::dndCard(w))) ++bad;
+            }
+            CHECK(bad == 0);
+        });
+        test("bots: a bot's PbtA wish fits the channel's pack and takes a free playbook", [&] {
+            auto pack = acerciae::json::parse(R"({"books":[{"id":"scout","name":"Scout"},{"id":"scribe","name":"Scribe"}],"stats":[{"id":"sense","name":"Sense"},{"id":"nerve","name":"Nerve"}],
+                "resources":[{"id":"supply","name":"Supply"}],"conditions":[{"id":"tired","name":"Tired"}]})");
+            auto card = acerciae::BotCards::pbtaCard(acerciae::json::parse(R"({"book":"Scout","stats":{"Sense":"+2","nerve":9,"luck":1},"resources":{"supply":3}})"), pack, {});
+            CHECK(card["pbta"]["book"] == "scout"); CHECK(card["pbta"]["stats"]["sense"] == 2); CHECK(card["pbta"]["stats"]["nerve"] == 3);
+            CHECK(!card["pbta"]["stats"].isMember("luck")); CHECK(card["pbta"]["resources"]["supply"] == 3);
+            CHECK(acerciae::pbta::normalizeCard(card["pbta"], pack)["book"] == "scout");
+            auto other = acerciae::BotCards::pbtaCard(acerciae::json::parse(R"({"book":"scout"})"), pack, {"scout"});
+            CHECK(other["pbta"]["book"] == "scribe"); CHECK(other["pbta"]["stats"]["sense"] == 0); CHECK(other["pbta"]["resources"]["supply"] == 0);
         });
         test("bots: while a GM agent paces the bots, players' lines owe nothing; system lines are ignored", [&] {
             Self me = mina; me.agentPacing = true;

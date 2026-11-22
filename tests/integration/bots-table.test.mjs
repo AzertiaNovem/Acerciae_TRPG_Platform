@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 // Bots at play (docs/BOTS.md), against a live server with the mock model (scripts/test.sh runs it with
-// BOT_TICK_MS=300 BOT_SETTLE_MS=300 BOT_GM_WAIT_MS=2500). A player's line, then the GM's: the bot plays its character
+// BOT_TICK_MS=300 BOT_SETTLE_MS=300 BOT_GM_WAIT_MS=2500). Given a character, the bot takes it up; a player's line, then the GM's: the bot plays its character
 // as an ordinary player line; named by the GM it rolls its own dice; outside the table a bot answers only when named,
 // out of character; the GM can take back a bot's line at any time, the player cannot; with nobody talking, bots stay quiet.
 const base = process.env.API_BASE || "http://localhost:18081";
@@ -34,13 +34,16 @@ test("bots at play: the bot answers a player after the GM, rolls when named, ans
   const byBot = async (user = wren.user_id) => (await lines()).filter((m) => m.author_id === user);
   const say = (token, content, kind = "ic") => call(token, "POST", `/api/channels/${ch}/windows/${main}/messages`, { content, kind });
 
+  // Given a character, the bot takes up the part: one line in character.
+  const adopted = await until(async () => (await byBot())[0]);
+  assert.equal(adopted.character_id, harriet.id);
   // A player's line: the GM answers first; the bot waits, then plays its character.
   const t0 = Date.now();
   await say(p1, "I step onto the pier.");
   await sleep(1000);
-  assert.equal((await byBot()).length, 0, "the GM answers first");
+  assert.equal((await byBot()).length, 1, "the GM answers first");
   await say(gm, "The fog rolls in.", "narration");
-  const first = await until(async () => (await byBot())[0]);
+  const first = await until(async () => (await byBot())[1]);
   assert.equal(first.kind, "ic"); assert.equal(first.character_id, harriet.id); assert.equal(first.character_name, "Harriet");
   assert.equal(first.author_is_bot, true); assert.equal(first.author_role, "player");
   assert.match(first.content, /Harriet answers/);

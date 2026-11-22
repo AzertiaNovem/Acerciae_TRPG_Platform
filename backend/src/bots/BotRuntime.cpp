@@ -1,5 +1,6 @@
 #include "BotRuntime.h"
 #include "BotPacing.h"
+#include "BotCards.h"
 #include "../auth/AuthService.h"
 #include "../chat/ChatService.h"
 #include "../inspiration/InspirationService.h"
@@ -34,6 +35,7 @@ How to play:
 - "kind": "ic" for what your character says and does (first person, one or two short paragraphs, at most two messages); "ooc" only for a short remark to the table out of character.)";
 
 const char* kOutside = R"(Here you have no character: you talk as yourself, out of character, with the people at this online table of {GAME}. Be the person described below: friendly, brief and natural, like a regular at the table. Answer what was said to you; do not run the game, narrate the story or speak for anyone's character. "kind" is always "ooc"; one or two short messages.)";
+const char* kMayMake = R"(You have no character at this table yet. If someone asks you to make (create, roll up) your character, answer with "action": "make_character", a one-line "concept" of whom you would like to play (your taste, in keeping with who you are) and, if you like, a short message. If the {GM} offers to make your character for you, accept gladly and wait for it instead.)";
 
 const char* kReply = R"(Reply with only one JSON object: {"action": "speak" | "roll" | "pass", "kind": "ic" | "ooc", "messages": ["..."], "command": ""}. "speak": the messages, in order. "roll": the dice command in "command", with what your character does in "messages" (may be empty). "pass": nothing to add now.)";
 
@@ -66,8 +68,8 @@ std::string commandWord(const std::string& command) {
 }
 }  // namespace
 
-BotRuntime::BotRuntime(const Config& cfg, Db& db, AuthService& auth, ChatService& chat, LlmGateway& llm, ServerSettingsService& settings)
-    : cfg_(cfg), db_(db), auth_(auth), chat_(chat), llm_(llm), settings_(settings) {}
+BotRuntime::BotRuntime(const Config& cfg, Db& db, AuthService& auth, ChatService& chat, LlmGateway& llm, ServerSettingsService& settings, CharacterSpaceService& space, DiceService& dice)
+    : cfg_(cfg), db_(db), auth_(auth), chat_(chat), llm_(llm), settings_(settings), cards_(std::make_unique<BotCards>(db, auth, chat, space, llm, dice)) {}
 BotRuntime::~BotRuntime() { stop(); }
 
 void BotRuntime::start() {
@@ -91,20 +93,22 @@ void BotRuntime::loop() {
 
 Json::Value BotRuntime::schema() {
     static const Json::Value s = json::parse(R"({"type":"object","required":["action"],"properties":{
-        "action":{"type":"string","enum":["speak","roll","pass"]},"kind":{"type":"string"},
-        "messages":{"type":"array","items":{"type":"string"}},"command":{"type":"string"}}})");
+        "action":{"type":"string","enum":["speak","roll","pass","make_character"]},"kind":{"type":"string"},
+        "messages":{"type":"array","items":{"type":"string"}},"command":{"type":"string"},"concept":{"type":"string"}}})");
     return s;
 }
 
-Json::Value BotRuntime::checkTurn(const Json::Value& out, bool table, const std::string& ruleSystem) {
+Json::Value BotRuntime::checkTurn(const Json::Value& out, bool table, const std::string& ruleSystem, bool canMake) {
     if (!out.isObject()) throw std::runtime_error("the answer is not an object");
     const auto action = json::str(out, "action");
-    if (action != "speak" && action != "roll" && action != "pass") throw std::runtime_error("unknown action \"" + action + "\"");
+    if (action != "speak" && action != "roll" && action != "pass" && action != "make_character") throw std::runtime_error("unknown action \"" + action + "\"");
+    if (action == "make_character" && (table || !canMake)) throw std::runtime_error("it already has a character here");
     Json::Value move; move["action"] = action;
     move["kind"] = table && json::str(out, "kind") != "ooc" ? "ic" : "ooc";
     move["messages"] = Json::Value(Json::arrayValue);
     move["command"] = "";
     if (action == "pass") return move;
+    move["concept"] = text::utf8Prefix(text::trim(json::str(out, "concept")), 400);
     if (out["messages"].isArray())
         for (const auto& m : out["messages"]) {
             if (!m.isString()) continue;
@@ -125,6 +129,7 @@ Json::Value BotRuntime::checkTurn(const Json::Value& out, bool table, const std:
         move["command"] = text::utf8Prefix(command, 200);
         return move;
     }
+    if (action == "make_character") return move;
     if (move["messages"].empty()) throw std::runtime_error("nothing to say");
     for (const auto& m : move["messages"])
         if (m.asString()[0] == '.' || m.asString().rfind("。", 0) == 0) throw std::runtime_error("a dice command belongs in \"command\"");
@@ -242,6 +247,7 @@ void BotRuntime::runTurn(const Claim& c) {
     try {
         std::vector<std::string> mine;
         for (const auto& r : db_.queryJson("SELECT id FROM characters WHERE channel_id=$1 AND user_id=$2", {channelId, user})) mine.push_back(r["id"].asString());
+        const bool canMake = mine.empty();   // no character in this channel yet: it may make one when asked
         auto log = db_.queryJson(
             "SELECT m.seq, m.kind, m.content, m.visibility, m.author_id, m.author_role, m.dice, u.display_name AS author_name, coalesce(u.is_bot, false) AS is_bot, ch.name AS character_name "
             "FROM messages m LEFT JOIN users u ON u.id=m.author_id LEFT JOIN characters ch ON ch.id=m.character_id WHERE m.chat_window_id=$1 AND m.recalled_at IS NULL "
@@ -250,7 +256,7 @@ void BotRuntime::runTurn(const Claim& c) {
         const auto& profile = rules::profile(rs);
         std::string system = "You are " + name + ", a member of an online tabletop roleplaying community.\n\nWHO YOU ARE:\n" +
             (json::str(st, "persona").empty() ? "(no description: a friendly, curious regular)" : json::str(st, "persona")) +
-            (json::str(st, "speaking_style").empty() ? "" : "\n\nHOW YOU WRITE:\n" + json::str(st, "speaking_style")) + "\n\n" + (table ? kAtTable : kOutside) + "\n\n" + kReply;
+            (json::str(st, "speaking_style").empty() ? "" : "\n\nHOW YOU WRITE:\n" + json::str(st, "speaking_style")) + "\n\n" + (table ? kAtTable : kOutside) + (canMake && !table ? std::string("\n\n") + kMayMake : std::string()) + "\n\n" + kReply;
         replaceAll(system, "{PC}", table ? pc["name"].asString() : "");
         replaceAll(system, "{DICE}", InspirationService::diceShape(rs));
         std::vector<std::string> parts;
@@ -270,13 +276,13 @@ void BotRuntime::runTurn(const Claim& c) {
         parts.push_back("NOW: " + (why.count(trigger) ? why.at(trigger) : std::string("Your turn.")) + " Your move?");
         LlmRequest req;
         req.channelId = channelId; req.task = "bot_turn"; req.system = system; req.responseSchema = schema(); req.temperature = 0.8; req.maxTokens = 1200;
-        req.messages.push_back({"user", text::join(parts, "\n\n")});
-        Json::Value mock; mock["mode"] = table ? "table" : "self"; mock["trigger"] = trigger; mock["name"] = name; mock["pc"] = table ? pc["name"] : Json::Value("");
+        LlmMessage ask; ask.role = "user"; ask.content = text::join(parts, "\n\n"); req.messages.push_back(ask);
+        Json::Value mock; mock["mode"] = table ? "table" : "self"; mock["trigger"] = trigger; mock["name"] = name; mock["pc"] = table ? pc["name"] : Json::Value(""); mock["can_make"] = canMake && !table;
         mock["newest"] = log.empty() ? Json::Value(Json::objectValue) : log[log.size() - 1];
         req.mockContext = mock;
         auto out = llm_.runStructured(req);
         if (!out.ok) throw std::runtime_error(out.error.empty() ? "the model gave no answer" : out.error);
-        auto move = checkTurn(out.data, table, rs);
+        auto move = checkTurn(out.data, table, rs, canMake);
         // A person spoke while the bot was composing: its draft answers an older moment. The debt stays.
         if (!db_.queryOne("SELECT 1 AS ok FROM messages m LEFT JOIN users u ON u.id=m.author_id WHERE m.chat_window_id=$1 AND m.seq > $2 AND m.author_role='player' "
                           "AND NOT coalesce(u.is_bot, false) AND m.recalled_at IS NULL AND m.visibility='window' LIMIT 1", {c.windowId, st["cursor_seq"].asInt64()}).isNull()) {
@@ -290,6 +296,17 @@ void BotRuntime::runTurn(const Claim& c) {
             return;
         }
         auto access = auth_.channelAccess(user, channelId);
+        if (move["action"] == "make_character") {
+            for (const auto& m : move["messages"]) {
+                Json::Value body; body["content"] = m.asString(); body["kind"] = "ooc"; body["visibility"] = "window";
+                posted.push_back(chat_.postMessage(access, c.windowId, body)["id"].asString());
+            }
+            const auto made = cards_->make(c.botId, channelId, c.windowId, move["concept"].asString());
+            db_.exec("UPDATE bot_turns SET status='posted', action='make_character', message_ids=$2::uuid[], error=$3, finished_at=now() WHERE id=$1",
+                     {turnId, pgArrayLiteral(posted), made.empty() ? std::string("no character was made") : std::string()});
+            release("owed=NULL, chain=chain+1, last_turn_at=now(), failures=0, last_error=''");
+            return;
+        }
         auto say = [&](const std::string& content, const std::string& kind) {
             Json::Value body; body["content"] = content; body["kind"] = kind; body["visibility"] = "window";
             if (table) body["character_id"] = pc["id"];
