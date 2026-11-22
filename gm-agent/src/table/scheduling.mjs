@@ -100,7 +100,7 @@ export function onMessage(table, m) {
     if (table.isHuman(m) && !table.isPlannerWindow(m.chat_window_id)) table.noteSession(m);
     // A player's line of play counts toward the calendar's pace (chatter out of character does not).
     if (table.playerSpeech(m) && m.kind !== "ooc" && !table.isPlannerWindow(m.chat_window_id)) noteCalendarLine(table.calendar);
-    // A correction in chat or the planner window takes effect before the next GM/companion turn.
+    // A correction in chat or the planner window takes effect before the GM's next turn.
     let placement;
     if (table.isTrigger(m) && (table.isPlannerWindow(m.chat_window_id) || ((table.scene(m.chat_window_id) || m.chat_window_id === table.mainWindow()?.id) &&
         (m.kind === "ooc" || table.timelines.active().length > 1)))) {

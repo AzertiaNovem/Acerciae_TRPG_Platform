@@ -3,7 +3,7 @@
 // .init), death saves (.ds) and spell slots (.ss); the role card carries a build in role_card.dnd (dndcard.mjs).
 // An improvised campaign is a fifth-edition game whose genre and tone follow the world setting.
 import { DND_VOCAB } from "./vocab.mjs";
-import { allocateDndBuild, cardStateDnd, cardSummaryDnd, castNoteDnd, checkDnd, findNamed, missingDndDetails, normalizeDnd, rulesSummaryDnd } from "../roles/dndcard.mjs";
+import { allocateDndBuild, castNoteDnd, checkDnd, findNamed, missingDndDetails, normalizeDnd, rulesSummaryDnd } from "../roles/dndcard.mjs";
 import { DND_TRAITS } from "../context/traits.mjs";
 import { COC_CARD } from "../roles/cardgen.mjs";
 
@@ -11,7 +11,7 @@ const DND_CARD_SHAPE = `{"name": string, "persona": string (2-4 sentences: tempe
 
 const APPEARANCE = "Also write appearance_prompt in the same response: a concise image prompt describing stable visible traits (age, build, face, hair, clothing and gear of the setting, distinguishing accessories), consistent with the card and the campaign's world. No story spoilers, scene actions, framing instructions or text overlays. Fill every basic and background field; use a localized 'None' for absent injuries, fears, magic or notable encounters instead of inventing them. Set basic.player to NPC.";
 
-const COMBAT_RULE = `- Combat: when a fight starts, have everyone roll initiative: request_roll with ".ri" for each player character and co-player, and your own dice ".ri +N <monster name>" for each monster (N: its DEX modifier). Then follow the Initiative order in your context: on a monster's turn act for it (an attack with dice ".r 1d20+<its attack bonus>" against the target's AC, damage with dice ".r <dice>"), on a character's turn ask its player for their action, and call dice ".init next" after each turn. Remove the fallen with ".init del <name>", and ".init clr" when the fight is over. Monsters have no sheet: keep their AC and hit points in a note. Ask for saving throws with request_roll (".rc DEX save dc 13") and for a character's attack with ".rc attack +N ac M" (N: its attack bonus, from its sheet in the cast).`;
+const COMBAT_RULE = `- Combat: when a fight starts, have everyone roll initiative: request_roll with ".ri" for each player character, and your own dice ".ri +N <monster name>" for each monster (N: its DEX modifier). Then follow the Initiative order in your context: on a monster's turn act for it (an attack with dice ".r 1d20+<its attack bonus>" against the target's AC, damage with dice ".r <dice>"), on a character's turn ask its player for their action, and call dice ".init next" after each turn. Remove the fallen with ".init del <name>", and ".init clr" when the fight is over. Monsters have no sheet: keep their AC and hit points in a note. Ask for saving throws with request_roll (".rc DEX save dc 13") and for a character's attack with ".rc attack +N ac M" (N: its attack bonus, from its sheet in the cast).`;
 
 // The D&D card: the common fields are the CoC card's (basic, background, items, wealth), the build is role_card.dnd.
 const paths = (character, { pointsMode, rules } = {}) => [...COC_CARD.missingDetails(character, { pointsMode: false, rules: null }).filter((p) => !p.startsWith("role_card.characteristics.")), ...missingDndDetails(character, rules)];
@@ -46,24 +46,19 @@ export const DND2024 = Object.freeze({
   id: "dnd2024",
   vocab: DND_VOCAB,
   framing: (improv) => `the GM (Game master) of a fifth-edition fantasy campaign (D&D 2024 rules, SRD 5.2)${improv ? ", whose genre and tone follow the campaign's world setting, not necessarily fantasy," : ""}`,
-  coplayerGame: (improv) => `a fifth-edition fantasy game (D&D 2024 rules)${improv ? " whose genre and tone follow its world setting," : ""}`,
   fetchRules: (api) => api.dndRules(),
-  // Co-players roll D20 Tests, initiative, death saves and spell slots against their own sheet; never the initiative
-  // order (.init), sheet edits (.st) or hidden rolls.
+  // What the GM may ask a character to roll, or rolls for its own: D20 Tests, initiative, death saves and spell slots
+  // against the character's sheet; never the initiative order (.init), a sheet edit (.st) or a hidden roll.
   roll: /^\.(ra|rc|ri|ds|ss|r)(\s|$)/i,
   // The GM's own dice: monsters' initiative, the order, and plain rolls (it has no character, so no .rc).
   gmDice: /^\.(r|rh|ri|rih|init)(\s|$)/i,
   dice: {
     requestRoll: ".rc <skill | ABILITY save | attack +N> [dc N | ac N]",
     gmExamples: 'a dice command the platform rolls (".rc Stealth dc 15", ".rc WIS save dc 13", ".rc attack +5 ac 14": an attack takes the character\'s typed bonus, from its sheet in the cast; "adv" or "dis" for advantage or disadvantage)',
-    coplayerHelp: '".rc Stealth dc 15" for a check, ".rc WIS save dc 13" for a save, ".rc attack +5 ac 14" for an attack with your own bonus typed, ".ri" for initiative, ".ds" for a death save, ".ss 1" to spend a spell slot, ".r 1d8+3" for damage',
-    coplayerShape: ".rc <skill> dc N",
     gmHelp: "- Your dice action runs a command as the GM: \".ri +2 Goblin\" (a monster's initiative), \".init next\", \".init del <name>\", \".init clr\", \".r 1d8+3\". You have no character sheet, so never \".rc\" for yourself.",
   },
   combatRule: COMBAT_RULE,
   card: CARD,
-  cardSummary: cardSummaryDnd,
-  cardState: cardStateDnd,
   castNote: castNoteDnd,
   traits: DND_TRAITS,
 });

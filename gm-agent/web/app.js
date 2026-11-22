@@ -9,7 +9,7 @@ import { worldbookEditor } from './worldbook.js';
 let worldKey = '', worldBusy = false;
 let connected = false, connecting = false, connection = 0, selected = '', tab = 'overview', busy = false;
 let schema = null, config = null, detail = null, channels = [];
-const FUNCTIONS = { forge: '开局共创', director: '主持', coplayers: '队友', formatting: '排版', planner: '规划', memory: '记忆', readers: '判读', pictures: '插画', cards: '角色卡' };
+const FUNCTIONS = { forge: '开局共创', director: '主持', formatting: '排版', planner: '规划', memory: '记忆', readers: '判读', pictures: '插画', cards: '角色卡' };
 let channelRequest = 0;
 let usageRange = 'today', usageDetailsOpen = false, planKey = '';
 let usageKey = '', usageNode = null;

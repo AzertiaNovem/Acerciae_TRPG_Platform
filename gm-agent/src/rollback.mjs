@@ -1,10 +1,9 @@
 // Recall and rollback. On the platform an author may recall a line for two minutes after sending it (kinds ic, ooc and
 // narration; never a roll). When a player recalls a line that is still recent (fewer than RECALL_ROLLBACK_LINES lines
 // came after it in its window), the table undoes what it did about it: every turn that answered it or ran after it in
-// that window is rolled back. The client recalls the lines those turns posted (narration, NPC and co-player lines,
-// whispers, notes, openings in other windows) and restores what they changed in its own state: where co-players are
-// (timelines and seats, with the move guard), the calendar, relationships, hidden truths and phone texts still on their
-// way. Changes the platform already holds (a scenario change, a world change, a new NPC, a roll's result) stay, and
+// that window is rolled back. The client recalls the lines those turns posted (narration, NPC lines, whispers, notes,
+// openings in other windows) and restores what they changed in its own state: where everyone is (the timelines, with
+// the move guard), the calendar, relationships, hidden truths and phone texts still on their way. Changes the platform already holds (a scenario change, a world change, a new NPC, a roll's result) stay, and
 // the GM is told so in a GM-only note. Players' other lines after the recalled one stay and are answered again.
 // An older recall (RECALL_ROLLBACK_LINES or more lines since) only takes the line out of every context.
 //

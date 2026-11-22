@@ -9,7 +9,7 @@ export const GROUPS = [
   { id: "table", title: "牌桌", help: "语言与开场。频道的规则系统来自平台（在 GM 工作区中修改）。" },
   { id: "writing", title: "纯文本写作指导", help: "第一步：决定故事怎么写，包括文风、细节和总篇幅。预填原有指导，保存后替换该项默认文本；只发送给写作模型。规则、角色权限和无人值守限制仍由系统管理。" },
   { id: "presentation", title: "消息呈现指导（结构化输出）", help: "第二步：决定原文在聊天中怎么呈现。可要求每条短一些、合并成长消息，或按句子分多条；只发送给排版模型。不同说话人、收件人和私聊内容仍分别呈现。" },
-  { id: "llm", title: "主持模型", help: "GM、NPC 与 AI 队友所用的模型。服务商、地址与密钥在公共配置中设置。" },
+  { id: "llm", title: "主持模型", help: "GM 与 NPC 所用的模型。服务商、地址与密钥在公共配置中设置。" },
   { id: "models", title: "模型分配", help: "每项功能在哪个服务商的哪个模型上运行。服务商（地址与密钥）由公共配置的 providers 定义，这里只选择名字；留空的功能使用“主持模型”（default）。用量统计按实际回答的服务商与模型记录。" },
   { id: "planner", title: "剧情规划", help: "较慢、较深的规划模型：节拍、线索与会后总结。" },
   { id: "pacing", title: "节奏", help: "回应前的等待与每回合的动作数。" },
@@ -28,8 +28,8 @@ const minutes = (ms) => Math.round(ms / 60000);
 const EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
 // One row of fields per function (llm/routes.mjs): its provider (a name from the shared file; `dynamic` fills the
 // options), model and effort. The effective values are those of the route the function's calls take.
-const FUNCTION_LABELS = { forge: "开局共创", director: "主持（GM 与 NPC）", coplayers: "AI 队友", formatting: "聊天排版", planner: "剧情规划", memory: "记忆压缩", readers: "场景判读", pictures: "插画选择", cards: "角色卡生成" };
-const FUNCTION_HELP = { forge: "开局访谈、世界和角色共同构建、评审及独立试跑。", director: "每回合 GM 的决定与台词，上下文最大。", coplayers: "AI 队友的发言与短信。", formatting: "只读取本轮草稿，将原文排成聊天消息及桌面操作。可选用更快的模型。", planner: "剧情规划的草稿、评审与修订（也可在“剧情规划”组设置）。", memory: "把较早的聊天压缩成章节。", readers: "判断谁在何处的小调用：在场、移动、座位纠正、场景交接。", pictures: "为插画挑选时刻、搜寻过去的剧情。", cards: "生成与修复角色卡（启动与新建 NPC 时）。" };
+const FUNCTION_LABELS = { forge: "开局共创", director: "主持（GM 与 NPC）", formatting: "聊天排版", planner: "剧情规划", memory: "记忆压缩", readers: "场景判读", pictures: "插画选择", cards: "角色卡生成" };
+const FUNCTION_HELP = { forge: "开局访谈、世界和角色共同构建、评审及独立试跑。", director: "每回合 GM 的决定与台词，上下文最大。", formatting: "只读取本轮草稿，将原文排成聊天消息及桌面操作。可选用更快的模型。", planner: "剧情规划的草稿、评审与修订（也可在“剧情规划”组设置）。", memory: "把较早的聊天压缩成章节。", readers: "判断谁在何处的小调用：在场、移动、座位纠正、场景交接。", pictures: "为插画挑选时刻、搜寻过去的剧情。", cards: "生成与修复角色卡（启动与新建 NPC 时）。" };
 const modelFields = FUNCTION_NAMES.flatMap((fn) => {
   const route = (c) => routeFor(c, MODEL_FUNCTIONS[fn][0]);
   return [
@@ -45,7 +45,6 @@ export const FIELDS = [
   f("table.kickoff", "bool", "启动时开场", "启动后 GM 立即在主场景开场。", (c) => c.kickoff),
   f("table.verbose", "bool", "详细日志", "在日志中记录更多细节。", (c) => c.verbose),
   f("writing.gm", "text", "GM 与 NPC 写作指导", "用于 GM 的叙述、NPC 台词和短信。支持多段文字；留空或恢复默认会使用原有指导。", (c) => c.writing.gm, { maxLength: WRITING_MAX_LENGTH }),
-  f("writing.coplayer", "text", "AI 陪玩写作指导", "用于陪玩在场景中的动作和台词，包括无人值守日常。支持多段文字；留空或恢复默认会使用原有指导。", (c) => c.writing.coplayer, { maxLength: WRITING_MAX_LENGTH }),
   f("writing.formatting", "text", "消息长短与拆分指导", "预填现有排版习惯，可直接改写。只调整原文的分组与拆条；故事本身写得详细还是简练，请在上方写作指导中设置。留空或恢复默认会使用原有指导。", (c) => c.writing.formatting, { group: "presentation", maxLength: WRITING_MAX_LENGTH }),
 
   f("llm.model", "string", "模型", "留空则使用公共配置或服务商默认模型。", (c) => c.llm.model),
@@ -74,7 +73,7 @@ export const FIELDS = [
 
   f("pacing.debounce_ms", "int", "回应等待", "玩家停笔多久后 GM 回应。", (c) => c.debounceMs, { min: 0, unit: "ms" }),
   f("pacing.post_delay_ms", "int", "发言间隔", "连续发出的两行之间的停顿。", (c) => c.postDelayMs, { min: 0, unit: "ms" }),
-  f("pacing.max_actions_per_turn", "int", "每回合最多动作", "GM 与队友一回合内的动作上限。", (c) => c.maxActionsPerTurn, { min: 1 }),
+  f("pacing.max_actions_per_turn", "int", "每回合最多动作", "GM 一回合内的动作上限。", (c) => c.maxActionsPerTurn, { min: 1 }),
 
   f("context.gm_tokens", "int", "GM 上下文预算", "GM 提示词的令牌预算，较早的历史会被压缩为章节。", (c) => c.gmContextTokens, { min: 8000 }),
   f("context.recall_tokens", "int", "回忆片段预算", "从久远历史中召回的片段令牌数。", (c) => c.recallTokens, { min: 0, max: 4000 }),
@@ -100,7 +99,7 @@ export const FIELDS = [
   f("scenarios.min_lines", "int", "场景最少行数", "当前场景至少这么多行。", (c) => c.scenarioMinLines, { min: 0 }),
 
   f("worldbook.gm_tokens", "int", "GM 词条预算", "GM 提示词中同时使用的词条上限（令牌）。", (c) => c.worldbook.gm_tokens, { min: 0, max: 20000 }),
-  f("worldbook.coplayer_tokens", "int", "队友词条预算", "AI 队友提示词中同时使用的公开词条上限（令牌）。", (c) => c.worldbook.coplayer_tokens, { min: 0, max: 20000 }),
+  f("worldbook.coplayer_tokens", "int", "公开词条预算", "平台机器人备忘中同时使用的公开词条上限（令牌）。", (c) => c.worldbook.coplayer_tokens, { min: 0, max: 20000 }),
   f("worldbook.recent_lines", "int", "词条检索行数", "在窗口最近多少行里查找词条的标题与关键词；GM 查阅过的词条也保留这么多行。", (c) => c.worldbook.recent_lines, { min: 1, max: 200 }),
   f("calendar.min_minutes", "int", "日期推进冷却", "日期变化后，至少过这么久才能再推进。", (c) => c.calendarMinMinutes, { min: 0, unit: "分钟" }),
   f("calendar.min_lines", "int", "日期推进所需行数", "以及这么多玩家发言。", (c) => c.calendarMinLines, { min: 0 }),

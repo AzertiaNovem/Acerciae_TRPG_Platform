@@ -300,7 +300,6 @@ test("a GM's request_roll turn: the card is posted, the tap closes it and starts
   let asked = false;
   llm.director = () => (asked ? { actions: [{ type: "narrate", text: "The catalogue gives up its secret." }], coplayers_may_act: false }
     : (asked = true, { actions: [{ type: "request_roll", who: "Alice Hale", command: ".ra Library Use", text: "Check the catalogue first." }], coplayers_may_act: false }));
-  llm.coplayer = () => ({ action: "pass" });
   const { t, api, line } = await setup({ llm });
   await event(t, line({ content: "I search the shelves." }));
   for (let i = 0; i < 30 && t.pending; i++) { await new Promise((r) => setTimeout(r, 2)); await t.queue; }

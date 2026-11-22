@@ -71,7 +71,7 @@ const SETTINGS = [
   ["register", null, "account.register"], ["create", null, "channel.create"], ["rules", null, "channel.rule_system"], ["server", null, "channel.server_id"], ["channel", "CHANNEL_ID", null],
   ["server-name", null, "channel.server_name"], ["channel-name", null, "channel.channel_name"], ["era", null, "channel.era"],
   ["level", null, "table.level"], ["language", null, "table.language"], ["kickoff", null, "table.kickoff"], ["verbose", null, "table.verbose"],
-  ["gm-writing", null, "writing.gm"], ["coplayer-writing", null, "writing.coplayer"], ["formatting-writing", null, "writing.formatting"],
+  ["gm-writing", null, "writing.gm"], ["formatting-writing", null, "writing.formatting"],
   ["llm-provider", null, "llm.provider"], ["llm-api-base", null, "llm.api_base"], ["llm-api-key", "LLM_API_KEY", null], ["llm-model", null, "llm.model"], ["llm-effort", null, "llm.effort"],
   ["llm-max-tokens", null, "llm.max_tokens"], ["llm-fallbacks", null, "llm.fallbacks"], ["llm-timeout-ms", null, "llm.timeout_ms"], ["llm-stream", null, "llm.stream"], ["llm-trace", null, "llm.trace"], ["llm-cache-ttl", null, "llm.cache_ttl"],
   ["planner", null, "planner.enabled"], ["planner-provider", null, "planner.provider"], ["planner-api-base", null, "planner.api_base"], ["planner-api-key", "PLANNER_API_KEY", null], ["planner-model", null, "planner.model"], ["planner-effort", null, "planner.effort"],
@@ -107,9 +107,10 @@ const LEGACY_ENV = {
 // platform's bots took: docs/BOTS.md). Older files may still set them: they are read without a warning, and ignored.
 const RETIRED_KEYS = ["autonomy.coplayer_idle_lines", "autonomy.coplayer_idle_minutes", "planner.impulse_lines",
   "modes.casual_ai_texts_per_hour", "modes.casual_ai_chain", "autonomy.side_interval_ms", "autonomy.away_side_interval_ms",
-  "table.coplayers", "table.coplayer_windows", "context.coplayer_tokens", "timelines.guard_turns", "timelines.guard_ms"];
+  "table.coplayers", "table.coplayer_windows", "context.coplayer_tokens", "timelines.guard_turns", "timelines.guard_ms",
+  "writing.coplayer"];
 // Model functions and purposes of those features (`models.<name>`), likewise.
-const RETIRED_MODELS = ["coplayer_phone", "coplayer_card", "coplayer_repair"];
+const RETIRED_MODELS = ["coplayers", "coplayer_turn", "coplayer_memory", "coplayer_phone", "coplayer_card", "coplayer_repair"];
 const SECTIONS = ["forge", "worldbook", "account", "channel", "table", "writing", "llm", "planner", "models", "providers", "pacing", "context", "autonomy", "timelines", "scenarios", "calendar", "modes", "illustrations"];
 // Named endpoints (`providers`) and the model of each function (`models`) have keys of their own (llm/routes.mjs).
 const FREE_SECTIONS = ["providers", "models"];
@@ -264,7 +265,8 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     gmContextTokens: Math.max(8000, int(pick("gm-context-tokens", 60000), 60000)),
     recallTokens: Math.max(0, Math.min(4000, int(pick("context-recall-tokens", 1200), 1200))),
     historyBackfillLines: Math.max(0, int(pick("history-backfill-lines", 1000), 1000)),
-    // The worldbook (worldbook.mjs): how much of it a GM or co-player prompt may carry, and how far back a mention counts.
+    // The worldbook (worldbook.mjs): how much of it the GM's prompt and the bots' notes may carry (gm_tokens,
+    // coplayer_tokens), and how far back a mention counts.
     worldbook: Object.fromEntries(Object.entries(WORLDBOOK_DEFAULTS).map(([k, d]) => [k, Math.min(k === "recent_lines" ? 200 : 20000, Math.max(k === "recent_lines" ? 1 : 0, int(pick(`worldbook-${k.replaceAll("_", "-")}`, d), d)))])),
     // Billable-equivalent tokens a day (cache reads count a tenth); spent, the table stops its own autonomous turns.
     dailyTokenBudget: Math.max(0, int(pick("llm-daily-token-budget", 0), 0)),
@@ -281,7 +283,7 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
     // Scene forks: after the first split the main story moves to a restricted fork and the Main Chat becomes a public
     // lobby the GM never narrates in (for several players who must not read each other's scenes). Off: the main
     // story stays in the Main Chat with the players; only those who go elsewhere get a window (a single player is
-    // always in the Main Chat; co-players move around them).
+    // always in the Main Chat).
     sceneForks: bool(pick("scene-forks"), false),
     timelineMaxActive: Math.max(1, int(pick("timeline-max-active", 4), 4)),
     timelinePcCooldownMs: Math.max(0, int(pick("timeline-pc-cooldown-ms", 300000), 300000)),

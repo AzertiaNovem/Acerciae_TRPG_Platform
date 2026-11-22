@@ -89,7 +89,7 @@ export function worldbookEditor(root, { api, notice }) {
       el('section', { class: 'card' }, el('h3', { text: '世界书' }),
         el('p', { class: 'muted small', text: status }),
         data.improv ? null : el('p', { class: 'banner error', text: '本频道未开启即兴模式，世界书暂不生效。' }),
-        el('p', { text: '世界圣经每回合都交给 GM、NPC 与 AI 队友；隐藏设定只给 GM 一方。词条只在需要时使用：标题或关键词出现在该窗口最近的聊天里时（AI 队友只看自己亲历的部分），或 GM 用 worldbook_read 主动查阅时。秘密词条只给 GM、NPC 与剧情规划，AI 队友永远读不到。' }),
+        el('p', { text: '世界圣经每回合都交给 GM 与 NPC，也写进平台机器人的备忘；隐藏设定只给 GM 一方。词条只在需要时使用：标题或关键词出现在该窗口最近的聊天里时（机器人的备忘只看所有人都能读到的聊天），或 GM 用 worldbook_read 主动查阅时。秘密词条只给 GM、NPC 与剧情规划，机器人永远读不到。' }),
         el('p', { class: 'muted small', text: '世界书不会发到聊天里，只保存在运行主持程序的这台机器上。运行中的频道会在下一回合读到修改。' })),
       el('section', { class: 'card' }, el('div', { class: 'row' }, el('h3', { text: '世界圣经（总是使用，所有人都知道）' }), count(view.bible, data.limits.bible)), view.bible),
       el('section', { class: 'card' }, el('div', { class: 'row' }, el('h3', { text: '隐藏设定（总是使用，只给 GM 一方）' }), count(view.hidden, data.limits.hidden)), view.hidden),

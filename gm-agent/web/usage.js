@@ -1,7 +1,7 @@
 // SVG bars and the text table share the same counters; no chart library or remote resources.
 // Cache reads/writes are components of input, never added to input + output again.
 export const PURPOSES = { director: 'GM 主持', planner: '剧情规划', coplayer_turn: 'AI 队友回合', coplayer_phone: 'AI 队友短信',
-  coplayer_card: '队友角色资料', npc_card: 'NPC 角色资料', coplayer_points: '队友购点', coplayer_build: '队友职业与技能',
+  coplayer_card: '队友角色资料', npc_card: 'NPC 角色资料', coplayer_points: '角色卡购点', coplayer_build: '角色职业与技能',
   coplayer_repair: '角色卡修复', pbta_design: 'PbtA 规则设计', pbta_card: 'PbtA 角色卡', scene_handoff: '场景交接',
   scene_presence: '场景在场判断', scenario_illustration: '场景插图提示词', compact: 'GM 记忆整理', coplayer_memory: '队友记忆整理' };
 export const PHASES = { draft: '初稿', critique: '评审', revise: '修订', final_draft: '会后初稿', final_critique: '会后评审', final_revise: '会后修订',

@@ -11,8 +11,8 @@ import { metered } from "../src/llm/parts.mjs";
 test("a metered call records the provider and model its usage names, over the table's defaults", async () => {
   const records = [];
   const llm = metered({ async complete({ onUsage }) { onUsage({ provider: "gw", model: "gpt-x", input: 5, cacheRead: 0, cacheWrite: 0, output: 1 }); return "x"; } }, { sink: (r) => records.push(r), provider: "anthropic", model: "claude-opus-5-5" });
-  await llm.complete({ purpose: "coplayer_turn" });
-  assert.deepEqual([records[0].provider, records[0].model, records[0].purpose], ["gw", "gpt-x", "coplayer_turn"]);
+  await llm.complete({ purpose: "planner" });
+  assert.deepEqual([records[0].provider, records[0].model, records[0].purpose], ["gw", "gpt-x", "planner"]);
 });
 import { completeJson } from "../src/llm/index.mjs";
 import { withProgress } from "../src/llm/progress.mjs";
@@ -54,12 +54,12 @@ test("JSON repair is recorded separately, with the original request id and categ
     const llm = metered({ async complete({ onUsage }) {
       onUsage({ input: 50, output: ++calls * 10 }); return calls === 1 ? "not JSON" : '{"ok":true}';
     } }, { sink: (r) => store.recordUsage(r) });
-    assert.deepEqual(await completeJson(llm, { system: "rules", user: "go", purpose: "coplayer_card", phase: "generate" }), { ok: true });
+    assert.deepEqual(await completeJson(llm, { system: "rules", user: "go", purpose: "npc_card", phase: "generate" }), { ok: true });
     const [repair, first] = store.usageCalls({});
     assert.equal(repair.requestId, first.requestId); assert.notEqual(repair.callId, first.callId);
     assert.deepEqual([first.attempt, repair.attempt], [1, 2]);
     const [summary] = store.usageByPurpose();
-    assert.equal(summary.purpose, "coplayer_card"); assert.equal(summary.phase, "generate");
+    assert.equal(summary.purpose, "npc_card"); assert.equal(summary.phase, "generate");
     assert.equal(summary.calls, 2); assert.equal(summary.output, 30); assert.equal(summary.averageOutput, 15);
   } finally { store.close(); }
 });
@@ -79,7 +79,7 @@ test("usage survives reopening and old schema migration, groups phases/models an
     store.recordUsage({ at: 100, purpose: "planner", phase: "draft", model: "m", input: 100, output: 20 });
     store.recordUsage({ at: 101, purpose: "planner", phase: "revise", model: "m", input: 200, output: 30 });
     store.recordUsage({ at: 102, purpose: "planner", phase: "revise", model: "m", usageKnown: false, status: "failed" });
-    store.recordUsage({ at: 103, purpose: "coplayer_turn", model: "mock", input: 10, output: 50 });
+    store.recordUsage({ at: 103, purpose: "coplayer_turn", model: "mock", input: 10, output: 50 });   // an older version's purpose
     store.recordUsage({ at: 104, purpose: "large_counter", input: 3_000_000_000, output: 4_000_000_000 });
     store.close(); store = new Store(file);
     const report = usageReport(store, { since: 100, purpose: "planner", limit: 1 });
@@ -112,7 +112,7 @@ test("usage CLI reads local statistics as JSON without platform login, including
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gm-usage-cli-"));
   const store = Store.open(dir, "ch");
   store.recordUsage({ purpose: "planner", phase: "draft", model: "m", input: 100, output: 40 });
-  store.recordUsage({ purpose: "coplayer_card", model: "m", input: 10, output: 9 });
+  store.recordUsage({ purpose: "npc_card", model: "m", input: 10, output: 9 });
   store.close();
   try {
     const cli = new URL("../src/cli.mjs", import.meta.url);

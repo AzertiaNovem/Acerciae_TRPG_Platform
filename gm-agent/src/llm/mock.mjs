@@ -121,7 +121,7 @@ export class MockLlm {
         name, persona: `[mock] ${name} is quick, wry and loyal to the party.`, speaking_style: "plain, quick, short sentences",
         appearance_prompt: "[mock] Slender elf in a dark leather jerkin, braided black hair, a hooded cloak, daggers at the belt.",
         role_card: {
-          basic: { player: kind === "npc" ? "NPC" : "AI co-player", occupation: "Rogue", age: String(24 + i * 3), sex: i % 2 ? "male" : "female", residence: "the harbour quarter", birthplace: "the hill villages" },
+          basic: { player: kind === "npc" ? "NPC" : "GM", occupation: "Rogue", age: String(24 + i * 3), sex: i % 2 ? "male" : "female", residence: "the harbour quarter", birthplace: "the hill villages" },
           background: { personal_description: "[mock] slender, quick hands", ideology: "[mock] freedom over law", significant_people: "[mock] a sister in the thieves' guild", meaningful_locations: "[mock] the old mill", treasured_possessions: "[mock] a lockpick set", traits: "[mock] reckless, loyal", injuries: "None", phobias: "None", arcane: "None", encounters: "None" },
           items: [{ name: "Leather armour", note: "AC 11 + DEX", qty: 1 }, { name: "Dagger", note: "", qty: 2 }, { name: "Thieves' tools", note: "", qty: 1 }],
           wealth: { cash: "15 gp", assets: "a room above the tavern", spending_level: "modest" },
@@ -138,7 +138,7 @@ export class MockLlm {
       appearance_prompt: "[mock] Adult investigator in a tidy 1920s wool coat, short dark hair, ink-stained fingers, round spectacles.",
       role_card: {
         ...(career ? { career: { name: career, choices: [], specialties: [] } } : {}),
-        basic: { player: 'AI co-player', occupation: CAREERS[i % CAREERS.length], age: String(28 + i * 3), sex: i % 2 ? "male" : "female", residence: "Arkham", birthplace: "Boston" },
+        basic: { player: 'GM', occupation: CAREERS[i % CAREERS.length], age: String(28 + i * 3), sex: i % 2 ? "male" : "female", residence: "Arkham", birthplace: "Boston" },
         characteristics: { STR: n(45), CON: n(50), SIZ: n(55), DEX: n(60), APP: n(50), INT: n(65), POW: n(55), EDU: n(70), LUK: n(50) },
         skills: { "Spot Hidden": 60, "Library Use": 55, Psychology: 45, Persuade: 40, "Fighting (Brawl)": 35, Dodge: 40 },
         background: { personal_description: "[mock] tidy coat, ink-stained fingers", ideology: "[mock] the truth matters", traits: "[mock] stubborn", significant_people: '[mock] family', meaningful_locations: '[mock] home', treasured_possessions: '[mock] notebook', injuries: 'None', phobias: 'None', arcane: 'None', encounters: 'None' },

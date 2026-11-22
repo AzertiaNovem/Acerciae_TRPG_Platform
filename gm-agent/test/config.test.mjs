@@ -159,11 +159,13 @@ const RETIRED = {
   context: { coplayer_tokens: 20000 },
   autonomy: { side_interval_ms: 60000, away_side_interval_ms: 0, coplayer_idle_lines: 6, coplayer_idle_minutes: 30 },
   modes: { casual_ai_texts_per_hour: 4, casual_ai_chain: 2 },
+  timelines: { guard_turns: 2, guard_ms: 60000 },
   models: { coplayers: "default", coplayer_turn: { provider: "default", effort: "low" }, coplayer_phone: "default", coplayer_memory: "default", coplayer_card: "default", coplayer_repair: "default" },
 };
 
-test("the co-players' settings in an older file load without a warning", () => {
+test("the co-players' settings in an older file load without a warning, and change nothing", () => {
   assert.deepEqual(buildConfig({}, {}, file(RETIRED)).warnings, []);
+  assert.deepEqual(buildConfig({}, {}, file(RETIRED)), buildConfig({}, {}, file({})), "read as if they were not there");
   assert.doesNotThrow(() => parseChannel(YAML.stringify(RETIRED)));
   // Their old environment variables still say they are not read, without pointing to a key that does nothing.
   assert.deepEqual(buildConfig({}, { AWAY_SIDE_INTERVAL_MS: "0" }, file({})).warnings, ["AWAY_SIDE_INTERVAL_MS is no longer read; its setting is retired"]);

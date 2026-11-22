@@ -11,7 +11,7 @@ const trust = {id:'trust',label:'信任',description:'NPC 对具体对象的信�
 const define = (s=emptyWorldState(), definition=trust) => applyWorldOperation(s,{type:'define',definition,reason:'World setup'},ctx);
 const set = (s,target,value,expected=0,extra={}) => applyWorldOperation(s,{type:'set',metric:'trust',subject:'npc',target,expected,value,reason:'Kept a promise'}, {...ctx,...extra});
 
-test('directed NPC attitudes and unlocks stay independent for each human and co-player',()=>{
+test('directed NPC attitudes and unlocks stay independent for each player character',()=>{
   let s=set(define(),'alice',2); s=set(s,'bob',1); s=set(s,'cara',3);
   assert.equal(s.values[valueKey('trust','npc','alice')].value,2);
   assert.equal(s.values[valueKey('trust','npc','bob')].value,1);

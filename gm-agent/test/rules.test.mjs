@@ -76,7 +76,7 @@ test("PbtA keeps sourced moves and player choices without CoC or D&D dice", () =
 test("a D&D table's prompts name the GM and the D20 commands, never the Keeper, the Dungeon Master or sanity", () => {
   const dnd = rulesProfile("dnd2024");
   const director = directorSystem("English", { profile: dnd, improv: true });
-  assert.match(director, /^You are the GM \(Game master\) of a fifth-edition fantasy campaign \(D&D 2024 rules, SRD 5\.2\), whose genre and tone follow the campaign's world setting, not necessarily fantasy, on an online table\. Human players play their adventurers; some adventurers are AI co-players/);
+  assert.match(director, /^You are the GM \(Game master\) of a fifth-edition fantasy campaign \(D&D 2024 rules, SRD 5\.2\), whose genre and tone follow the campaign's world setting, not necessarily fantasy, on an online table\. Players play their adventurers; some players may be the platform's bots, which take their turn after yours\./);
   assert.doesNotMatch(director, /Keeper|Dungeon Master|\bDM\b|\.sc |Sealdice|investigator/);
   assert.match(director, /"\.rc Stealth dc 15", "\.rc WIS save dc 13", "\.rc attack \+5 ac 14"/);
   assert.match(director, /- Combat: when a fight starts, have everyone roll initiative/); assert.match(director, /Your dice action runs a command as the GM:/);

@@ -3,8 +3,7 @@
 // them, and a human operator with `bond`. State key `bonds`; each is {a, b, kind, note, secret, since, by}, with `a`
 // and `b` character ids (the pair is unordered; `note` says which way a one-sided bond goes: "Ada is Ben's mother").
 //
-// Who reads what: the GM and the planner read every bond. A co-player reads the bonds it is part of, secret or not,
-// and the public bonds between people it knows (its companions, and the NPCs it has met in its own scenes).
+// Who reads what: the GM and the planner read every bond; the platform's bots read none.
 
 const MAX_BONDS = 80;
 const clip = (s, n) => { const t = String(s ?? "").replace(/\s+/g, " ").trim(); return t.length > n ? t.slice(0, n) : t; };
@@ -46,15 +45,6 @@ const line = (x, nameOf, { marks = false } = {}) => `- ${nameOf(x.a)} — ${name
 export function renderBonds(bonds, nameOf) {
   if (!bonds.length) return "";
   return ["## Relationships (who lives with, loves, is related to, works with or is at odds with whom; keep to them, change them with bond. [secret]: the investigators do not know it)", ...bonds.map((x) => line(x, nameOf, { marks: true }))].join("\n");
-}
-
-// What one co-player knows: its own bonds, and public bonds between people it knows (character ids in `known`).
-export function bondsFor(bonds, me, known) {
-  return bonds.filter((x) => x.a === me || x.b === me || (!x.secret && known.has(x.a) && known.has(x.b)));
-}
-export function renderBondsFor(bonds, me, known, nameOf) {
-  const mine = bondsFor(bonds, me, known);
-  return mine.length ? `WHO IS WHO TO WHOM (relationships you know of):\n${mine.map((x) => line(x, (id) => (id === me ? `${nameOf(id)} (you)` : nameOf(id)))).join("\n")}` : "";
 }
 
 // A list of {a, b, kind, note, secret, end} by name from a model, resolved to character ids; unknown names dropped.

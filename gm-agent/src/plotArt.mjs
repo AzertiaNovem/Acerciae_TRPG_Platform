@@ -6,7 +6,7 @@
 //   2. An entry too long to read in full is split into parts, and the model names the part (`plot_search/zoom`).
 //   3. A second call (`plot_illustration`) reads those lines and picks the moment, or says it is not there; then the
 //      next entry named is tried.
-// What may be drawn: lines of any window of play, other players' and co-players' scenes too, posted for the whole
+// What may be drawn: lines of any window of play, other players' scenes too, posted for the whole
 // window; never a whisper, a GM-only note, a phone or another table window.
 import { completeJson } from "./llm/index.mjs";
 import { MAX_CHARACTERS, normalizeIllustration, outfitBlock, withOutfits } from "./illustrations.mjs";

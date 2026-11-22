@@ -5,9 +5,9 @@
 // inbox, and its next run (whatever triggered it) reads them, keeps the standing wishes and corrections as table notes,
 // and answers in the window along the way.
 //
-// Who reads what: the GM and the planner read every note. A co-player reads only the corrections, those about it or
-// about no one in particular, as out-of-character table rules: a wish is the planner's to weave in, and a co-player
-// told it would play to it. State: `planner.inbox` (lines not yet read), `planner.table` (the notes), `planner.window`.
+// Who reads what: the GM and the planner read every note. The platform's bots read only the corrections, as
+// out-of-character table rules (their notes, table/bots.mjs): a wish is the planner's to weave in, and a bot told it
+// would play to it. State: `planner.inbox` (lines not yet read), `planner.table` (the notes), `planner.window`.
 
 import { leaksSecret } from "./planner.mjs";
 
@@ -61,12 +61,6 @@ export function renderTableNotes(notes) {
     ...(corr.length ? ["Corrections: things the story got wrong against their setting. Keep to them strictly, from now on:", ...corr.map((n) => `- ${n.id}: ${n.text}${n.about.length ? ` (about ${n.about.join(", ")})` : ""}`)] : []),
     ...(wish.length ? ["Wishes: where they would like the story to go. Steer toward them as the story allows, without forcing them:", ...wish.map((n) => `- ${n.id}: ${n.text}${n.about.length ? ` (about ${n.about.join(", ")})` : ""}`)] : []),
   ].join("\n");
-}
-
-// What a co-player reads: the corrections about it, or about no one in particular.
-export function renderCorrectionsFor(notes, name) {
-  const mine = notes.filter((n) => n.kind === "correction" && (!n.about.length || n.about.some((a) => norm(a) === norm(name) || norm(String(name).split(/\s+/)[0]) === norm(a))));
-  return mine.length ? `TABLE CORRECTIONS (out of character, from the players: keep to them from now on):\n${mine.map((n) => `- ${n.text}`).join("\n")}` : "";
 }
 
 // The planner's answer in the window: short, and never a quoted secret or hidden truth (else a plain acknowledgement).

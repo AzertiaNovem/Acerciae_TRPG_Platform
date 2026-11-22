@@ -1,8 +1,7 @@
 // Story timelines. The platform has scenarios for the whole campaign, but no idea that part of the party may be living
-// another thread: co-players or players who went somewhere else, a story told later about something that happened
-// elsewhere. The client keeps that here, in its state file.
+// another thread: players who went somewhere else, a story told later about something that happened elsewhere. The client keeps that here, in its state file.
 //
-// Every investigator (player character or co-player) is in exactly one active timeline; the main timeline always
+// Every investigator (player character) is in exactly one active timeline; the main timeline always
 // exists, initially in Main Chat and then in its own restricted window after the first split.
 // Other timelines are bound to a window of their own. Each has a persistent
 // handle (T0 is the main timeline; handles are never reused), a span ("short": the party is briefly apart, as in two

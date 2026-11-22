@@ -1,6 +1,6 @@
 // Improvisation mode: no module. The story grows from a world setting the GM writes, the investigators' own
 // personalities and backgrounds, and the players' choices.
-//   world   – the public setting (the worldbook's bible): given to the GM, the real NPCs and every co-player;
+//   world   – the public setting (the worldbook's bible): given to the GM, the real NPCs and the platform's bots;
 //   secrets – the GM's own hidden layer (what is really going on), given to the GM and the real NPCs only;
 //   truths  – hidden facts the GM decides during play (the `truth` action), kept so the story stays consistent.
 // The texts come from the GM's own files (`--world`, `--secrets`), the Forge or the worldbook the host's Web UI edits
@@ -49,7 +49,7 @@ export function addTruth(improv, text) {
 // The GM's sections: the shared world and the hidden layer.
 export function improvSections(improv) {
   if (!improv?.on) return [];
-  const out = [`## World setting (the world bible: everyone in the story knows this, and the co-players have it)\n${improv.world || "(none written yet)"}`];
+  const out = [`## World setting (the world bible: everyone in the story knows this, and the platform's bots have it)\n${improv.world || "(none written yet)"}`];
   const hidden = [improv.secrets, ...improv.truths.map((t) => `- ${t.text}`)].filter(Boolean);
   out.push(`## Hidden truths (yours alone: never state them outright; let the investigators uncover them through play)\n${hidden.join("\n") || "(none yet: decide them as the story needs, and record them with truth)"}`);
   return out;

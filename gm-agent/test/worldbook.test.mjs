@@ -57,7 +57,7 @@ test("worldbook: entries come into play by mention, newest first, within the bud
 test("worldbook: an entry is found by title, id or key; the GM's index lists what exists", () => {
   assert.equal(findEntry(BOOK, "harbour guild").id, "e1");
   assert.equal(findEntry(BOOK, "dockmasters").id, "e1");
-  assert.equal(findEntry(BOOK, "lighthouse"), null, "a secret entry is not found for a co-player");
+  assert.equal(findEntry(BOOK, "lighthouse"), null, "a secret entry is found only for the GM");
   assert.equal(findEntry(BOOK, "lighthouse", { secret: true }).id, "e2");
   const index = renderIndex(BOOK);
   assert.match(index, /- The drowned keeper \[secret: yours alone\] \(keys: lighthouse\)/);

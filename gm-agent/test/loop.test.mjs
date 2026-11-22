@@ -241,7 +241,7 @@ const quietDirector = (plan) => (user) => (user.includes("NEWEST LINE") || user.
 
 test("TIMELINE_AUTO=false: the GM keeps each timeline's time and place, and a split it asks for is not carried out", async () => {
   const llm = new MockLlm();
-  llm.director = quietDirector({ actions: [{ type: "split", name: "The docks", coplayers: ["Alice Hale"], location: "Old Harbour" }, { type: "timeline", timeline: "Main story", narrative_time: "Tuesday night", location: "Hale house" }], coplayers_may_act: false });
+  llm.director = quietDirector({ actions: [{ type: "split", name: "The docks", who: ["Alice Hale"], location: "Old Harbour" }, { type: "timeline", timeline: "Main story", narrative_time: "Tuesday night", location: "Hale house" }], coplayers_may_act: false });
   const { t, api } = await table({ llm, cfg: { timelineAuto: false } });
   await playerSays(t, api, "We wait for nightfall.");
   await settle(t);
@@ -1010,6 +1010,33 @@ test("a PC the GM account owns is voiced like an NPC: no phone, never an investi
   const windows = api.createdWindows.length;
   await alicePosts(t, api, "Harriet, go and look in the cellar."); await settle(t);
   assert.equal(api.createdWindows.length, windows, "no window of her own");
+});
+
+import { Timelines as _Timelines } from "../src/timelines.mjs";
+import { Guard as _Guard } from "../src/whereabouts.mjs";
+test("an older version's state loads: its co-players' seats and impulses are left behind, and a thread only they held folds into the main story", async () => {
+  const first = await table({ forks: false, extraCharacters: [HARRIET], before: (a) => a.windows_.push({ id: "w-side", name: "Side: Cellar", kind: "group", members: [{ user_id: "u-bot" }] }) });
+  // What an older version saved: Harriet as a co-player in a side thread of her own, seated by window (before seats
+  // had a start and an end), with a reversal guard on her and an impulse for her in the plan and in a pending one.
+  const tl = first.t.timelines.toJSON();
+  tl.list.push({ ...structuredClone(tl.list[0]), id: "t-old", handle: 9, name: "Cellar", location: "Cellar", members: ["c-harriet"], windowId: "w-side", status: "active" });
+  const impulse = { coplayerId: "c-harriet", text: "you want to see the cellar" };
+  const state = {
+    npcs: [], coplayers: [{ characterId: "c-harriet", name: "Harriet Vance", persona: "Collects old maps.", windows: ["w-side"] }],
+    timelines: tl, guard: { turn: 4, by: { "c-harriet": { changedTurn: 3, changedAt: 1, changedSeq: 2, prev: "main", windowAt: 0, pendingCount: 1 } } },
+    planner: { ...structuredClone(first.t.planner), impulses: [impulse], pending: { arc: { version: 1, trigger: "first", beat: { title: "The cellar" }, threads: [] }, impulses: [impulse], at: 0, trigger: "first" } },
+  };
+  const t = new Table({ api: first.api, llm: first.llm, cfg: first.t.cfg, channelId: "ch", roster: new Roster(state), timelines: new _Timelines(state.timelines), guard: new _Guard(state.guard), planner: state.planner, sleep: async () => {}, now: () => first.clock.t });
+  await t.init({ heal: true }); await settle(t);
+  assert.equal(t.roster.isNpc("c-harriet"), true, "she is one of the GM's NPCs");
+  assert.equal("coplayers" in t.roster.toJSON(), false);
+  assert.deepEqual(t.timelines.active().map((x) => x.id), ["main"], "the thread nobody is in any more is folded into the main story");
+  assert.equal(t.timelines.get("t-old").status, "merged");
+  assert.equal("impulses" in t.planner, false);
+  await playerSays(t, first.api, "Is anyone down there?"); await settle(t);
+  assert.equal(t.planner.arc.version, 1, "the pending plan is adopted");
+  assert.equal("impulses" in t.planner, false, "without its impulses");
+  assert.ok(directorCalls(first.llm).some((u) => u.includes("NEWEST LINE: Alice Hale: Is anyone down there?")), "and the table plays on");
 });
 
 test("casual: a line naming no known contact gets a hint, and nobody is texted", async () => {
@@ -2124,7 +2151,7 @@ test("new people: reuse the cast for new plots; a specific person with more than
   const director = _dirSys("English", {});
   for (const text of [director, _planSys("English", { mode: "full" })]) {
     assert.match(text, /Grow newer plots out of the people already in the story/);
-    assert.match(text, /\(1\) they could build a lasting bond with the player characters or co-players.*\(2\) they have more than one sentence to say; \(3\) they are one specific person, not a voice standing for a crowd or a group/);
+    assert.match(text, /\(1\) they could build a lasting bond with the player characters \(an ally.*\(2\) they have more than one sentence to say; \(3\) they are one specific person, not a voice standing for a crowd or a group/);
     assert.match(text, /a character created on the platform, never a voice inside narration/);
     assert.doesNotMatch(text, /Minor one-off service roles can stay unnamed|only when the story needs a distinct role the existing cast cannot credibly fill/);
   }

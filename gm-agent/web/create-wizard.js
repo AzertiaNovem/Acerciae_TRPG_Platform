@@ -192,7 +192,7 @@ export class CreateWizard {
       ], this.draft.world, v => { this.draft.world = v; }));
       if (this.draft.world === 'file') world.push(this.field('modes.world_file', { required: true, help: '必填。运行 GM 的主机上的文件；相对位置以新频道配置文件所在目录为起点。' }), this.field('modes.secrets_file', { help: '可选。仅 GM 使用的秘密文件，与公开世界分开。' }));
     }
-    if (b.improv) world.push(h('div', { class: 'wizard-note', text: '即兴模式自带私密世界账本：NPC 对每位玩家和 AI 队友的态度分别记录，GM 可维护数值、剧情条件及物品。剧情规划可参考这些状态；AI 队友仍保持即兴发挥。' }));
+    if (b.improv) world.push(h('div', { class: 'wizard-note', text: '即兴模式自带私密世界账本：NPC 对每位玩家角色的态度分别记录，GM 可维护数值、剧情条件及物品。剧情规划可参考这些状态。' }));
     $('c-world').replaceChildren(...world.filter(Boolean));
     $('c-casual').replaceChildren(...(this.draft.story ? [b.playedForge ? h('p', { class: 'wizard-note', text: `此频道已通过共创开局，将沿用既有的日常模式（${b.casual ? '开启' : '关闭'}），接入时不重新准备世界和角色。` }) : this.field('modes.casual', { label: '日常模式：手机、短信与故事日历', help: '可叠加在模组或即兴故事上。选择即兴并开启日常模式后，下一步还可开启日常托管。' }),
       b.casual ? h('p', { class: 'wizard-note', text: this.draft.source === 'new' ? '新频道将使用隔离知识模式。玩家加入后需各自在独立玩家组中，手机内容才能保持私密。' : b.isolated ? '频道已使用隔离知识模式；还需每位玩家各在独立玩家组中，手机才能启用。' : '此频道为公开知识模式：故事日历可用，但私密手机不能启用。请在平台改为隔离模式、让玩家各在独立组中，再返回第一步刷新。' }) : null].filter(Boolean) : []));

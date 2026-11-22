@@ -1,6 +1,7 @@
-// The local state file: which platform NPC characters this client plays as co-players and which as real NPCs, where
-// the co-players sit, the timelines and their guard, the current scenario's start and any split in progress. One file
-// per channel under STATE_DIR.
+// The local state file: which platform characters this client voices as real NPCs, the timelines and their guard, the
+// current scenario's start and any split in progress, and the table's other state (the story plan, the calendar,
+// phones, the world). One file per channel under STATE_DIR. An older version's co-players (`coplayers`) are left in
+// it for `bots handoff`.
 //
 // One writer: while `run` keeps a channel it holds `<channel>.lock`, and CLI commands (split, rejoin, advance) are
 // appended to `<channel>.inbox.jsonl` for it to apply. Saves are compare-and-swap on a `version` counter, so a stale

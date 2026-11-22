@@ -207,42 +207,5 @@ export async function allocateDndBuild(llm, card, { rules, language, level = car
   return { ...card, dnd };
 }
 
-// The co-player's own sheet, for its prompt: the build, abilities with modifiers, combat values, proficiencies, spells.
-export function cardSummaryDnd(card, attrs = {}, { stable = false } = {}) {
-  const d = card?.dnd;
-  if (!d) return "(not available)";
-  const sc = scores(d);
-  const pb = proficiencyBonus(d.level);
-  const b = card.basic ?? {};
-  const sign = (n) => (n >= 0 ? `+${n}` : `${n}`);
-  const skills = Object.entries(d.skills ?? {}).map(([k, v]) => `${k} ${sign(mod(sc[(SKILL_ABILITY[k] ?? "INT")]) + pb * v)}${v === 2 ? " (expertise)" : ""}`).join(", ");
-  const slots = Object.entries(d.slots ?? {}).map(([lv, max]) => `level ${lv}: ${stable ? max : `${attrs[`Slot ${lv}`] ?? max}/${max}`}`).join(", ");
-  const spell = d.spellcasting_ability ? `spellcasting: ${d.spellcasting_ability}, save DC ${8 + pb + mod(sc[d.spellcasting_ability])}, attack ${sign(pb + mod(sc[d.spellcasting_ability]))}${slots ? `; slots ${slots}` : ""}` : "";
-  return [
-    `level ${d.level} ${d.species} ${d.class}${d.subclass ? ` (${d.subclass})` : ""}, ${d.background} background; age ${b.age ?? ""}, ${b.sex ?? ""}, from ${b.birthplace ?? ""}, lives in ${b.residence ?? ""}`,
-    `abilities: ${ABILITIES.map((ab) => `${ab} ${sc[ab]} (${sign(mod(sc[ab]))})`).join(", ")}; proficiency bonus ${sign(pb)}`,
-    `${stable ? `max HP ${d.hp_max}` : `HP ${attrs.HP ?? d.hp_max}/${d.hp_max}${attrs["Temp HP"] ? ` (+${attrs["Temp HP"]} temp)` : ""}`}, AC ${d.ac}, speed ${d.speed}, initiative ${sign(mod(sc.DEX) + (d.initiative || 0))}, hit dice ${d.hit_dice}`,
-    `saving throws: ${d.saves.map((ab) => `${ab} ${sign(mod(sc[ab]) + pb)}`).join(", ")}`,
-    `skills: ${skills || "(none)"}`,
-    spell,
-    d.features ? `features: ${d.features}` : "",
-    d.spells ? `spells: ${d.spells}` : "",
-    `background: ${Object.entries(card.background ?? {}).filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join("; ")}`,
-    stable ? "" : `carrying: ${(card.items ?? []).map((i) => i.name).join(", ")}`,
-  ].filter(Boolean).join("\n");
-}
-export function cardStateDnd(card, attrs = {}) {
-  const d = card?.dnd;
-  if (!d) return "(not available)";
-  const slots = Object.entries(d.slots ?? {}).map(([lv, max]) => `level ${lv}: ${attrs[`Slot ${lv}`] ?? max}/${max}`).join(", ");
-  return [
-    `HP ${attrs.HP ?? d.hp_max}/${d.hp_max}${attrs["Temp HP"] ? ` (+${attrs["Temp HP"]} temp)` : ""}`,
-    slots ? `spell slots: ${slots}` : "",
-    `death saves: ${attrs["Death Successes"] ?? 0} successes, ${attrs["Death Failures"] ?? 0} failures`,
-    `carrying: ${(card.items ?? []).map((i) => i.name).join(", ")}`,
-  ].filter(Boolean).join("\n");
-}
-const SKILL_ABILITY = { Acrobatics: "DEX", "Animal Handling": "WIS", Arcana: "INT", Athletics: "STR", Deception: "CHA", History: "INT", Insight: "WIS", Intimidation: "CHA", Investigation: "INT", Medicine: "WIS", Nature: "INT", Perception: "WIS", Performance: "CHA", Persuasion: "CHA", Religion: "INT", "Sleight of Hand": "DEX", Stealth: "DEX", Survival: "WIS" };
-
 // "level 3 Elf Rogue (Criminal)" for the GM's cast list; "" for a card without a build.
 export const castNoteDnd = (card) => (card?.dnd?.class ? `level ${card.dnd.level} ${card.dnd.species} ${card.dnd.class}${card.dnd.background ? ` (${card.dnd.background})` : ""}` : "");

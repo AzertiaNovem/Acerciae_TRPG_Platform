@@ -5,9 +5,8 @@
 //   * an NPC answers through the GM (a `text` action), after a believable delay (or not at all: left on read);
 //     pending replies are kept in the state file, so they survive a restart;
 //   * another player gets the message in their own phone at once, posted as the sender's character.
-// NPCs (through the GM) and co-players may also text a player first. The GM reads every phone; a co-player knows only
-// the messages it sent or received. A phone is private only on an isolated channel with one player per group, so the
-// mode refuses to start anywhere else. In a solemn game (the default) there are no phones.
+// NPCs (through the GM) may also text a player first. The GM reads every phone. A phone is private only on an isolated
+// channel with one player per group, so the mode refuses to start anywhere else. In a solemn game (the default) there are no phones.
 
 export const PHONE_PREFIX = "Phone: ";
 const PENDING_KEPT = 200;
