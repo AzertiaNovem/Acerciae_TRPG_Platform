@@ -7,16 +7,12 @@ use. It plays three kinds of role:
 | Role | On the platform | Who writes it | What its model is given |
 |---|---|---|---|
 | **GM** | the client's account, channel role `gm` | – | everything the GM may read (below) |
-| **Real NPC** | an `npc` character | the GM model, when the story introduces one (or the GM by hand) | **the same context as the GM** |
+| **Real NPC** | an `npc` character, or a `pc` character the client's own account owns | the GM model, when the story introduces one (or the GM by hand) | **the same context as the GM** |
 | **Story planner** | nothing on the platform | – | the GM's whole context plus the previous plan, in the background, with its own model |
-| **Co-player** | a GM-cast PC: a `pc` character owned by the client's account | **the LLM writes its CoC, D&D or PbtA role card** at setup (or the GM made it by hand) | **only the chat log its character witnessed**, plus its own card and persona and its companions' basic details and backgrounds |
 
-Co-players are AI investigators who play *alongside* the human players. You choose how many (`--coplayers N`). On the
-platform they are PCs cast by the GM: player characters owned by the client's own (GM) account, so players see them
-in the character list and can read (not edit) their sheets, and Log Studio files their lines as investigators' lines.
-Every PC the GM account owns is a co-player: `setup` adopts the ones already in the channel (made by hand in the web
-app, say) and generates only the missing ones. Inside this client co-players are separate from the real NPCs: they get
-different context, and the GM model is never allowed to speak for them.
+Every other character at the table is a player's: a person's, or one of the platform's bots'. A `pc` character the client's
+own (GM) account owns is voiced by the GM like a real NPC until it is handed to a player or a bot: it is no
+investigator, has no phone or window of its own, and the platform rolls for it against its sheet.
 
 **Platform bots.** The platform's bots (`docs/BOTS.md`: AI members of a server, invited by the players, each with its
 own persona and memory) play their own characters at the table like players. This client answers their lines as
@@ -26,24 +22,24 @@ so (`POST /channels/{id}/windows/{w}/bot-turns` with `pace`), and the platform t
 for players' or GM lines. After a turn that answered a person and lets the players' side act, it asks the bots seated
 in that window for their turn; its answer to their lines asks them nothing more until a person speaks again. It also
 keeps the channel's notes for bots up to date with the public world: the world's bible, the date and routine, the
-public worldbook entries that came up and the players' corrections (never the hidden layer). Co-players and bots can
-share a table for now; co-players will be retired in favour of bots.
+public worldbook entries that came up and the players' corrections (never the hidden layer).
 
-To hand a co-player to a bot, so that it plays on as one of the server's bots:
+Earlier versions played AI co-players of their own; the platform's bots took their place. To hand one of the GM
+account's characters (such a co-player, or a PC the GM voices) to a bot, so that it plays on as one of the server's
+bots:
 
 ```sh
 node src/cli.mjs bots handoff --channel <channel id> --character "Harriet Vance" --bot "Wren"
 ```
 
 The bot joins the channel if it is not there yet, the character becomes the bot's (it takes the part up with one
-line in character), and the bot sits with it in every window the co-player sat in. What the co-player remembered of
-the campaign (its memory chapters, newest first while they fit in 8000 bytes), its persona and its standing intention
-become the bot's private briefing at this table (GM: channel sidebar → Bots → Memory). The bot must be switched on and
+line in character), and the bot sits with it in every window the character sat in. What it remembered of the campaign
+(an earlier version's memory chapters of it, newest first while they fit in 8000 bytes), its persona and its standing
+intention become the bot's private briefing at this table (GM: channel sidebar → Bots → Memory). The bot must be switched on and
 not yet play a character in the channel. The table may keep running meanwhile; nothing here calls the model.
 
 The platform's own AI never speaks in chat. It writes tips for the GM: the pinned board, reminder bubbles, script
-knowledge, documents, highlights and module hints. This client reads those tips for the GM and the real NPCs. Co-players
-never get them.
+knowledge, documents, highlights and module hints. This client reads those tips for the GM and the real NPCs.
 
 ## Hosting several channels in one process
 
@@ -51,40 +47,35 @@ never get them.
 
 Copy `gm-host.example.yml` to `gm-host.yml`, create `channels/`, and copy the files from `examples/channels/` there. Replace the channel IDs with existing platform channels where the shared account is GM. Paths are relative to the configuration file that contains them. The channel's rule system comes from the platform; change it in the GM workspace and restart that channel.
 
-The shared file contains the platform address, account, state directory, LLM provider/endpoint/key, optional planner connection, further named `providers` (each an endpoint with its key and default model), every channel's default `models` routes and the channel list. Keep it private (`chmod 600 gm-host.yml`). Passwords and keys can instead come from `.env` (`GM_PASSWORD`, `LLM_API_KEY`/`ANTHROPIC_API_KEY`, `PLANNER_API_KEY`). The shared file takes precedence. Never commit real credentials. Channel files cannot override credentials, provider or endpoint, and cannot define providers; they can route each function to a provider by name with `models` (see "Several models"), and select a model, effort, token budgets, language, co-player count, calendar pacing, autonomy, scene strategies and modes using the existing configuration keys. Each channel has its own daily token budget; there is no combined provider spending cap.
+The shared file contains the platform address, account, state directory, LLM provider/endpoint/key, optional planner connection, further named `providers` (each an endpoint with its key and default model), every channel's default `models` routes and the channel list. Keep it private (`chmod 600 gm-host.yml`). Passwords and keys can instead come from `.env` (`GM_PASSWORD`, `LLM_API_KEY`/`ANTHROPIC_API_KEY`, `PLANNER_API_KEY`). The shared file takes precedence. Never commit real credentials. Channel files cannot override credentials, provider or endpoint, and cannot define providers; they can route each function to a provider by name with `models` (see "Several models"), and select a model, effort, token budgets, language, calendar pacing, autonomy, scene strategies and modes using the existing configuration keys. Each channel has its own daily token budget; there is no combined provider spending cap.
 
-At startup the host prepares each enabled channel independently, adopts existing co-players, creates any missing requested co-players and applies explicit world/casual settings. PbtA waits for its rule review without delaying other channels. A failed worker stays failed until explicitly started or restarted; it does not terminate its peers or repeatedly retry a broken configuration. `enabled: false` prevents automatic startup but still lists the channel in the UI. A second host using the same state directory is refused. For an established CoC/D&D table being migrated, set `prepare_on_start: false` on its shared channel entry to attach without generating or completing cards or reapplying setup modes; existing state remains authoritative. PbtA still performs its required review checks.
+At startup the host prepares each enabled channel independently and applies explicit world/casual settings. PbtA waits for its rule review without delaying other channels. A failed worker stays failed until explicitly started or restarted; it does not terminate its peers or repeatedly retry a broken configuration. `enabled: false` prevents automatic startup but still lists the channel in the UI. A second host using the same state directory is refused. For an established CoC/D&D table being migrated, set `prepare_on_start: false` on its shared channel entry to attach without reapplying setup modes; existing state remains authoritative. PbtA still performs its required review checks.
 
-Set `webui.enabled: true` in the shared file and supply a random `webui.token` of at least 24 characters (for example `openssl rand -hex 24`). The UI defaults to `http://127.0.0.1:8787`. Enter the token once: the browser keeps an HttpOnly, SameSite=Strict session cookie for 90 days, renewed during use. Reloading, reopening the browser and restarting the host restore the login. The access token is sent only at login, never stored in browser localStorage or put into the URL. The host stores only hashes of random session credentials in `state_dir/.web-sessions.json` (mode 600), capped at 100 sessions; routine status polls renew at most once a day. HTTPS logins use Secure cookies, including behind a proxy that forwards `X-Forwarded-Proto` or the page's HTTPS Origin. “退出登录” revokes this browser's session; changing `webui.token` and restarting invalidates all saved sessions. A rejected session returns to the login form; temporary network errors keep the saved login for the next visit. The UI lists the channels with their state, name, rule system, today's token use and any failure, and starts/stops/restarts each one. A selected channel has five tabs:
+Set `webui.enabled: true` in the shared file and supply a random `webui.token` of at least 24 characters (for example `openssl rand -hex 24`). The UI defaults to `http://127.0.0.1:8787`. Enter the token once: the browser keeps an HttpOnly, SameSite=Strict session cookie for 90 days, renewed during use. Reloading, reopening the browser and restarting the host restore the login. The access token is sent only at login, never stored in browser localStorage or put into the URL. The host stores only hashes of random session credentials in `state_dir/.web-sessions.json` (mode 600), capped at 100 sessions; routine status polls renew at most once a day. HTTPS logins use Secure cookies, including behind a proxy that forwards `X-Forwarded-Proto` or the page's HTTPS Origin. “退出登录” revokes this browser's session; changing `webui.token` and restarting invalidates all saved sessions. A rejected session returns to the login form; temporary network errors keep the saved login for the next visit. The UI lists the channels with their state, name, rule system, today's token use and any failure, and starts/stops/restarts each one. A selected channel has these tabs:
 
-- **Overview** — the live table, read from its worker every few seconds: how long it has run and how often it started, the last error (why a start failed, or how the worker exited), the WebSocket streams, the GM role and knowledge mode, activity (turns, queued turns, the last player line, paused or away), today's and the week's model use against the daily budget with a breakdown by purpose, player characters, co-players and their windows, NPCs, timelines with their windows and members, the story planner (plan version, beat, planner window notes, the session in progress), calendar, casual and improvisation modes, and relationships. A stopped channel shows its last snapshot, marked as such.
+- **Overview** — the live table, read from its worker every few seconds: how long it has run and how often it started, the last error (why a start failed, or how the worker exited), the WebSocket streams, the GM role and knowledge mode, activity (turns, queued turns, the last player line, paused or away), today's and the week's model use against the daily budget with a breakdown by purpose, player characters, NPCs, timelines with their windows and members, the story planner (plan version, beat, planner window notes, the session in progress), calendar, casual and improvisation modes, and relationships. A stopped channel shows its last snapshot, marked as such.
 - **Plan** — the full currently adopted plan: throughline, played events, beat purpose and exit conditions, pacing verdict, threads (stakes, hooks, twists and maturity conditions), upcoming events, review and calendar advice, plus the complete JSON. A pending newer version is labelled as waiting for adoption. This is the GM’s private plan, visible only after Web UI authentication; it is read-only. Unchanged status polls preserve the expanded JSON view.
 - **世界书 (Worldbook)** — the channel's worldbook: the world bible, the hidden layer and the entries, each with its title, keys, text, a secret switch and an on/off switch. See "The worldbook".
-- **队友意图 (Intentions)** — a standing intention for each AI co-player, set by hand. See "Co-player intentions".
 - **Settings** — every channel key as a form, grouped and searchable, each with its help, the value in effect and its default. Only the keys you change are written; the file keeps its comments and other keys. "Default" removes a key. Values are checked against their ranges before anything is saved.
 - **YAML** — the file itself, with a validate button that checks it without saving.
 - **Logs** — the worker's last 600 log lines, filterable, with errors highlighted. Known passwords, keys and the UI token, and anything shaped like a credential (bearer tokens, JWTs, `sk-` keys, `token=` parameters), are masked before a line is kept.
 
 A save validates the configuration, rejects stale edits from another browser, writes atomically and restarts only that channel if it was active.
 
-Settings → 纯文本写作指导 provides separate multiline editors for GM/NPC prose (`writing.gm`) and co-player scene
-prose (`writing.coplayer`). Each is prefilled with the original style guidance. Custom text replaces that
-guidance in the creative call, including GM phone replies; the formatter does
-not receive it. Clear the field or choose 恢复默认 to restore the built-in guidance. Each field supports up to
+Settings → 纯文本写作指导 provides a multiline editor for GM/NPC prose (`writing.gm`), prefilled with the original
+style guidance. Custom text replaces that guidance in the creative call, including GM phone replies; the formatter
+does not receive it. Clear the field or choose 恢复默认 to restore the built-in guidance. It supports up to
 12,000 characters. Table rules and character agency remain in the role prompts.
 
 Settings → 消息呈现指导（结构化输出） edits `writing.formatting`, prefilled with the current paragraph-grouping
 guidance. It goes only to the second, formatting request. Ask for shorter bubbles split at sentence boundaries,
 longer bubbles combining adjacent paragraphs, or one message per speaker. Each message keeps the draft's wording,
 order, speaker and audience; distinct speakers and private recipients cannot be combined. Use the prose editors
-above to change total narrative length or level of detail. Co-player speech can also become multiple messages;
-when the remaining turn budget is smaller, the tail is combined into the last available message. Rolls, phone
-replies retain their own operation limits. The presentation editor has its own save/reset
+above to change total narrative length or level of detail. Rolls and phone replies retain their own operation
+limits. The presentation editor has its own save/reset
 value and the same 12,000-character limit.
 
-The Overview's “AI 队友所在窗口” card lists each co-player's current conversation windows and timeline, updating with the live status. Closed historical seats are excluded; archived, ended or unavailable windows are labelled explicitly. Hover over a window name to see its ID when names repeat. A stopped or unresponsive worker's retained locations are marked as the last record rather than a live position.
-
-**Token charts.** “全部任务用量” compares each hosted channel’s recorded input + output for today; click a task to inspect it. In Overview, stacked bars group calls by purpose (GM/director, planner, co-player turns/cards, memory, etc.) and show ordinary input, cached input reads/writes and output. Switch between today (the host’s local midnight) and the rolling last seven days; expand the table for every phase/provider/model, call count, failures, unreported usage, estimates and average output. Cached tokens are already included in input and are not counted twice. Shares refer to the recorded total, and missing provider usage is shown as unknown rather than free. Budget-equivalent token counts remain separate from the raw chart totals and do not represent a monetary price. Statistics use two indexed grouped queries, shared for 15 seconds, and reuse the same chart while its data is unchanged. No per-call history is downloaded by polling. Stopped workers show their last snapshot; missing or previous-day snapshots are excluded from today’s cross-task comparison and listed as unavailable, never zero.
+**Token charts.** “全部任务用量” compares each hosted channel’s recorded input + output for today; click a task to inspect it. In Overview, stacked bars group calls by purpose (GM/director, planner, role cards, memory, etc.) and show ordinary input, cached input reads/writes and output. Switch between today (the host’s local midnight) and the rolling last seven days; expand the table for every phase/provider/model, call count, failures, unreported usage, estimates and average output. Cached tokens are already included in input and are not counted twice. Shares refer to the recorded total, and missing provider usage is shown as unknown rather than free. Budget-equivalent token counts remain separate from the raw chart totals and do not represent a monetary price. Statistics use two indexed grouped queries, shared for 15 seconds, and reuse the same chart while its data is unchanged. No per-call history is downloaded by polling. Stopped workers show their last snapshot; missing or previous-day snapshots are excluded from today’s cross-task comparison and listed as unavailable, never zero.
 
 **New hosting tasks.** “＋ 新建主持任务” walks through channel, story mode, optional features, and review/start. New channels have an additional player invitation step before review: search for platform accounts and choose “邀请并继续” to add them to the channel. The host checks membership again before starting. Skipping invitations leaves an empty Forge waiting for its first player. Cancelling after inviting keeps the platform channel and its members; use the existing-channel option to finish setup later. Existing channels expose only saved mode flags and world availability to the wizard, not their world text or secrets. Choose to inherit that state, follow a module, or improvise. Improvisation offers Forge co-creation, a saved world when available, or world/secret files on the host. Forge that is already in progress resumes its draft; a completed Forge retains its confirmed world and startup state.
 
@@ -101,31 +92,31 @@ On shutdown or configuration restart, workers stop accepting events, cancel gene
 For a channel already created in the web or desktop app, select PbtA in GM workspace → Settings and give the agent account the GM role. With the account and LLM configured, start the host from `gm-agent`:
 
 ```sh
-node src/cli.mjs run --channel <CHANNEL_ID> --world world.md --coplayers 2
+node src/cli.mjs run --channel <CHANNEL_ID> --world world.md
 ```
 
-The host waits for you in GM workspace → Settings → Rule pack before creating characters or posting the opening. Activate the draft or keep the current rules to continue in the same process. If you stop it during review, restart with the channel ID and the same state directory. The public world, requested number of co-players and draft are recovered. Omitting the world on a fresh channel uses its current pack directly. The agent reads the channel’s selected system. To change systems, use the workspace.
+The host waits for you in GM workspace → Settings → Rule pack before posting the opening. Activate the draft or keep the current rules to continue in the same process. If you stop it during review, restart with the channel ID and the same state directory. The public world and the draft are recovered. Omitting the world on a fresh channel uses its current pack directly. The agent reads the channel’s selected system. To change systems, use the workspace.
 
 To have the CLI create the channel instead:
 
 ```sh
-node src/cli.mjs setup --create --rules pbta --world world.md --coplayers 2
+node src/cli.mjs setup --create --rules pbta --world world.md
 # Review the draft in GM workspace → Settings → Rule pack, then repeat the same setup.
-node src/cli.mjs setup --create --rules pbta --world world.md --coplayers 2
+node src/cli.mjs setup --create --rules pbta --world world.md
 node src/cli.mjs run --channel <CHANNEL_ID>
 ```
 
-The first setup prints the channel ID and exits before creating the cast. Edit the proposed moves, save a draft to return later, then choose **Activate draft** or **Keep current rules**. Retry design in the workspace and rerun setup if the local agent was interrupted. Use the same state directory when repeating `--create`. With the channel ID you can always resume using `setup --channel <CHANNEL_ID>`. An attached PbtA table with play history or a custom pack uses its existing rules. Without a public world, a new PbtA table starts with the platform starter. Only the public world file is sent to the rules designer.
+The first setup prints the channel ID and exits. Edit the proposed moves, save a draft to return later, then choose **Activate draft** or **Keep current rules**. Retry design in the workspace and rerun setup if the local agent was interrupted. Use the same state directory when repeating `--create`. With the channel ID you can always resume using `setup --channel <CHANNEL_ID>`. An attached PbtA table with play history or a custom pack uses its existing rules. Without a public world, a new PbtA table starts with the platform starter. Only the public world file is sent to the rules designer.
 
 PbtA designs and role cards get up to three validation-repair rounds. Validation names the exact JSON fields and expected types/IDs; the model returns replacements only for those fields, which are merged into the last parsed draft and validated again. Valid names, biographies, playbooks and unrelated moves stay unchanged. Independent errors in several moves, or in both resource and condition maps, can be repaired together. A reply that edits other fields is rejected. If the reply is not parseable JSON at all, a full JSON correction is still needed. The platform preview remains authoritative, and rules still require GM review before activation.
 
 Structured JSON model calls automatically retry interrupted streams, transient connection errors, idle timeouts and selected temporary HTTP failures at most twice, waiting 2 then 4 seconds. This retry budget is shared across the initial response and all its repairs; it does not restart for each field. Each inference attempt has its own usage record under the original request ID, including failures with unknown usage. A disconnected stream is never accepted as a completed answer. Cancellation interrupts backoff; authentication failures, refusals, output truncation and platform validation/access/conflict errors do not trigger transport retries. These retries repeat model inference only, never character creation, chat messages or other platform writes. Exhausted recovery leaves the existing visible failure/review flow in place.
 
-**Playbooks for everyone.** Every character takes a different playbook. The designer is told the table's size: the requested co-players and the human players who are channel members so far. It designs at least two playbooks more than the co-players, and at least one for each of those characters plus a spare. A draft with no playbook left over for a human player is sent back for repair. Each co-player is offered only playbooks nobody holds yet, so the spares stay free for the human players. Top-level fields the platform does not take are left out of a draft before it is checked.
+**Playbooks for everyone.** Every character takes a different playbook. The designer is told how many human players are channel members so far and asked for one playbook each and a spare, at least three, so a player who joins later still has a choice. Top-level fields the platform does not take are left out of a draft before it is checked.
 
-**Co-player cards.** A card that names a playbook, stat, resource or condition by its name instead of its ID, gives a number as text ("+1"), or lists the marked conditions is fitted to the pack; entries the pack does not define are left out. When a co-player's card still cannot be built after its repair rounds and one fresh try, setup goes on without it and logs why; the next start tries that co-player again. One bad card no longer stops the host.
+**Cards.** A card that names a playbook, stat, resource or condition by its name instead of its ID, gives a number as text ("+1"), or lists the marked conditions is fitted to the pack; entries the pack does not define are left out.
 
-The GM can invoke a triggered move for the speaking player, with a reference to their declaration. The platform rolls or returns the diceless instructions. For a player choice the GM asks in the same window and waits for their answer. Required choices may be marked for each outcome in the rule editor. When the cost is known the GM records the old and new resource or condition values on the card and cites the ruling in chat. Conflicting edits require manual reconciliation. Keep private sessions in their own window. Co-players see their own playbook and witnessed chat. GM reference moves stay in the GM context.
+The GM can invoke a triggered move for the speaking player, with a reference to their declaration. The platform rolls or returns the diceless instructions. For a player choice the GM asks in the same window and waits for their answer. Required choices may be marked for each outcome in the rule editor. When the cost is known the GM records the old and new resource or condition values on the card and cites the ruling in chat. Conflicting edits require manual reconciliation. Keep private sessions in their own window. GM reference moves stay in the GM context.
 
 ## What each role sees
 
@@ -133,9 +124,9 @@ The GM can invoke a triggered move for the speaking player, with a reference to 
 
 - every line in every chat window, including GM-only notes, whispers and hidden rolls (older history as compacted
   chapters; see "Long campaigns");
-- the cast: every player character and co-player with its basic details (occupation, age, gender, residence,
-  birthplace), its most distinctive traits, bio and background from its role card, and each real NPC with its gender,
-  age, distinctive traits and brief (see "Time and people");
+- the cast: every player character with its basic details (occupation, age, gender, residence, birthplace), its most
+  distinctive traits, bio and background from its role card, and each real NPC (a PC the GM account owns among them)
+  with its gender, age, distinctive traits and brief (see "Time and people");
 - in a casual game, the story's calendar and everyday routine; in every game, the relationships between characters;
 - the current scenario and the summaries of earlier ones;
 - in improvisation mode, the worldbook: the bible and the hidden layer, the list of all entries, and the entries in
@@ -147,34 +138,9 @@ The GM can invoke a triggered move for the speaking player, with a reference to 
   - `/highlights` and `/modules/hints`
   - live `reminder.created` and `highlight.created` pushes on `/ws/context`.
 
-**Each co-player** (`src/context/coplayerContext.mjs`). The client signs in as the GM, who can read every line, so
-it applies the platform's player filter itself. A co-player gets only:
-
-- lines in the windows it sits in (the Main Chat by default);
-- lines with `window` visibility, and whispers addressed to its own character.
-
-It never gets `gm_only` lines (GM notes, hidden roll results), whispers to anyone else, other windows, or any
-platform AI tip.
-
-Besides the log, its prompt holds:
-- its own memories: chapters it wrote, in the first person, from lines it witnessed (see "Long campaigns");
-- at most one private impulse from the story planner: an in-character urge, never the plan or a secret (see "The
-  story planner");
-- its own role card and persona;
-- the other investigators' basic details, distinctive traits, bio and background (`src/context/profiles.mjs`): the
-  player characters and the other co-players, as a human player can read any player character's page;
-- in a casual game, the story's date, the everyday routine, and how much time passed since it last spoke;
-- the real NPCs it has seen speak in its own scenes, with what anyone would notice about them (gender, age,
-  distinctive traits);
-- the relationships it is part of, and the public ones between people it knows;
-- the players' corrections about it or about no one in particular, from the planner window (never their wishes);
-- in casual mode, the texts it sent or received, including those in the phone log.
-- in improvisation mode, the world bible and the public worldbook entries that came up in what it witnessed, its
-  place or its intention (never a secret entry, the hidden layer or the list of entries);
-- its own standing intention, when the host's operator set one (see "Co-player intentions").
-
-It never gets a real NPC's brief, an NPC it has not met, a secret relationship it is not part of, another
-co-player's intention, or anyone's characteristic and skill numbers.
+**The platform's bots** read what the platform gives them (`docs/BOTS.md`) and the notes for bots this client keeps:
+the world bible, the date and routine, the public worldbook entries that came up in lines everyone could read, and the
+players' corrections. Never the hidden layer, a secret entry, a relationship or a GM note.
 
 ## Long campaigns: memory, compaction and caching
 
@@ -197,9 +163,6 @@ lines.
   keeps names, clues, promises, decisions, injuries, where each investigator ended up, and the line numbers of key
   moments. When a window's chapters pass about 25% of the budget, the oldest half merge into one. A scene that ends
   (a thread merged) becomes a chapter whole.
-- **Each co-player** (`context.coplayer_tokens`, default 24,000) has its own memory in the same way. Its chapters are
-  written in the first person, only from the lines it witnessed. They never include GM notes, others' whispers or
-  another timeline's lines, and no one else reads them.
 - **GM documents** keep their newest entries when they are too long; a note says how many older ones were left
   out. Their full versions stay in the local document cache, so older entries can still be found without fetching
   the document again. A version change or platform update invalidates the cache; failed fetches are retried.
@@ -208,8 +171,6 @@ lines.
 conversation in older chat lines and omitted GM document entries. It adds a few source-labelled excerpts after
 the cached context. This can recover names, clues and promises lost from a summary, without an extra model or
 embedding call. Earlier excerpts are explicitly historical; current state and recent corrections take precedence.
-Co-players search only the lines they witnessed, after the existing window, timeline and whisper filters. They
-never search GM documents or another character's private history.
 
 `context.recall_tokens` defaults to 1,200 approximate tokens per turn, additionally capped at 5% of that role's
 context budget (maximum setting 4,000; `0` disables it). That allowance is reserved from the raw-history limit.
@@ -235,15 +196,14 @@ Providers:
   for block-boundary lookback, mixed TTLs and write pricing.
 - **OpenAI's own API** gets a `prompt_cache_key` per purpose. Other compatible gateways rely on the stable order alone.
 
-A co-player's changing HP, sanity and inventory come after its cached identity, memories and history. They remain
-visible every turn without invalidating that prefix. The GM, co-players and planner have different system prompts:
+The GM and the planner have different system prompts:
 cache reuse is primarily between successive calls for the same role, not automatically across those roles. Actual
 hits and prices depend on the provider/model and gateway; the local `status` totals are a token-weighted budget
 heuristic, not a currency invoice. Compare its cache-read share before increasing the main context budgets.
 
 **Usage.** Every completed or failed client model call appends a row to the channel's local SQLite file
-(`STATE_DIR/<channel-id>.db`), including `setup` character generation/completion, point buying, GM/NPC turns,
-co-player turns/phones, memory summaries, and planning. Each row includes its timestamp, call/request IDs, type,
+(`STATE_DIR/<channel-id>.db`), including role-card generation and point buying, GM/NPC turns, memory summaries, and
+planning. Each row includes its timestamp, call/request IDs, type,
 phase, attempt, provider/model, duration, status, input/output tokens, and cache reads/writes. Terminal logs print
 these counters as calls finish. Token records contain no prompts, replies, credentials or provider error bodies.
 
@@ -286,20 +246,20 @@ The client works with it in three ways:
   text, so the observer knows the places, groups and people from the start. Hidden truths the GM decides are declared
   as secrets too, so a human GM sees them in the web app.
 
-Co-players never read the record. They know only what their characters witnessed and the public world setting. A
-platform without the record (404) is noted once, and the table carries on with its own notes.
+The notes for the platform's bots never carry the record. A platform without the record (404) is noted once, and the
+table carries on with its own notes.
 
 The GM and planner favour a small recurring NPC cast and relationships that develop over multiple scenes and
 sessions. They consult existing people and bonds before introducing someone new, follow through on promises and
 shared experiences, and let peripheral NPCs stay off-screen. The planner's critique/revision explicitly checks for
 unnecessary newcomers and neglected relationships. Newer plots grow out of the people already in the story: a
 familiar NPC gets the new problem, request, secret or job before someone is invented for it. Reuse must respect
-whereabouts, identities and the module. Neither role decides player/co-player feelings or treats proposed
+whereabouts, identities and the module. Neither role decides a player character's feelings or treats proposed
 relationships as already established.
 
 When the story does need someone new, the GM makes them a real NPC, a character on the platform with a role card
-and lines of their own, if they pass all three tests: they **could build a lasting bond** with the player characters
-or co-players; they **have more than one sentence to say**; and they are **one specific person**, not a voice
+and lines of their own, if they pass all three tests: they **could build a lasting bond** with the player characters;
+they **have more than one sentence to say**; and they are **one specific person**, not a voice
 standing for a crowd ("someone in the crowd shouts", "the guards mutter"). A real NPC's words are never put inside
 narration or summed up there. Anyone who fails a test (a single remark, a passer-by, a clerk the story will not
 return to) stays unnamed in narration; someone first met there who turns out to matter is made a real NPC then.
@@ -332,15 +292,13 @@ creates the character, or reuses the existing one when that name is already in t
    | `timeline` | records a thread's narrative time, place, span and the GM's private notes |
    | `advance_scenario`, `enter_scenario` | opens the next scenario, or enters a prepared one (see below) |
 
-   The same call says whether co-players may act now, and reports **whereabouts**: who is now where (see
-   [Timelines](#timelines-proactive-splitting)). A line the GM model writes for a co-player or a player is dropped.
-3. **Co-players' moves** (`src/coplayer.mjs`). Each co-player seated in the window gets its own model call with its
-   own context. It speaks (in character or out of character), rolls (`.ra`, `.rc`, `.r` or `.sc`; in D&D `.rc`, `.ri`,
-   `.ds`, `.ss` or `.r`, rolled by the platform's dice against its own sheet), or passes.
-4. **The GM answers the co-players at once.** If any co-player acted, a follow-up GM round runs in the same turn,
-   so a co-player's choice gets its consequence now, not at the next human line. The GM prompt says every player,
-   co-players included, needs an immediate response that propels the story.
-5. At most `pacing.max_actions_per_turn` lines are posted per turn. Lines the client posted never start a turn by themselves.
+   The same call says whether the other players (the platform's bots included) may act now, and reports
+   **whereabouts**: who is now where (see [Timelines](#timelines-proactive-splitting)). A line the GM model writes for
+   a player's character is dropped.
+3. **The platform's bots.** When the turn answered a person's line and the GM lets the players act, the bots seated in
+   the window are asked for their turn (see "Platform bots" above). A bot's line is a player's line: it starts a turn
+   of its own, whose answer asks the bots nothing more.
+4. At most `pacing.max_actions_per_turn` lines are posted per turn. Lines the client posted never start a turn by themselves.
 
 The client never decides memory proposals; those stay with the human GM in the web app.
 
@@ -348,7 +306,7 @@ The client never decides memory proposals; those stay with the human GM in the w
 
 On the platform the author of a line may recall it for two minutes after sending it (not a roll, a system line or a
 PbtA move's record). The line becomes a tombstone everywhere, and the client takes it out of every context: no
-prompt of the GM, an NPC or a co-player quotes it again. What happens to the table's answer depends on how recent it
+prompt of the GM or an NPC quotes it again. What happens to the table's answer depends on how recent it
 still is:
 
 - **Ten or more lines since** in its window: only the line goes. What the table said and did after it stays.
@@ -357,9 +315,9 @@ still is:
     started (a follow-up, the opening of a scene a move created). A turn still running is stopped; one not started
     yet is cancelled.
   - The client recalls every line those turns posted, in any window, and its own later lines in that window:
-    narration, NPC and co-player lines, whispers, notes, and the copy of a recalled text in another player's phone.
-  - It restores what they changed in its own state: where everyone is (timelines, co-player seats, the move guard,
-    and window access with scene forks), the date, relationships, hidden truths, and phone texts still on their way.
+    narration, NPC lines, whispers, notes, and the copy of a recalled text in another player's phone.
+  - It restores what they changed in its own state: where everyone is (timelines, the move guard, and window access
+    with scene forks), the date, relationships, hidden truths, and phone texts still on their way.
     A part that a later, unrelated turn changed again is left as it is.
   - What the platform already holds stays: a roll's result, a scenario change, a world change, a new NPC (who stays
     in the cast). A GM-only note in the window says what was taken back and what stays.
@@ -389,8 +347,8 @@ character a person plays becomes a **roll card** in that player's scene, instead
   skill, whatever the value, modifiers or hidden form: `.rc spot hidden 60` answers `.ra Spot Hidden`). Asking for the
   same roll again replaces the open card. A failed close is only logged; a card nobody closed closes by itself after
   the platform's 7 days.
-- **Who gets one.** Only a character a person plays. A co-player or an NPC still rolls for itself (the platform rolls
-  against its sheet), and PbtA tables ask for no rolls. A command a card may not post in a player's name (`.st`,
+- **Who gets one.** Only a character a person plays. A character the GM voices (an NPC, or a PC the GM account owns)
+  still rolls for itself (the platform rolls against its sheet), and PbtA tables ask for no rolls. A command a card may not post in a player's name (`.st`,
   `.en`, `.ss`, `.init`, `.move`, `.ri` with a name) is asked for with the plain line.
 - **The feature switch.** The platform's operator can turn interactive messages off (`HYPERTEXT_ENABLED=false`: 403
   `feature_disabled`), and a platform from before them answers 404 or 405. Either way the client logs once that they
@@ -420,7 +378,7 @@ that posts them itself.
 ## Illustrations
 
 Pictures people post themselves (a handout, a map, a photo, uploaded with the platform's Image button) are chat lines
-like any other, except that no model here can see a picture. Such a line reaches the GM and the co-players as
+like any other, except that no model here can see a picture. Such a line reaches the GM as
 "posts a picture; you cannot see it, its caption says: …" (`src/pictureLines.mjs`), so a caption that says what the
 picture shows is what the table plays on. A picture posted without a caption stays on the record but starts no turn
 and is no wish in the planner window: there is nothing in it to answer.
@@ -443,8 +401,7 @@ turn. The table uses it in four ways (`src/illustrations.mjs`, `src/plotArt.mjs`
   the light and the mood, and no words. The GM is told to use it rarely. Event pictures and these together are capped
   at `illustrations.max_per_hour` (6) an hour.
 - **Every scenario change.** When the story enters its next scenario, the table always draws the most brilliant,
-  beautiful, artistic moment of the scenario that just ended, once for each timeline a human player was in
-  (co-player-only threads are skipped). A model call reads that timeline's window, the lines of the ending scenario
+  beautiful, artistic moment of the scenario that just ended, once for each timeline a human player was in. A model call reads that timeline's window, the lines of the ending scenario
   that its readers saw (no whispers, GM-only notes or other windows), and chooses the moment, the characters in it
   and the frame. All of these pictures are posted in the Main Chat, one after another: the platform draws one
   picture at a time per account, so each waits for the previous one.
@@ -469,7 +426,7 @@ turn. The table uses it in four ways (`src/illustrations.mjs`, `src/plotArt.mjs`
      framing and style where the lines allow. If the moment is not there, the next entry named is read.
 
   The picture is drawn into the planner window as soon as the platform can (ahead of any scenario picture still
-  waiting). Any window of play may be drawn on, other players' and co-players' scenes too (this is a casual table:
+  waiting). Any window of play may be drawn on, other players' scenes too (this is a casual table:
   a picture of someone else's scene is fine), but only lines said for the whole window: never a whisper, a GM-only
   note or a phone. The planner window is shared, so every player there sees the picture. If the moment cannot be found, the table says so and asks for a detail or two. A player has
   one request on its way at a time, and at most `illustrations.requests_per_hour` (4) an hour; `/画` with nothing
@@ -498,7 +455,7 @@ The table does not always wait for a human, and it does not keep everyone in one
 ### Timelines: proactive splitting
 
 The client keeps **timelines** (threads of the story) in its state file; the platform has none. Every player
-character and co-player is in exactly one. The main timeline (handle `T0`) always exists and starts in the Main Chat;
+character is in exactly one. The main timeline (handle `T0`) always exists and starts in the Main Chat;
 every other thread has a window of its own, a persistent handle (`T1`, `T2`, … never reused), a place, a narrative
 time and a **span**: *short* when the party is briefly apart (two rooms of one house), *long* when it is far apart (two
 cities).
@@ -509,15 +466,11 @@ two ways, chosen with `timelines.scene_forks` (`--scene-forks`):
 
 **Main Chat stays the story (`scene_forks: false`, the default; best for a single player).** The main timeline is
 always played in the Main Chat, with the players; only those who go elsewhere get a window. A single player is always
-in the Main Chat, and the co-players move around them.
+in the Main Chat.
 
-- **A player goes elsewhere** → a new window `Scene: <place>` with that player (and any co-players who went too) and
-  the GM. Everyone stays a member of the Main Chat. The player is whispered a pointer to the new window, the opening
+- **A player goes elsewhere** → a new window `Scene: <place>` with that player (and anyone who went too) and the GM. Everyone stays a member of the Main Chat. The player is whispered a pointer to the new window, the opening
   is posted there, and an **arrival** turn opens the scene at once.
-- **Co-players go elsewhere** → a `Side: <place>` window only they sit in, which moves on by itself (side turns).
 - **Everyone in a scene goes to one place** → the thread just moves there; no new window.
-- **A lone player leaves the co-players behind** → the Main Chat goes with the player (it is relocated); the co-players
-  who stayed get a side window.
 - **They meet again** → reunions always land in the main timeline, in the Main Chat, where every player already is.
   The old window gets a pointer `→ "Main Chat"` and is closed for autonomy; the reunion gets its own arrival turn.
 - **No history leaks.** Nobody is ever added to an existing window (its whole past would open to them). A player
@@ -535,9 +488,9 @@ narrates in.
   are prepared before the next narration. Main Chat then carries public conversation, not either private scene.
 - When a real player leaves an existing scene, their new-message visibility there is paused. Those staying keep
   their window. Returning resumes access; messages during the absence remain hidden. A new arrival gains only
-  future messages. Co-players continue to use their internal seat intervals instead of platform user memberships.
+  future messages.
 - A later arrival joins the earlier party's existing window. If multiple parties instead converge on a new scene
-  simultaneously, the fork inherits from the source with the most distinct human players; co-players do not count.
+  simultaneously, the fork inherits from the source with the most distinct human players.
   Players still cannot read the other party's previously private history.
 - Everyone already together travelling to one destination can relocate in the same window. New scenes may be forked
   explicitly. Windows whose stories have ended are archived and remain readable in the sidebar's archive section.
@@ -546,8 +499,7 @@ narrates in.
 The rules that keep this safe:
 
 - **Only a player moves their character.** A player character moves only when its own player said so, in this turn's
-  lines in that window (not an old line, not an out-of-character one, not another player's or a co-player's
-  suggestion). Before applying a proposed split, the agent independently reads each character's own decisions
+  lines in that window (not an old line, not an out-of-character one, not another player's suggestion). Before applying a proposed split, the agent independently reads each character's own decisions
   in that scene. A later change of mind takes precedence. A companion can follow a player on the strength of
   an earlier commitment even if someone else spoke last.
 - **Clear departures open scenes promptly.** The decision reader also runs on new character actions when the GM
@@ -564,8 +516,8 @@ The rules that keep this safe:
 - **Already together is not a new movement request.** Before and after a normal GM round, an independent
   presence reader compares up to forty recent public play lines per occupied thread. It recognises established
   arrivals from character actions and published narration, including contextual room names and stale window
-  labels. If two investigators have separately arrived in room 507, their actual timeline and co-player seats
-  reunite without requiring another declaration or waiting out a move cooldown. Each reconciliation cites a
+  labels. If two investigators have separately arrived in room 507, their actual timelines reunite without
+  requiring another declaration or waiting out a move cooldown. Each reconciliation cites a
   confirming line from both scenes in the agent log. Newer messages invalidate an in-flight result. The next
   response uses the corrected cast; it does not narrate the arrival a second time.
   Intentions, washroom errands still in progress, different rooms in the same building and incompatible story
@@ -574,16 +526,6 @@ The rules that keep this safe:
   player-group access still apply. These checks use the configured LLM; the offline provider reports
   no inferred reunion unless a test supplies a fixture. Shared journeys through intermediate corridors or lobbies
   are narrated together instead of opened as separate adventures at each waypoint.
-- **Already apart must get separate seats.** The same reader checks a shared window for missed co-player
-  departures, even when it is the only active thread. A co-player's own recent in-character action and a later
-  public GM narration must both establish the separate place. A rejected or omitted movement proposal therefore
-  cannot leave someone who went home listening to the human's bookshop scene. The repair creates or joins the
-  appropriate thread without replaying travel, carries the confirming public context into the new thread's GM
-  notes, and lets its normal scheduler continue it. Independent classes, errands and visits persist until a reunion.
-  Invitations, future plans and planner wishes alone do not move anyone.
-- **No flip-flopping.** A co-player's proposed reversal without a verified decision newer than the last move needs
-  two agreeing turns (`timelines.guard_turns`, `timelines.guard_ms`). A fresh explicit choice takes effect immediately;
-  players' own moves and reconciliation of established presence are also never deferred by this guard.
 - **No history leaks** (scene forks). The server enforces membership intervals for reads, search, references, exports and live
   delivery. Pause/resume never fills the absence with old messages. Same-group players still share the union of
   their readable perspectives. Fork ancestry does not widen any reader's original permissions.
@@ -599,9 +541,7 @@ The rules that keep this safe:
   comes back to the Main Chat at the next start once nobody is split off (until then it stays where it is).
 
 Lines carry the timeline their speaker was in **when they wrote them**, so a story told in the Main Chat by someone back
-from a side trip is tagged with that trip, and a player's lines from before a split keep the old tag. A co-player
-hears a window only while it sits there (its seats have a start and an end), knows which companions are **with it
-here** and which are elsewhere, and never sees lines a player wrote from another scene.
+from a side trip is tagged with that trip, and a player's lines from before a split keep the old tag.
 
 > **Public channels.** In a channel whose knowledge mode is *public* (what `setup` creates), every player can read
 > every window a member of their group sits in, so **split scenes are readable by every player**. In an *isolated*
@@ -614,13 +554,14 @@ process that writes the state file); otherwise they are applied directly and the
 to continue from the file. A command refuses to run while a split is half-finished; `run` finishes it first:
 
 ```bash
-node src/cli.mjs split --channel <id> --who "Alice Hale,Harriet Vance" --place "Old Harbour" [--span long] [--time "Tuesday night"] [--opening "Fog hangs over the harbour."]
+node src/cli.mjs split --channel <id> --who "Alice Hale,Bob Price" --place "Old Harbour" [--span long] [--time "Tuesday night"] [--opening "Fog hangs over the harbour."]
 node src/cli.mjs rejoin --channel <id> --timeline "Old Harbour"      # or a handle: --timeline T2
 node src/cli.mjs advance --channel <id> --title "The next morning"    # open the next scenario now
-node src/cli.mjs status --channel <id>                                # read-only: threads, seats, settings
+node src/cli.mjs status --channel <id>                                # read-only: threads, settings
 ```
 
-`timelines.auto: false` goes back to the older, model-led `split`/`rejoin` actions for co-players only.
+`timelines.auto: false` leaves the moving to you: the GM keeps each thread's time, place and notes, and only these
+commands split and rejoin the party.
 
 ### Scenarios
 
@@ -631,7 +572,7 @@ stage done, or the platform's own "New scenario?" reminder. The client refuses, 
 unless:
 
 - the turn is in the primary story window (`T0`: the Main Chat, or its fork with scene forks), never in a side thread or the public lobby;
-- it is a turn after a player's or co-player's line, never an autonomous or arrival turn;
+- it is a turn after a player's line, never an autonomous or arrival turn;
 - **no short split** is active (a long one carries on into the new scenario);
 - at least `scenarios.min_minutes` have passed since the current scenario began and it has at least
   `scenarios.min_lines` events.
@@ -640,62 +581,37 @@ Each turn the GM is told whether a change is possible now. `scenarios.auto: fals
 
 ### Autonomy
 
-On its own clock (`autonomy.tick_ms`) the table also runs:
-
-- **side** turns: a co-players-only scene moves on, turn after turn, every `autonomy.side_interval_ms`, with no human
-  line. The co-players drive the thread; the GM runs the world and answers them at once;
-- **quiet** turns: a scene with human players that has been silent for `autonomy.quiet_ms` moves on a little: the
-  world, the NPCs, a question to a named player, the co-players. The GM is told never to decide, speak or roll for a
-  player character; the client enforces it too. After `autonomy.quiet_turns` quiet turns the window waits for a human
-  again. Only shared windows where a human spoke recently are moved. A primary scene containing only co-players
-  is eligible for side turns too; an empty Main Chat lobby is not.
-
-Within the GM's spotlight groups, co-players who have gone longest without a scene line act first, so a small
-`pacing.max_actions_per_turn` budget does not always spend its remaining slots on the first roster entry.
-
-The table also checks for co-players left without participation in their current window. By default, twelve public
-story lines without their own action trigger a review; twenty real minutes also qualify after at least four story
-lines. Private notes, OOC chat, recalled lines and other windows do not count. Joining a new seat resets the scope.
-Each GM turn reviews at most one co-player, reconsiders whether their recorded location fits their actual actions,
-and offers a concrete personal activity, relationship moment or independent scene. A reserved action slot lets that
-co-player choose, with room for a GM follow-up when the turn budget permits. Their own decision still determines any
-split and companions. Pending rolls and player choices take precedence. The GM can record a grounded reason to rest
-or wait; the same co-player is not reviewed again for twenty minutes. Review state survives restart and rolls back
-with a recalled turn. Human players and NPCs are not selected by this co-player check.
-
-A review can ride on a normal turn, or run autonomously in a recently active scene after its quiet interval even if
-ordinary quiet turns have been used. Typing, hosting pause, idle and hourly limits still hold. A budget of at least
-two actions is needed for a review. Set `autonomy.coplayer_idle_lines`
-to `0` to disable the check; both thresholds are configurable in the GM-agent web settings.
+On its own clock (`autonomy.tick_ms`) the table also runs **quiet** turns: a scene with human players that has been
+silent for `autonomy.quiet_ms` moves on a little: the world, the NPCs, a question to a named player. The GM is told
+never to decide, speak or roll for a player character; the client enforces it too. After `autonomy.quiet_turns` quiet
+turns the window waits for a human again. Only shared windows where a human spoke recently are moved; an empty Main
+Chat lobby is not.
 
 Autonomy is capped at `autonomy.max_turns_per_hour` (and by `context.daily_token_budget`), never runs while another turn
 is pending, and any human line wakes the table up. `autonomy.enabled: false` turns it off.
 
 **Fragmented play.** A campaign can also go on for weeks with people dropping in hours or days apart:
-- **Away mode.** Once no human has posted in the channel for `autonomy.idle_minutes`, the table is "away". Shared
-  windows wait. Co-players-only threads still move, but only every `autonomy.away_side_interval_ms` (default 6 hours; 0 makes
-  them wait too), so the story moves on a little between visits without spending much.
+- **Away mode.** Once no human has posted in the channel for `autonomy.idle_minutes`, the table is "away". Every
+  window waits until someone is back (texts already on their way still arrive).
 - **Returning players.** A player who writes after being away for longer than that gets a welcome back in the GM's
   answer: where their character is now and what has moved on meanwhile, then the scene is theirs. Recaps of the story
   so far come from the platform's own tips for players.
 - **Absent characters.** In the window list the GM sees which player characters' players are away. Those characters stay
   in the scene but passive: the GM never acts for them, never makes the scene wait on them, and lets no harm befall them
   until their player is back.
-- **Pace.** A human line gives each co-player one turn. In a quiet turn that follows, a co-player who has already
-  answered stays quiet, so slow human players are not drowned out by the AI side of the table.
 - **Someone is typing.** The platform tells the table which characters are being written as (`typing.changed` on the
-  chat socket). While a real person's character is typing in a window, that window's quiet turns wait: the story,
-  the co-players and the calendar do not move on while they compose their line, and once they stop the silence
-  starts over. The answer to the line they then send is not affected, nor are co-players-only side threads.
+  chat socket). While a real person's character is typing in a window, that window's quiet turns wait: the story
+  and the calendar do not move on while they compose their line, and once they stop the silence starts over. The
+  answer to the line they then send is not affected.
 
 **Costs.** A genuine new scene creates a fork and may rebuild the affected player group's derived memory.
 Pausing/resuming an existing member preserves accumulated memory. A split or reunion may also cost an arrival turn
-(a GM call, the co-players and a follow-up).
+(a GM call).
 
 ## The story planner
 
 The GM reads the recent chat and plays step by step. In a long casual campaign nobody holds the whole story: one
-trivial event stretches over many turns, and neither the GM nor the co-players dare to move on. The **story planner**
+trivial event stretches over many turns, and the GM does not dare to move on. The **story planner**
 is a second, slower model role above the GM (`src/planner.mjs`): now and then, in the background and with its own model,
 it rereads the campaign, keeps a plan of the twists and turns, reviews its own draft, and tells the GM when the current
 event has run its course.
@@ -709,7 +625,7 @@ event has run its course.
   lines of a campaign; the GM asked (a `planner_note` action); the scenario changed; the story stalled
   (`planner.stall_turns` turns in the same place with no world change, no new truth, no split and no scenario change);
   or `planner.interval_minutes` of play and `planner.min_lines` lines have passed. Never while everyone is away (no
-  player line for `autonomy.idle_minutes`; co-players' and NPCs' lines do not count), never over the daily token
+  player line for `autonomy.idle_minutes`; NPCs' and bots' lines do not count), never over the daily token
   budget, at most `planner.max_runs_per_hour` and `planner.cooldown_minutes` apart.
 - **The final review closes every session.** A session is a stretch of player lines with no gap longer than
   `autonomy.idle_minutes`. When one with at least `planner.final_review_min_lines` player lines ends (nobody has
@@ -726,9 +642,6 @@ event has run its course.
   is honest); and a revision that must fix every fault. The critique is kept with the plan.
 - **It dares.** In improvisation mode it invents original plots, weaves several into one situation and raises the
   stakes, within the world setting and the hidden truths; each invention is a secret twist the GM reveals through play.
-- **Co-players get impulses.** Each co-player may get one private urge, written in character ("you want to see the
-  docks tonight"), shown only to it as its own thought and dropped after `planner.impulse_lines` lines. An impulse that
-  quotes a secret or a truth, or talks about the game itself, is discarded. The GM sees only who got one.
 - **Module-led campaigns: pace only.** With a module, the planner invents nothing and judges only when to let an event
   go.
 - **The GM sees it.** Every new plan version is announced once as a GM-only note in the Main Chat; `status`
@@ -763,9 +676,8 @@ with its weekday: "1923-10-02 (Tuesday), morning". A solemn game has no date fro
   school year, a fishing season, holidays, festivals) and from the era, and invents fitting ones where world.md says
   nothing. The routine is common knowledge: a routine that quotes a secret or a hidden truth is dropped. Each plan and
   each final review refreshes it. Once the date moves past it, it is marked with the date it was set for.
-- **Who reads it.** The GM reads the date, the routine and the latest changes in its context. Each co-player reads
-  "TODAY IN THE STORY", with its own thread's time of day, and the routine. It also reads a line when time passed
-  since it last spoke.
+- **Who reads it.** The GM reads the date, the routine and the latest changes in its context. The notes for the
+  platform's bots carry "TODAY IN THE STORY" and the routine.
 - **It moves forward only.** The GM moves it with the `date` action when time passes in play, or with `advance_days`
   on a scenario change. The planner says in its plan when it should move next. The final review after each session
   moves it on between sessions, and the operator can use the `date` command.
@@ -800,14 +712,13 @@ node src/cli.mjs date
 INT. Near the bottom of the range is the opposite, such as "very plain" or "slow-witted": 25 for STR, CON, DEX, APP and
 POW, and 45 for SIZ, INT and EDU, which start at 40. Luck is left out. In a D&D channel the six ability scores count
 instead: 18 and above, or 7 and below. At most three traits are given, the most extreme
-first, with gender and age. The GM and the planner read them for everyone; a co-player reads them for its companions
-and for the NPCs it has met.
+first, with gender and age. The GM and the planner read them for everyone.
 
 **Relationships.** Who lives with, loves, is related to, works with or is at odds with whom (`src/bonds.mjs`). The GM
 records them with the `bond` action. The planner adds the ones the profiles state and, in improvisation mode, the ones
 it invents to tie plots to people. It records a bond with a player character only when that character's profile or the
-chat already states it. The operator can use the `bond` command. The GM and the planner read every bond. A co-player
-reads its own bonds, secret or not, and the public bonds between people it knows.
+chat already states it. The operator can use the `bond` command. The GM and the planner read every bond; the notes for
+the platform's bots carry none.
 
 ```bash
 node src/cli.mjs bond "Alice Hale" "Harriet Vance" "lives with" --note "they share rooms above the shop"
@@ -822,23 +733,20 @@ node src/cli.mjs bond end "Alice Hale" "Mr. Grimsby" rivals
 Without a module, the table can improvise a campaign from a world setting you write yourself:
 
 ```bash
-node src/cli.mjs setup --channel <CHANNEL_ID> --coplayers 2 --improv --world world.md --secrets secrets.md
+node src/cli.mjs setup --channel <CHANNEL_ID> --improv --world world.md --secrets secrets.md
 ```
 
 - **`world.md`, the world setting** (your own text, used as written, up to 30,000 characters): places, factions, people,
   tone, what everyone knows. It becomes the worldbook's **bible** (see "The worldbook").
-  - The GM, the real NPCs and every co-player get it as a section of their prompt.
+  - The GM and the real NPCs get it as a section of their prompt, and the notes for the platform's bots carry it.
   - It is never posted in the chat: players read the worldbook where the agent runs (the host's Web UI, or the file).
 - **`secrets.md`, the GM's hidden layer** (optional): what is really going on. Only the GM and the real NPCs read
   it; it is never posted. It becomes the worldbook's hidden layer.
 - **The GM improvises.** It grows the story from the world, the investigators' backgrounds and the players' choices,
   and is told to reveal hidden things only through play.
   - Whenever it decides a hidden fact (who did it, what someone wants), it records it with a `truth` action.
-  - Recorded truths are kept in the state file and shown to the GM, never to the co-players, so later turns stay
+  - Recorded truths are kept in the state file and shown to the GM, never in the bots' notes, so later turns stay
     consistent.
-- **Co-players are written into the world.** New ones get a full personality and a background story rooted in it.
-  Each co-player knows its own story and its companions' public profiles. Missing background on an adopted GM-cast PC
-  is also filled in to fit the world.
 - **No module.** The platform's script knowledge and module hints are not read in this mode.
 - **BRP with CoC presets.** An improvised campaign is a Basic Roleplaying game on the Call of Cthulhu 7th edition
   presets: CoC's characteristics, skills, dice and sanity, with genre and tone taken from your world, not necessarily
@@ -867,8 +775,8 @@ file, and how many truths the GM has recorded.
 
 The world is not one text that every prompt carries whole. The worldbook has three parts:
 
-- **The bible** (the world setting, up to 30,000 characters): always in use; the GM, the real NPCs and every co-player
-  read it each turn.
+- **The bible** (the world setting, up to 30,000 characters): always in use; the GM and the real NPCs read it each
+  turn, and the notes for the platform's bots carry it.
 - **The hidden layer** (the GM's secrets, up to 20,000 characters): always in use, for the GM and the real NPCs only.
 - **Entries** (up to 300; each a title, up to 24 keys and up to 6,000 characters): places, groups, people, customs and
   history, read only when they are needed. An entry is **secret** when only the GM's side may know it, and can be
@@ -878,15 +786,15 @@ When an entry is needed:
 
 - **Its title or a key comes up.** The window's last `worldbook.recent_lines` lines (30), the scene's place and the
   scenario's title are searched. Keys in Latin scripts match whole words ("Guild" is not found in "Guildford"); CJK
-  keys match anywhere; case does not matter; a single-character key is ignored. A co-player's search covers only the
-  lines it witnessed, its place and its intention.
+  keys match anywhere; case does not matter; a single-character key is ignored. For the bots' notes, only the lines
+  everyone could read are searched.
 - **The GM opens it.** The GM sees the list of all entries (titles and keys) and opens any of them with the
   `worldbook_read` tool when the story reaches it; an opened entry stays in play in that window for the next
   `worldbook.recent_lines` lines there. The planner can read entries with the same tool.
-- Entries in play are limited to `worldbook.gm_tokens` (3,000) for the GM and `worldbook.coplayer_tokens` (1,200) for a
-  co-player; the most recently mentioned and the opened ones come first.
+- Entries in play are limited to `worldbook.gm_tokens` (3,000) for the GM and `worldbook.coplayer_tokens` (1,200) for
+  the bots' notes; the most recently mentioned and the opened ones come first.
 
-Secret entries reach only the GM, the real NPCs and the planner, never a co-player. A table without
+Secret entries reach only the GM, the real NPCs and the planner, never the bots. A table without
 entries reads exactly as before: no list, no tool.
 
 **Where it lives.** `STATE_DIR/<channel>.worldbook.json`, edited in the host's Web UI (世界书), private to the owner
@@ -903,23 +811,6 @@ the hidden layer are also kept in the channel's state, so every other reader of 
 The platform's world record still receives the bible and the hidden layer once per version; entries are not handed
 to it. A world posted in the Main Chat by earlier versions stays there and is still left out of the models' chat logs.
 
-## Co-player intentions
-
-The host's operator can give an AI co-player a standing intention by hand, in the Web UI (队友意图): "win Mina over
-while keeping the club united". It is a light, occasional control over where a co-player leans; nothing sets,
-advances, completes or clears an intention automatically.
-
-- Only that co-player reads it, in its turns and its phone replies, as its own long-term
-  aim to pursue in character, step by step, when the moment allows. It keeps it to itself.
-- The GM, the real NPCs, the planner and the other co-players never read it.
-- It never overrides how the table plays: a co-player still never decides for a player character and keeps to the
-  players' corrections.
-- Worldbook entries its intention names come into its prompt, so it knows what it is aiming at.
-
-Intentions live in `STATE_DIR/<channel>.intentions.json`, keyed by character id (a rename keeps them), at most 1,000
-characters each. An empty text clears one. They can be edited whether the channel runs or not; a running co-player
-reads the change at its next turn.
-
 ## D&D 2024 channels
 
 A channel plays by one rule system, its GM's choice on the platform: Call of Cthulhu 7e (`coc7e`, the default), D&D
@@ -930,24 +821,25 @@ byte for byte, so a release does not rebuild its prompt caches by accident (call
 rebuilt them once).
 
 ```bash
-node src/cli.mjs setup --create --rules dnd2024 --coplayers 2 --level 1
+node src/cli.mjs setup --create --rules dnd2024
 ```
 
 - **Words.** The player characters are adventurers and the game is "a fifth-edition fantasy roleplaying game (D&D
   2024 rules, SRD 5.2)", as the platform's own prompts name them. The GM is "GM", as in every system, and its lines
   are labelled "GM" for every model.
-- **Cards.** A co-player's card is a D&D build in `role_card.dnd` (`src/roles/dndcard.mjs`): class, species and
+- **Cards.** A character's card is a D&D build in `role_card.dnd` (`src/roles/dndcard.mjs`): class, species and
   background from the SRD lists, a 27-point array of base scores, the background's increases, the proficiencies, AC,
   features and spells. The model chooses the character; the client computes saves, hit points, speed, hit dice, spell
   slots and the spellcasting ability, checks the build against the same rules the platform applies under point buy
   (budget, 8–15, increases, saves, skill counts), asks the model for one repair when it breaks them, and still repairs
-  the platform's own `points_rule` refusals. New co-players are built at `table.level` (`--level`, default 1);
-  existing GM-cast PCs keep their level and their own scores, and `setup` only fills what is missing. The CoC
+  the platform's own `points_rule` refusals. The Forge builds its characters at `table.level` (`--level`, default 1);
+  existing characters keep their level and their own scores. The CoC
   background fields carry the D&D texts: ideals under ideology, bonds under significant people, personality traits and
   flaws under traits. NPCs get a build too; under point buy an NPC is a legal character build like anyone's. Monsters
   have no card: the GM rolls them by name.
-- **Dice.** Co-players roll `.rc` D20 Tests (checks, saves, attacks with their own bonus typed), `.ri` initiative,
-  `.ds` death saves, `.ss` spell slots and `.r`; never `.init`, `.st`, hidden rolls or `.sc`. The GM asks players with
+- **Dice.** The GM's own characters roll on the platform against their sheets: `.rc` D20 Tests (checks, saves, attacks
+  with their bonus typed), `.ri` initiative, `.ds` death saves, `.ss` spell slots and `.r`; never `.init`, `.st`,
+  hidden rolls or `.sc`. The GM asks players with
   `request_roll` (`.rc Stealth dc 15`, `.rc WIS save dc 13`, `.rc attack +5 ac 14`) and has a `dice` action of its
   own for what the platform lets the GM account roll without a sheet: a monster's initiative (`.ri +2 Goblin`), the
   order (`.init next`, `.init del`, `.init clr`) and plain rolls (`.r 1d20+4`, `.r 1d8+3`).
@@ -957,8 +849,8 @@ node src/cli.mjs setup --create --rules dnd2024 --coplayers 2 --level 1
   `.init next` after every turn, removes the fallen and clears the order when the fight is over. Monsters' AC and hit
   points live in the GM's notes.
 - **What is striking.** Final ability scores of 18 and above are named ("extremely strong", "extremely charismatic,
-  magnetic"), 7 and below the opposite; a co-player's own sheet shows its modifiers, proficiency bonus, AC, live HP,
-  saves, skills and slots, while companions see its build line ("level 3 Elf Rogue (Criminal)") and traits only.
+  magnetic"), 7 and below the opposite; the GM's cast shows each character's build line ("level 3 Elf Rogue
+  (Criminal)") and traits.
 
 Everything else (timelines, scenarios, the planner, phones, the calendar, relationships, the final review) is the same
 across the supported systems.
@@ -969,7 +861,7 @@ For casual roleplaying, usually (not necessarily) together with improvisation. I
 knows nothing of it. Without it the game is solemn and there are no phones.
 
 ```bash
-node src/cli.mjs setup --channel <CHANNEL_ID> --coplayers 2 --casual --improv --world world.md
+node src/cli.mjs setup --channel <CHANNEL_ID> --casual --improv --world world.md
 ```
 
 ```bash
@@ -985,28 +877,18 @@ node src/cli.mjs casual off
 - **Texting.** Write `@` and a name, e.g. `@Silas Mott where are you?`. A line without `@` goes to whoever you texted
   last (or who texted you last). An unknown name gets a hint and reaches no one.
 - **Replies:**
-  - A real NPC answers through the GM, as that NPC, after a believable delay of its choosing, or leaves the message on
-    read.
-  - A co-player answers in character the same way, at most `modes.casual_max_delay_minutes` later.
+  - A real NPC answers through the GM, as that NPC, after a believable delay of its choosing (at most
+    `modes.casual_max_delay_minutes`), or leaves the message on read.
   - Pending replies are kept in the state file, so they survive a restart and still arrive while everyone is away.
 - **Other players.** A text to another player appears in their phone at once, posted as the sender's character.
-- **First contact.** The GM may have an NPC text a player or a co-player (a hook, news, an invitation). A co-player
-  may text anyone it knows instead of speaking in the scene: a player, a companion, or an NPC it has met.
-- **The phone log.** Texts with no player character in them go to `Phone log (GM only)`, a window with only the
-  GM's account in it (a channel that already has one keeps it under the name it was made with). That covers co-player
-  to co-player, co-player to NPC, and NPC to co-player. Each line is one text, posted as the sender: "→ Tomas
-  Leclerc: Meet me at the pier at nine." The recipient answers there in its own
-  time: a co-player through its own model, an NPC through the GM. The GM reads the log like any other window.
-- **AI texting has limits.** Two AI characters stop after `modes.casual_ai_chain` texts in a row until a person writes
-  again. At most `modes.casual_ai_texts_per_hour` such texts are answered an hour, and none while everyone is away
-  (they still arrive).
+- **First contact.** The GM may have an NPC text a player (a hook, news, an invitation).
 - **Who knows what.** A text never starts a scene turn and never moves anyone between scenes. The GM reads every
-  phone; a co-player knows only the messages it sent or received.
+  phone.
 - **Privacy.** Phones are private only on an **isolated** channel with one player per group, so casual mode stays off
   anywhere else. Create the channel with knowledge mode *isolated* in the web app (with `setup --create --casual`, a
   new channel is made isolated).
 
-`status` shows the phones, the phone log and the texts still on their way.
+`status` shows the phones and the texts still on their way.
 
 ## The planner window and new players
 
@@ -1022,16 +904,16 @@ given the new lines, keeps the standing wishes and corrections as numbered table
 them as the players write more, and answers in the window along the way. Its answer never quotes a twist
 or a hidden truth. Who reads the notes:
 - the GM reads them all in its context: corrections to keep to strictly, wishes to steer toward;
-- a co-player reads only the corrections about it or about no one in particular, as out-of-character table rules;
-- a wish is the planner's to weave in, so co-players never see one.
+- the notes for the platform's bots carry the corrections, as out-of-character table rules;
+- a wish is the planner's to weave in, so the bots never see one.
 
 `status` lists the notes. Every player in the channel can read what the others write there.
 
 A line starting with `/画`, `/插画`, `/draw` or `/illustrate` asks for a picture of a past plot instead; it is no wish
 and the planner never reads it (see Illustrations).
 
-Send `/pause` on its own in this window to pause the channel. It cancels current and queued GM, co-player
-and planner generation. Phone messages whose text and delivery time are already saved still arrive. Their delivery
+Send `/pause` on its own in this window to pause the channel. It cancels current and queued GM and planner
+generation. Phone messages whose text and delivery time are already saved still arrive. Their delivery
 does not trigger another reply while paused. The next message from any human player in the channel resumes hosting,
 including a message in the planner window or on their character’s phone. A pause survives restarting the agent.
 
@@ -1065,7 +947,7 @@ The client keeps a channel you already run. In the web app, create a server and 
 and make the client's account its GM (channel members → role GM). Then:
 
 ```bash
-node src/cli.mjs setup --channel <CHANNEL_ID> --coplayers 2
+node src/cli.mjs setup --channel <CHANNEL_ID>
 ```
 
 Without `--channel`, `setup` lists the channels the account is GM of and asks which one to keep (or, with none, says how
@@ -1074,29 +956,27 @@ scripts and tests), `setup --create` makes a new server and channel, prints an i
 `channel.server_name`, `channel.channel_name`, `--era` and `--rules` (`channel.rule_system`: `coc7e`, `dnd2024` or `pbta`):
 
 ```bash
-node src/cli.mjs setup --create --coplayers 3 --era 1920s
+node src/cli.mjs setup --create --era 1920s
 ```
 
 ```bash
-node src/cli.mjs setup --create --coplayers 2 --rules dnd2024 --level 3
+node src/cli.mjs setup --create --rules dnd2024
 ```
 
 `setup` prints the channel id. Add the players to the channel in the web app, or with `POST /api/channels/{id}/members`.
-Every setup first checks existing co-players on the
-platform: it fills missing appearance prompts, basic information, characteristics (in D&D: the build) and background
-fields while preserving filled values (including current HP/SAN, and in D&D the level, AC, hit points and improvements). Complete characters are skipped without a model call. It then creates only
-the additional co-players needed to reach `table.coplayers`. It never recreates existing characters or fills human players' cards.
+`setup` makes no characters: the players make their own, and the GM's NPCs come up in play (or from the Forge). It
+applies the world and casual settings to the state file and, in a PbtA channel, has the rule pack designed for the
+GM's review.
 
-Appearance prompts are generated alongside new role cards (also for new NPCs during play) and saved under Appearance &
-images. Saving the prompt does not change uploaded/generated image mode or automatically spend image-generation credits.
+Appearance prompts are generated alongside new role cards (new NPCs during play, the Forge's characters) and saved
+under Appearance & images. Saving the prompt does not change uploaded/generated image mode or automatically spend image-generation credits.
 Missing injury, phobia, magic and Mythos-experience fields use an explicit "None" when applicable.
 
-With the channel's `point_buy` option on (GM workspace → Settings → Rules; older servers: the `coc7_points` feature), setup also checks career and skill purchases. The model chooses a career,
+With the channel's `point_buy` option on (GM workspace → Settings → Rules; older servers: the `coc7_points` feature), a new role card also gets career and skill purchases. The model chooses a career,
 then receives that career's complete point formula, fixed skills, choice groups, free specialties, Credit Rating range and
 skill bases. It allocates career/hobby increments; the platform computes the final skill values. Existing growth points
-are retained. Missing/invalid allocations are repaired, including older co-players with only handwritten skill totals.
-The platform's validation errors get up to two allocation repairs; setup fails visibly if they still cannot be saved,
-instead of discarding the career and points. Corrections to allocations recalculate the affected skill totals.
+are retained. Missing/invalid allocations are repaired. The platform's validation errors get up to two allocation
+repairs; the save fails visibly if they still cannot be saved, instead of discarding the career and points. Corrections to allocations recalculate the affected skill totals.
 
 ```bash
 CHANNEL_ID=<id> npm start          # or: node src/cli.mjs run --channel <id> [--kickoff]
@@ -1109,7 +989,8 @@ node src/cli.mjs status --channel <id>
 
 Ordinary settings live in `gm-agent.yml`, found as `--config <file>`, `GM_AGENT_CONFIG`, `./gm-agent.yml` or the file
 beside the client. A `--flag` overrides a key for one run. The environment (or `.env`) is read only for the seven
-names in the last rows. Other variables older versions read are ignored, with a warning that names the key to use.
+names in the last rows. Other variables older versions read are ignored, with a warning that names the key to use;
+keys of features this client no longer has are accepted and ignored.
 
 | Key in `gm-agent.yml` | Flag | Default | Meaning |
 |---|---|---|---|
@@ -1118,9 +999,7 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | `channel.create` | `--create` | `false` | let `setup` create a new server and channel (and an invite code) instead of keeping one the account is GM of |
 | `channel.server_id`, `channel.server_name`, `channel.channel_name`, `channel.era` | `--server`, `--server-name`, `--channel-name`, `--era` | | used only with `--create` |
 | `channel.rule_system` | `--rules` | `coc7e` | the rule system of a channel made by `setup --create`: `coc7e`, `dnd2024` or `pbta`; `channel.rules` remains an alias (an existing channel's is read from the platform) |
-| `table.coplayers` | `--coplayers` | `2` | number of co-players (0–8) |
-| `table.level` | `--level` | `1` | D&D: the level new co-players are built at (1–20); existing characters keep theirs |
-| `table.coplayer_windows` | `--coplayer-windows` | Main Chat | window ids or names the co-players sit in |
+| `table.level` | `--level` | `1` | D&D: the level the Forge builds new characters at (1–20); existing characters keep theirs |
 | `table.language` | `--language` | server language | language of everything the client writes |
 | `table.kickoff`, `table.verbose` | `--kickoff`, `--verbose` | `false` | open the session without waiting; log every post |
 | `llm.provider` | `--llm-provider` | `anthropic` if `ANTHROPIC_API_KEY` is set, else `mock` | `anthropic`, `openai_compatible` (the OpenAI Responses API) or `mock` |
@@ -1136,36 +1015,31 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | `planner.provider`, `planner.api_base`, `planner.model` | `--planner-provider`, `--planner-api-base`, `--planner-model` | the GM's | the planner's own model and endpoint (its key: `PLANNER_API_KEY`, else the provider's key) |
 | `planner.effort` | `--planner-effort` | `high` | the planner's reasoning effort (ignored by `openai_compatible`) |
 | `providers.<name>.provider`, `.api_base`, `.api_key`, `.model`, `.effort`, `.max_tokens`, `.timeout_ms`, `.stream`, `.fallbacks`, `.cache_ttl` | | the `llm` settings | a named endpoint with its key and default model; a key left out comes from `ANTHROPIC_API_KEY` or `LLM_API_KEY` (see "Several models") |
-| `models.<function>` | | the `llm` settings | `{provider, model, effort, max_tokens}`, or a provider's name: where `director`, `coplayers`, `formatting`, `planner`, `memory`, `readers`, `pictures` or `cards` run; a purpose name or `default` is accepted too |
+| `models.<function>` | | the `llm` settings | `{provider, model, effort, max_tokens}`, or a provider's name: where `director`, `formatting`, `planner`, `memory`, `readers`, `pictures` or `cards` run; a purpose name or `default` is accepted too |
 | `planner.interval_minutes`, `planner.min_lines` | | `30`, `40` | play time and lines before an ordinary automatic plan (`0` disables interval planning; daily refresh and final review use their own triggers) |
 | `planner.cooldown_minutes`, `planner.max_runs_per_hour` | | `10`, `4` | least gap between runs; hourly cap |
 | `planner.stall_turns` | | `6` | turns in the same place with no world change, truth, move or scenario change before the planner is asked |
-| `planner.impulse_lines`, `planner.plan_tokens` | | `60`, `1500` | how long a co-player's impulse lives; budget of the GM's "Story plan" section |
+| `planner.plan_tokens` | | `1500` | budget of the GM's "Story plan" section |
 | `planner.wish_window` | `--planner-window` | `true` | the planner window for the players' wishes and corrections, read at the planner's next run |
 | `planner.final_review`, `planner.final_review_min_lines`, `planner.final_review_max_days` | `--final-review`, `--final-review-min-lines`, `--final-review-max-days` | `true`, `10`, `30` | the review when a session of human play ends: on or off, how many player lines a session needs, how many story days it may move the calendar |
 | `pacing.debounce_ms`, `pacing.post_delay_ms` | `--debounce-ms`, `--post-delay-ms` | `4000`, `1200` | quiet time before a turn; pause between posted lines |
 | `pacing.max_actions_per_turn` | `--max-actions` | `6` | lines per turn |
-| `context.gm_tokens`, `context.coplayer_tokens` | | `60000`, `24000` | context budget for the GM and for each co-player; older history is compacted into chapters |
+| `context.gm_tokens` | | `60000` | context budget for the GM; older history is compacted into chapters |
 | `context.recall_tokens` | `--context-recall-tokens` | `1200` | local relevant excerpts per turn, also capped at 5% of the role budget; 0 disables, max 4000 |
 | `context.page_lines`, `context.backfill_lines` | | `100`, `1000` | lines fetched per page when syncing the local copy of the chat; how far back the first sync goes |
 | `context.daily_token_budget` | | `0` (off) | billable-equivalent tokens a day; once spent, no autonomous turns or plans until tomorrow |
-| `autonomy.enabled` | `--autonomy` | `true` | side timelines and quiet windows move on the table's own clock |
+| `autonomy.enabled` | `--autonomy` | `true` | quiet windows move on the table's own clock |
 | `autonomy.tick_ms` | | `30000` | how often the table looks for a window that should move |
-| `autonomy.coplayer_idle_lines` | `--coplayer-idle-lines` | `12` | public story lines without co-player participation before reviewing their place and opportunity; `0` disables |
-| `autonomy.coplayer_idle_minutes` | `--coplayer-idle-minutes` | `20` | elapsed trigger after four story lines; minimum interval between reviews of the same co-player |
-| `autonomy.side_interval_ms` | | `90000` | pause between turns in a side window |
 | `autonomy.quiet_ms`, `autonomy.quiet_turns` | | `180000`, `2` | silence before a shared window moves on, and how many such turns until a human posts again |
 | `autonomy.max_turns_per_hour`, `autonomy.idle_minutes` | | `20`, `30` | hourly cap on autonomous turns; "away" once nobody has posted for this long |
-| `autonomy.away_side_interval_ms` | | `21600000` (6 h) | while away, how often a co-players-only thread moves (0: never) |
-| `timelines.auto` | `--timeline-auto` | `true` | the GM reports whereabouts and the table splits and reunites the party; `false`: model-led co-player splits |
+| `timelines.auto` | `--timeline-auto` | `true` | the GM reports whereabouts and the table splits and reunites the party; `false`: only `split` and `rejoin` move anyone |
 | `timelines.scene_forks` | `--scene-forks` | `false` | `true`: after the first split the main story moves to a private fork and the Main Chat becomes a lobby the GM never narrates in; `false`: the main story stays in the Main Chat with the players (see Timelines) |
-| `timelines.guard_turns`, `timelines.guard_ms` | | `2`, `180000` | a co-player reversal without a fresh verified decision waits for two agreeing turns within this window |
 | `timelines.max_active` | | `4` | at most this many threads at once (the main one included) |
 | `timelines.pc_cooldown_ms` | | `300000` | a player gets a new window at most this often |
 | `timelines.max_arrivals_per_hour` | | `12` | arrival turns (opening a new or changed scene) per hour |
 | `scenarios.auto` | `--scenario-auto` | `true` | the GM opens the next scenario itself (from the primary story window only) |
 | `scenarios.min_minutes`, `scenarios.min_lines` | | `20`, `30` | the current scenario must be at least this old and this long before the GM changes it (lifted when the planner says move on) |
-| `worldbook.gm_tokens`, `worldbook.coplayer_tokens` | `--worldbook-gm-tokens`, `--worldbook-coplayer-tokens` | `3000`, `1200` | the most worldbook entries in play a GM's or a co-player's prompt carries (see "The worldbook") |
+| `worldbook.gm_tokens`, `worldbook.coplayer_tokens` | `--worldbook-gm-tokens`, `--worldbook-coplayer-tokens` | `3000`, `1200` | the most worldbook entries in play the GM's prompt and the bots' notes carry (see "The worldbook") |
 | `worldbook.recent_lines` | `--worldbook-recent-lines` | `30` | how many of a window's latest lines are searched for entries' titles and keys, and how long an opened entry stays in play |
 | `calendar.min_minutes`, `calendar.min_lines`, `calendar.max_days` | `--calendar-min-minutes`, `--calendar-min-lines`, `--calendar-max-days` | `30`, `30`, `2` | casual games: how long, and how many player lines of play, after the date last moved before the GM may move it on again; how many days the GM may skip at once (0: no limit) |
 | `illustrations.enabled` | `--illustrations` | `true` | evocative moments and the scenario-change pictures (see Illustrations) |
@@ -1175,8 +1049,7 @@ names in the last rows. Other variables older versions read are ignored, with a 
 | `modes.improv` | `--improv` | unset | improvisation mode (with `setup` or `world`; then kept in the state file) |
 | `modes.world_file`, `modes.secrets_file` | `--world`, `--secrets` | | your world setting and the GM's secrets, read by `setup` and `world` (relative to the file); they become the worldbook's bible and hidden layer |
 | `modes.casual` | `--casual` | unset | casual mode, phones for the player characters (with `setup` or `casual on/off`; then kept in the state file) |
-| `modes.casual_max_delay_minutes` | | `240` | longest delay before an NPC's or co-player's reply to a text |
-| `modes.casual_ai_texts_per_hour`, `modes.casual_ai_chain` | | `12`, `4` | texts between AI characters answered at most an hour; how many in a row before an exchange rests until a person writes |
+| `modes.casual_max_delay_minutes` | | `240` | longest delay before an NPC's reply to a text |
 | env `ACERCIAE_API_BASE` | `--api` | `http://localhost:8080` | backend address |
 | env `CHANNEL_ID` | `--channel` | – | the channel to keep; without it `setup` lists the channels the account keeps and asks |
 | env `STATE_DIR` | `--state-dir` | `./.state` | the state file, the SQLite store, the lock and the command inbox |
@@ -1186,42 +1059,38 @@ names in the last rows. Other variables older versions read are ignored, with a 
 **Mock mode.** `llm.provider: mock` writes labelled placeholder text (`[mock GM] …`). It exercises every pipeline
 without a provider. It is for tests and demos, not for play.
 
-During setup, the CLI prints which co-player it is generating and reports elapsed time every 15 seconds while waiting
-for the model. HTTP 504 means the model gateway timed out, even if the client's deadline has not expired. Streaming
+While it waits for a model (a PbtA design, say), the CLI reports elapsed time every 15 seconds. HTTP 504 means the model gateway timed out, even if the client's deadline has not expired. Streaming
 can keep an idle-timeout gateway connection active once the model starts sending data, but cannot fix an unavailable
-upstream or a gateway's absolute request deadline. After a failure, run setup again; it keeps previously saved co-players.
+upstream or a gateway's absolute request deadline. After a failure, run setup again.
 
-**Recovering a lost roster.** If the state file is lost, the roster is rebuilt from the channel's characters: PCs owned by
-the GM account are co-players and every NPC is a real NPC (including ones the GM makes in the web app).
-Co-players made by older versions are NPCs whose speaking style starts with `[co-player]`; they are still recognised,
-because the platform cannot change a character's kind.
+**The roster.** The GM's cast is read from the channel's characters every time: every NPC, and every PC the GM account
+owns, is one of its real NPCs (including ones the GM makes in the web app), so a lost state file loses none of them.
 
 ### Several models: `providers` and `models`
 
-Every model call names its purpose (the ones the usage list shows: `director`, `coplayer_turn`, `planner`, `compact`…).
-The purposes fall into eight functions, and a table may run each on a different provider and model
+Every model call names its purpose (the ones the usage list shows: `director`, `chat_format`, `planner`, `compact`…).
+The purposes fall into seven functions, and a table may run each on a different provider and model
 (`src/llm/routes.mjs`):
 
 | Function | Purposes | What it is |
 |---|---|---|
 | `director` | `director` | the GM's turns: the largest context, the most judgement |
-| `coplayers` | `coplayer_turn`, `coplayer_phone` | the co-players' lines and texts |
 | `formatting` | `chat_format` | places the drafted prose in chat and converts explicit table directions into actions |
 | `planner` | `planner` | full story planning |
-| `memory` | `compact`, `coplayer_memory` | compacting older chat into chapters |
+| `memory` | `compact` | compacting older chat into chapters |
 | `readers` | `scene_presence`, `movement_evidence`, `placement_correction`, `scene_handoff` | the small calls that check who is where |
 | `pictures` | `scenario_illustration`, `event_illustration`, `plot_search`, `plot_illustration` | choosing moments to draw, finding past plots |
-| `cards` | `coplayer_card`, `npc_card`, `coplayer_repair`, `coplayer_points`, `coplayer_build`, `pbta_design`, `pbta_card` | writing and repairing role cards |
+| `cards` | `npc_card`, `coplayer_points`, `coplayer_build`, `pbta_design`, `pbta_card` | writing and repairing role cards (point buy and D&D builds keep their old purpose names) |
 
 `providers` names the endpoints: each a `provider` type (`anthropic`, `openai_compatible`, `mock`), its `api_base`
 and `api_key`, its default `model`, and any of `effort`, `max_tokens`, `timeout_ms`, `stream`, `fallbacks`,
 `cache_ttl` (else the `llm` section's). The `llm` section itself is the provider called `default`. `models` then
 says, function by function, which provider and which model answer: `{provider, model, effort, max_tokens}`, each
 part optional (a missing model or effort is the provider's), or just a provider's name. A purpose named directly
-(`coplayer_phone`) outranks its function; `default` covers every function not named; the planner's own
+(`chat_format`) outranks its function; `default` covers every function not named; the planner's own
 `planner.provider/model/effort` keep naming its route when `models.planner` does not.
 
-The GM and the co-player write their turns as plain text first. A second call receives only the draft, assigns its
+The GM writes its turns as plain text first. A second call receives only the draft, assigns its
 paragraphs (or sentence ranges) to the appropriate chat messages, and translates any explicit table directions. The client takes
 each message's wording and any private recipient directly from the draft. This includes phone replies. Both calls count toward the usual token budget and are cancelled together on pause.
 `models.formatting` (or the `chat_format` purpose) can use a faster model. Without a separate setting it uses
@@ -1233,7 +1102,7 @@ providers:
   gateway: { provider: openai_compatible, api_base: https://gw.example/v1, api_key: "…", model: gpt-5-mini }
 models:
   director: { effort: high }          # the llm section's model, more effort
-  coplayers: gateway
+  cards: gateway
   formatting: fast
   memory: fast
   readers: { provider: fast, effort: low }
@@ -1256,18 +1125,18 @@ npm test
 
 The tests need no backend and no model. They cover:
 
-- the co-player filter (GM notes, other characters' whispers, other windows and AI tips never reach a co-player);
+- what the notes for the platform's bots carry (never GM notes, secrets, relationships or AI tips);
 - role-card checks;
 - a whole turn against an in-memory platform, with the mock model recording every prompt;
 - the request shape of the Claude and OpenAI Responses providers;
 - the configuration file and its precedence;
-- the story planner: triggers, the three-step review, the plan's place in the GM's context, impulses and their
-  privacy, pace-only in module play, the lifted pace guard, no run while nobody is at the table, and the final review
+- the story planner: triggers, the three-step review, the plan's place in the GM's context, pace-only in module play, the lifted pace guard, no run while nobody is at the table, and the final review
   after a session;
 - the calendar, the distinctive traits and the relationships, and which role reads which of them;
-- the phone log and its limits, the planner window (wishes, corrections, who reads them), and new players;
-- D&D 2024: the rules profile, the build maths and the local point-buy check, generation, repair and completion of
-  D&D cards, the GM's and co-players' prompts and dice, the `dice` action, the initiative section, and a snapshot that
+- phones and texts, the planner window (wishes, corrections, who reads them), and new players;
+- an older version's state file and settings, which still load;
+- D&D 2024: the rules profile, the build maths and the local point-buy check, generation and repair of D&D cards,
+  the GM's prompts and dice, the `dice` action, the initiative section, and a snapshot that
   keeps a CoC table's prompts byte for byte.
 - interactive messages (`test/hypertext.test.mjs`): each builder's card and its limits, the roll card and its fallback
   on a platform without cards (404, 405, 403 `feature_disabled`), closing it on a tapped or typed roll, and how lines
@@ -1291,16 +1160,14 @@ or describes it without naming it, does not bring its entry into play by itself 
 `worldbook_read`). Give each entry the names people actually use for it as keys. Entries are not handed to the
 platform's world record or its observers.
 
-- **Co-player lines count as GM lines.** They are posted by the GM account, so the platform records them with
-  `actor_role = gm`. The platform's chronicler accepts GM-authored lines as grounds for `confirmed` facts, so a
-  co-player's in-character guess may be recorded as established. Log Studio and the players' group memory count them
-  as the investigator's lines (the character is a PC); the GM-side observers, reminders and script tracking still
-  see a GM line.
-- The story planner's impulses are planner text in a co-player's prompt: quoted, capped and filtered, but not provably
-  inert. Its stall detector counts turns, so a long, talky scene can cost one extra advisory run. The GM may ignore the
+- **A PC the GM account owns speaks in GM lines.** The GM voices it like an NPC, posting as the GM account, so the
+  platform records its lines with `actor_role = gm`, while Log Studio and the players' group memory count them as an
+  investigator's lines (the character is a PC). Hand it to a bot (`bots handoff`) or a player to make it a player's
+  character.
+- The story planner's stall detector counts turns, so a long, talky scene can cost one extra advisory run. The GM may ignore the
   plan, and a plan can change every ten minutes: the "Story plan" section re-caches each time (parts A and B do not).
 - D&D: NPCs under point buy are legal character builds, never stat blocks (monsters have no card). Attack bonuses are
-  typed by the GM or the co-player, not read from the sheet, as the platform's `.rc attack` works. The GM account has no
+  typed by the GM or the player, not read from the sheet, as the platform's `.rc attack` works. The GM account has no
   character, so it cannot roll `.rc` for itself. The Initiative order is read for this turn's window only.
 - The era check reads years from the channel's era text only. An era with no year in it ("Victorian") is not
   checked.
@@ -1309,8 +1176,7 @@ platform's world record or its observers.
 - The final review on Ctrl-C makes three planner calls before `run` exits; with a slow model at high effort that can
   take minutes (a second Ctrl-C skips it). If the client was down when the players left, the review runs at the next
   start, unless a player writes first.
-- Co-players start in the windows of `table.coplayer_windows` and move only through whereabouts (or `split` and `rejoin`). A
-  private window the GM creates in the web app does not seat them automatically and is not part of any thread.
+- A private window the GM creates in the web app is not part of any thread.
 - Timelines live in the client's state file. The platform's own chronicler does not know about them, so a side
   thread's events reach the GM documents like any other lines.
 - Main Chat is always shared. Players in the same player group continue to share views even if only one remains
@@ -1334,7 +1200,7 @@ unfinished forks and audience changes and partitions existing split parties befo
 
 ## Runtime modules
 
-`src/loop.mjs` owns `Table` construction, initialization and turn order. `src/hypertext.mjs` builds the interactive messages the table posts (see [roll cards](#interactive-messages-roll-cards)). `src/table/` separates scheduling/cancellation, recall recovery, context, window movement, actions, illustrations, planning, social messages and co-player actions. Functions receive the table runtime explicitly; the table owns state, injected API/model clients, clock and persistence. The public methods remain available for CLI/host callers and test fixtures. Co-player context never reuses the GM's complete context, and platform mutations still travel through `src/api.mjs` with their existing idempotency keys.
+`src/loop.mjs` owns `Table` construction, initialization and turn order. `src/hypertext.mjs` builds the interactive messages the table posts (see [roll cards](#interactive-messages-roll-cards)). `src/table/` separates scheduling/cancellation, recall recovery, context, window movement, actions, illustrations, planning, social messages and the platform's bots. Functions receive the table runtime explicitly; the table owns state, injected API/model clients, clock and persistence. The public methods remain available for CLI/host callers and test fixtures. Platform mutations still travel through `src/api.mjs` with their existing idempotency keys.
 
 `npm test` runs with deployment environment variables cleared and automatic local `.env` loading disabled for CLI children. For an explicit configuration fixture or normal operation, `--env FILE` loads only that file. Normal startup without `--env` retains automatic `.env` loading. This client remains a separate Node.js process; the abandoned embedded platform GM proposal is historical documentation.
 
@@ -1344,7 +1210,7 @@ Set `modes.improv: true` and `forge.enabled: true` to co-create a world and char
 
 ## Structured world state
 
-Improvisation mode keeps private numeric meters, boolean flags and named states alongside the story. Forge can seed definitions and initial values; the GM can add or revise definitions during play. A relationship is keyed by NPC ID, target character ID and metric ID: the same NPC can trust one player, distrust another and feel differently about an AI co-player. Renaming a character preserves that identity. Co-players' own feelings and decisions remain improvised; no reciprocal or party-wide attitude is inferred.
+Improvisation mode keeps private numeric meters, boolean flags and named states alongside the story. Forge can seed definitions and initial values; the GM can add or revise definitions during play. A relationship is keyed by NPC ID, target character ID and metric ID: the same NPC can trust one player, distrust another and feel differently about a third. Renaming a character preserves that identity. Player characters' own feelings and decisions are never set; no reciprocal or party-wide attitude is inferred.
 
 The plain composer uses native `world_state_read`, `world_state_define`, `world_state_set`, `world_state_resolve_event` and `inventory_change` tools. Final chat remains prose. Every change names an observed chat line or an exact phrase in the adopted reply. Discarded drafts cannot apply changes. Number bounds and cumulative per-scene change limits are enforced in code. Thresholds with all/any comparisons unlock a pending opportunity once per directed pair, and completing it requires an actual reply; it does not force a player action. Passive players' relationships and inventories cannot be advanced by unattended play. The planner reads the same private state through a frozen, read-only view.
 
