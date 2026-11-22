@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { normalizeCard, derived, skillIndex, generateCoplayer } from "../src/roles/cardgen.mjs";
 import { MockLlm } from "../src/llm/mock.mjs";
 import { completeJson } from "../src/llm/index.mjs";
+import { normalizeDnd } from "../src/roles/dndcard.mjs";
+import { DND_RULES } from "./fixtures/dndRules.mjs";
 
 const rules = {
   skills: [{ name: "Spot Hidden", base: 25, names: { "zh-CN": "侦查" } }, { name: "Library Use", base: 20, names: {} }, { name: "Cthulhu Mythos", base: 0, names: {} }],
@@ -29,6 +31,17 @@ test("skill names are matched to the platform's names, unknown ones dropped, Myt
   assert.deepEqual(card.skills, { "Spot Hidden": 65, "Fighting (Brawl)": 40, "Science (Chemistry)": 30, "Cthulhu Mythos": 10, "Library Use": 99 });
   assert.equal(card.derived.san_max, 89);
   assert.equal(skillIndex(null)("Anything"), "Anything");
+});
+
+test("a player character's card keeps the creation ranges; the older kind \"coplayer\" means the same", () => {
+  const src = { characteristics: { STR: 120, SIZ: 30 }, skills: { "Cthulhu Mythos": 40, "Library Use": 120 } };
+  const pc = normalizeCard(src, { rules, kind: "pc" });
+  assert.deepEqual([pc.characteristics.STR, pc.characteristics.SIZ, pc.skills["Cthulhu Mythos"], pc.skills["Library Use"]], [90, 40, 10, 99]);
+  assert.deepEqual(normalizeCard(src, { rules, kind: "coplayer" }), pc);
+  assert.deepEqual(normalizeCard(src, { rules }), pc, "the default");
+  const dnd = { class: "Rogue", base: { STR: 3, DEX: 18 }, method: "manual" };
+  assert.deepEqual(normalizeDnd(dnd, { rules: DND_RULES, kind: "coplayer", pointsMode: false }), normalizeDnd(dnd, { rules: DND_RULES, kind: "pc", pointsMode: false }));
+  assert.deepEqual([normalizeDnd(dnd, { rules: DND_RULES, kind: "pc", pointsMode: false }).base.STR, normalizeDnd(dnd, { rules: DND_RULES, kind: "npc", pointsMode: false }).base.STR], [8, 3]);
 });
 
 test("NPC cards may go beyond investigator limits", () => {

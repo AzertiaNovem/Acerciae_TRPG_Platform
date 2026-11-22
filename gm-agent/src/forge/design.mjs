@@ -57,7 +57,7 @@ export async function compile(llm, s, { language, rules, existing, cfg, api, cha
       }
       if (s.rule !== 'pbta') {
         profile.card.validateGenerated(c,{rules,pointsMode});
-        c.role_card = profile.card.normalize(c.role_card,{ rules,kind:c.kind === 'npc' ? 'npc' : 'coplayer',level:cfg.level,pointsMode });
+        c.role_card = profile.card.normalize(c.role_card,{ rules,kind:c.kind === 'npc' ? 'npc' : 'pc',level:cfg.level,pointsMode });
         if (s.rule === 'coc7e' && pointsMode) c.role_card = await allocatePointBuy(llm,c.role_card,{rules,language});
         if (s.rule === 'dnd2024' && profile.card.check(c.role_card,rules).violations?.length) c.role_card = await profile.card.repair(llm,c.role_card,{rules,language,level:cfg.level});
       }

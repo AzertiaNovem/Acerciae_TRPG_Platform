@@ -105,6 +105,11 @@ const LEGACY_ENV = {
   TIMELINE_PC_COOLDOWN_MS: "timelines.pc_cooldown_ms", TIMELINE_MAX_ARRIVALS_PER_HOUR: "timelines.max_arrivals_per_hour", SCENARIO_AUTO: "scenarios.auto", SCENARIO_MIN_MINUTES: "scenarios.min_minutes",
   SCENARIO_MIN_LINES: "scenarios.min_lines", IMPROV: "modes.improv", WORLD_FILE: "modes.world_file", SECRETS_FILE: "modes.secrets_file", CASUAL: "modes.casual", CASUAL_MAX_DELAY_MINUTES: "modes.casual_max_delay_minutes",
 };
+// Settings of features this client no longer has (its own AI co-players and what served them, whose place the
+// platform's bots took: docs/BOTS.md). Older files may still set them: they are read without a warning, and ignored.
+const RETIRED_KEYS = [];
+// Model functions and purposes of those features (`models.<name>`), likewise.
+const RETIRED_MODELS = [];
 const SECTIONS = ["forge", "worldbook", "account", "channel", "table", "writing", "llm", "planner", "models", "providers", "pacing", "context", "autonomy", "timelines", "scenarios", "calendar", "modes", "illustrations"];
 // Named endpoints (`providers`) and the model of each function (`models`) have keys of their own (llm/routes.mjs).
 const FREE_SECTIONS = ["providers", "models"];
@@ -124,7 +129,7 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
   for (const section of Object.keys(data)) {
     if (!SECTIONS.includes(section)) { warnings.push(`gm-agent.yml: unknown section "${section}"`); continue; }
     if (FREE_SECTIONS.includes(section)) continue;
-    for (const key of Object.keys(data[section] ?? {})) if (`${section}.${key}` !== "channel.rules" && !SETTINGS.some((s) => s[2] === `${section}.${key}`)) warnings.push(`gm-agent.yml: unknown key "${section}.${key}"`);
+    for (const key of Object.keys(data[section] ?? {})) if (`${section}.${key}` !== "channel.rules" && !RETIRED_KEYS.includes(`${section}.${key}`) && !SETTINGS.some((s) => s[2] === `${section}.${key}`)) warnings.push(`gm-agent.yml: unknown key "${section}.${key}"`);
   }
   // flag › environment (allowed names only) › file › default
   const pick = (flag, d) => {
@@ -215,6 +220,7 @@ export function buildConfig(args = {}, env = process.env, file = {}) {
   const routes = data.models && typeof data.models === "object" && !Array.isArray(data.models) ? data.models : {};
   if (data.models !== undefined && (typeof data.models !== "object" || Array.isArray(data.models) || data.models === null)) warnings.push("gm-agent.yml: models must be a mapping of functions to models");
   for (const [fn, raw] of Object.entries(routes)) {
+    if (RETIRED_MODELS.includes(fn)) continue;
     if (![...FUNCTION_NAMES, ...PURPOSES, "default"].includes(fn)) { warnings.push(`gm-agent.yml: models: unknown function "${fn}" (${FUNCTION_NAMES.join(", ")}, a purpose, or default)`); continue; }
     const spec = typeof raw === "string" ? { provider: raw } : raw;
     if (raw === null || raw === undefined) continue;

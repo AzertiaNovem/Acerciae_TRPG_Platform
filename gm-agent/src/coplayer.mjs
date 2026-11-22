@@ -4,7 +4,7 @@
 // whispers.
 import { coplayerSources, formatTurn } from "./turn-format.mjs";
 import { DEFAULT_WRITING } from "./writing.mjs";
-import { renderLine } from "./context/coplayerContext.mjs";
+import { renderLine } from "./context/lines.mjs";
 import { renderProfile } from "./context/profiles.mjs";
 import { historyParts } from "./llm/parts.mjs";
 import { CHUNK_LINES } from "./memory.mjs";

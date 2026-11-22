@@ -5,6 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { buildConfig, configPath, loadConfigFile } from "../src/config.mjs";
 import { describeModels, routeFor } from "../src/llm/routes.mjs";
+import { parseChannel } from "../src/host-config.mjs";
+import YAML from "yaml";
 
 const file = (data, dir = "/campaign") => ({ file: path.join(dir, "gm-agent.yml"), dir, data });
 
@@ -152,4 +154,21 @@ test("PbtA rules and the existing channel.rules configuration remain supported",
     assert.equal(buildConfig({ rules: "dnd2024" }, {}, file({ channel: { [key]: "pbta" } })).ruleSystem, "dnd2024");
   }
   assert.equal(buildConfig({}, {}, file({ channel: { rules: "pbta", rule_system: "dnd2024" } })).ruleSystem, "dnd2024");
+});
+
+// The settings of the AI co-players and what served them (the platform's bots took their place): an older file that
+// still sets them loads as it is, here and in the host, where any warning would stop the channel.
+const RETIRED = {
+  table: { coplayers: 3, coplayer_windows: ["Main Chat"] },
+  writing: { coplayer: "Short and dry." },
+  planner: { impulse_lines: 40 },
+  context: { coplayer_tokens: 20000 },
+  autonomy: { side_interval_ms: 60000, away_side_interval_ms: 0, coplayer_idle_lines: 6, coplayer_idle_minutes: 30 },
+  modes: { casual_ai_texts_per_hour: 4, casual_ai_chain: 2 },
+  models: { coplayers: "default", coplayer_turn: { provider: "default", effort: "low" }, coplayer_phone: "default", coplayer_memory: "default", coplayer_card: "default", coplayer_repair: "default" },
+};
+
+test("the co-players' settings in an older file load without a warning", () => {
+  assert.deepEqual(buildConfig({}, {}, file(RETIRED)).warnings, []);
+  assert.doesNotThrow(() => parseChannel(YAML.stringify(RETIRED)));
 });

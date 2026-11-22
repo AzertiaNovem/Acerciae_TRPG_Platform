@@ -69,7 +69,9 @@ export function skillIndex(rules) {
   };
 }
 
-export function normalizeCard(input, { rules, kind = "coplayer" } = {}) {
+// `kind` "npc" allows an NPC's values; any other ("pc", or the older "coplayer") keeps a player character's creation
+// ranges.
+export function normalizeCard(input, { rules, kind = "pc" } = {}) {
   const src = input && typeof input === "object" ? input : {};
   const ch = {};
   for (const k of CHARS) {
@@ -180,7 +182,7 @@ export async function generateCoplayer(llm, { language, era, rules, pointsMode, 
   ].filter(Boolean).join("\n");
   const generated = await completeJson(llm, { system: system + '\n' + C.appearanceNote, user, purpose: "coplayer_card" }, (x) => C.validateGenerated(x, { rules, pointsMode }));
   if (profile.id === "coc7e") { if (pointsMode) generated.role_card = await allocatePointBuy(llm, normalizeCard(generated.role_card, { rules }), { rules, language }); return generated; }
-  generated.role_card = await checkedBuild(llm, C.normalize(generated.role_card, { rules, kind: "coplayer", level, pointsMode }), { profile, rules, language, pointsMode, level, log, who: generated.name });
+  generated.role_card = await checkedBuild(llm, C.normalize(generated.role_card, { rules, kind: "pc", level, pointsMode }), { profile, rules, language, pointsMode, level, log, who: generated.name });
   return generated;
 }
 
@@ -225,10 +227,10 @@ export async function putCardWithPoints(api, channelId, characterId, card, { hea
 export async function saveCharacter(api, channelId, generated, { kind, rules, llm, language, pointsMode = false, profile = DEFAULT, level }) {
   // A D&D card was normalised and checked when it was generated; a CoC card is normalised here.
   const card = profile.id === "coc7e" ? normalizeCard(generated.role_card, { rules, kind }) : generated.role_card;
-  // A co-player is a GM-cast PC: a PC the GM account owns (the platform makes the creator the owner).
+  // A "pc" is a PC the GM account owns (the platform makes the creator the owner); "coplayer" is its older name.
   const style = s(generated.speaking_style, 300);
   const bio = s(generated.persona ?? generated.brief, 6000);
-  const ch = await api.createCharacter(channelId, { name: s(generated.name), kind: kind === "coplayer" ? "pc" : "npc", speaking_style: style, description: bio.slice(0, 500) });
+  const ch = await api.createCharacter(channelId, { name: s(generated.name), kind: kind === "pc" || kind === "coplayer" ? "pc" : "npc", speaking_style: style, description: bio.slice(0, 500) });
   const savedCard = await putCardWithPoints(api, channelId, ch.id, card, {
     head: { name: s(generated.name), speaking_style: style, bio }, rules, llm, language, pointsMode, profile, level,
   });

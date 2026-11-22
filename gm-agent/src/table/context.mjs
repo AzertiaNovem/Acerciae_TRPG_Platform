@@ -1,5 +1,5 @@
 // context: table is the explicit runtime context supplied by Table; no service singleton.
-import { renderLine } from "../context/coplayerContext.mjs";
+import { renderLine } from "../context/lines.mjs";
 import { isPlayerCharacter } from "../roles/roster.mjs";
 import { MAIN } from "../timelines.mjs";
 import { renderTableNotes } from "../wishes.mjs";

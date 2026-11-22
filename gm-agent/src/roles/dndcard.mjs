@@ -74,9 +74,9 @@ export function deriveDnd(dnd, rules) {
   return dnd;
 }
 
-// The build as the platform keeps it. A co-player (and an NPC under point buy) is a point-buy build with scores 8–15;
-// an NPC with point buy off may have any scores and the manual method.
-export function normalizeDnd(src, { rules, kind = "coplayer", level = null, pointsMode = true } = {}) {
+// The build as the platform keeps it. A player character (`kind` "pc", or the older "coplayer") and an NPC under point
+// buy are point-buy builds with scores 8–15; an NPC with point buy off may have any scores and the manual method.
+export function normalizeDnd(src, { rules, kind = "pc", level = null, pointsMode = true } = {}) {
   const x = src && typeof src === "object" ? src : {};
   const loose = kind === "npc" && !pointsMode;
   const d = { class: s(x.class), subclass: s(x.subclass), species: s(x.species), background: s(x.background) };

@@ -51,10 +51,12 @@ export async function handoffToBot(api, { channelId, characterName, botName, sta
     await api.post(`/api/channels/${channelId}/bots`, { bot_id: bot.id });
     log(`${bot.name} joined the channel`);
   }
-  // The windows the character sits in: its open seats in this client's roster, else the windows it is bound to.
-  const seated = (state?.coplayers ?? []).find((c) => c.characterId === character.id);
+  // The windows the character sits in: its open seats in this client's saved roster (older state files list only the
+  // windows it sat in, each seat still open), else the windows it is bound to.
+  const seated = (state?.coplayers ?? []).find((c) => c?.characterId === character.id);
+  const seats = seated && (Array.isArray(seated.seats) ? seated.seats : (seated.windows ?? []).map((windowId) => ({ windowId, toSeq: null })));
   const windows = await api.windows(channelId);
-  const open = seated ? [...new Set(seated.seats.filter((s) => s.toSeq === null).map((s) => s.windowId))]
+  const open = seated ? [...new Set(seats.filter((s) => s.toSeq === null).map((s) => s.windowId))]
     : windows.filter((w) => (w.members ?? []).some((m) => m.character_id === character.id)).map((w) => w.id);
   await api.transferCharacter(channelId, character.id, { user_id: bot.user_id, expected_user_id: me.id });
   for (const w of open) {

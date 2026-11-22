@@ -251,7 +251,7 @@ async function prepareChannel(cfg, api, { channel, created, invite }, automatic 
         const actor=await actorOrLater(`co-player ${roster.coplayers.length + 1}/${coplayers}`, args);
         if (!actor) continue;
         saved={id:actor.id,name:actor.name,persona:actor.bio,speakingStyle:actor.speaking_style};
-      } else saved=await saveCharacter(api,channel.id,await generateCoplayer(llm,args),{kind:"coplayer",rules,llm,language,pointsMode,profile,level:cfg.level});
+      } else saved=await saveCharacter(api,channel.id,await generateCoplayer(llm,args),{kind:"pc",rules,llm,language,pointsMode,profile,level:cfg.level});
       roster.coplayers.push({ characterId: saved.id, name: saved.name, persona: saved.persona, speakingStyle: saved.speakingStyle, seats: seats.map((w) => openSeat(w)) });
       if (!running) saveState(cfg.stateDir, { ...loadState(cfg.stateDir, channel.id), ...state, ...roster.toJSON() });
       log(`co-player ${roster.coplayers.length}/${coplayers}: ${saved.name} (${profile.castNote(saved.card) || saved.card?.basic?.occupation || profile.vocab.pc})`);

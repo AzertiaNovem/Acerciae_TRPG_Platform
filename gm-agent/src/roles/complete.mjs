@@ -69,7 +69,7 @@ export async function completeExistingCharacter(api, llm, channelId, characterId
     card.dnd = { ...(card.dnd ?? {}) };
     if (!(Number(card.dnd.level) >= 1)) card.dnd.level = level;
     // With point buy off, an existing character's own scores and method stand (the "npc" ranges allow any).
-    card.dnd = deriveDnd(C.normalize({ ...card, dnd: card.dnd }, { rules, kind: pointsMode ? "coplayer" : "npc", level: card.dnd.level, pointsMode }).dnd, rules);
+    card.dnd = deriveDnd(C.normalize({ ...card, dnd: card.dnd }, { rules, kind: pointsMode ? "pc" : "npc", level: card.dnd.level, pointsMode }).dnd, rules);
   }
   if (pointsMode && C.needsRepair(card, rules, space.points)) {
     log(`checking ${current.name}: ${profile.id === "coc7e" ? "choosing career skills and allocating points" : "repairing the build"}`);

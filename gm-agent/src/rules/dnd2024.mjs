@@ -16,7 +16,7 @@ const COMBAT_RULE = `- Combat: when a fight starts, have everyone roll initiativ
 // The D&D card: the common fields are the CoC card's (basic, background, items, wealth), the build is role_card.dnd.
 const paths = (character, { pointsMode, rules } = {}) => [...COC_CARD.missingDetails(character, { pointsMode: false, rules: null }).filter((p) => !p.startsWith("role_card.characteristics.")), ...missingDndDetails(character, rules)];
 
-function normalize(roleCard, { rules, kind = "coplayer", level = null, pointsMode = true } = {}) {
+function normalize(roleCard, { rules, kind = "pc", level = null, pointsMode = true } = {}) {
   const base = COC_CARD.normalize(roleCard, { rules: null, kind });
   const card = { basic: base.basic, background: base.background, items: base.items, wealth: base.wealth };
   card.dnd = normalizeDnd(roleCard?.dnd, { rules, kind, level: level ?? roleCard?.dnd?.level ?? null, pointsMode });

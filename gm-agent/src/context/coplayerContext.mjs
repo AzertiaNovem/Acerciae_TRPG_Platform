@@ -8,8 +8,6 @@
 //   * `window` lines, plus `whisper` lines addressed to the co-player's own character;
 //   * never `gm_only` lines (GM notes, hidden roll results) and never whispers to anyone else.
 
-import { pictureText } from "../pictureLines.mjs";
-
 export function visibleToCoplayer(coplayer, message) {
   if (!message) return false;
   const present = coplayer.seats.some((s) => s.windowId === message.chat_window_id && message.seq >= s.fromSeq && (s.toSeq === null || message.seq <= s.toSeq));
@@ -17,31 +15,6 @@ export function visibleToCoplayer(coplayer, message) {
   if (message.visibility === "window") return true;
   if (message.visibility === "whisper") return (message.whisper_to ?? []).includes(coplayer.characterId);
   return false;
-}
-
-// `gm` is the GM's title in this rule system (rules/*.mjs): the label this client gives the GM account's lines.
-export function speakerOf(m, gm = "GM") {
-  if (m.character_name) return m.character_name;
-  if (m.author_role === "gm") return gm;
-  return m.author_name || "someone";
-}
-
-// `timeline` names the timeline the line comes from (the GM sees it; see timelines.mjs).
-// An interactive message (kind hypertext, docs/HYPERTEXT.md) reads as its plain-text fallback (`content`), never its
-// card (`m.hypertext`: buttons, state, a script); a line one produced is marked so, with the reader who acted when that
-// is someone else than its author (a card's reply, posted as the card's sender).
-export function renderLine(m, { markVisibility = false, timeline = "", gm = "GM" } = {}) {
-  // A picture (uploaded or drawn) reaches the model as words only: its caption, and that there is a picture at all.
-  const text = m.media_asset_id ? pictureText(m) : m.kind === "roll" && m.dice?.text ? `${m.content} → ${m.dice.text}` : m.content;
-  const who = m.kind === "narration" ? `${m.character_name ? m.character_name : gm} (narration)` : speakerOf(m, gm);
-  let tag = m.kind === "ooc" ? " (out of character)" : m.kind === "hypertext" ? " (interactive message)" : "";
-  if (m.via_hypertext_id) tag += " (via interactive message)";
-  if (m.via_hypertext_id && m.via_user_id && m.via_user_id !== m.author_id) tag += ` (answering ${m.via_user_name || "a player"})`;
-  let vis = "";
-  if (markVisibility && m.visibility === "gm_only") vis = ` [${gm} only]`;
-  if (markVisibility && m.visibility === "whisper") vis = ` [whisper to ${(m.whisper_to_names ?? m.whisper_to ?? []).join(", ")}]`;
-  const tl = timeline ? ` [timeline: ${timeline}]` : "";
-  return `#${m.seq} ${who}${tag}${vis}${tl}: ${String(text).replace(/\s+/g, " ").trim()}`;
 }
 
 // The co-player's whole context: its own lines and everyone else's, oldest first, limited to the newest `limit`.

@@ -1,7 +1,7 @@
 // The GM's context, shared by the GM and every real NPC: everything the GM account may read, including the
 // platform's AI tips (the pinned board, GM reminders, script knowledge, the six documents, highlights, module
 // hints), and every chat line in every window. Co-players never get this (see coplayerContext.mjs).
-import { renderLine } from "./coplayerContext.mjs";
+import { renderLine } from "./lines.mjs";
 import { renderProfile } from "./profiles.mjs";
 import { impression } from "./traits.mjs";
 import { isPlayerCharacter } from "../roles/roster.mjs";

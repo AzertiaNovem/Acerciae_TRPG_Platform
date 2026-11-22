@@ -7,7 +7,7 @@ import { Table } from "../src/loop.mjs";
 import { Roster } from "../src/roles/roster.mjs";
 import { MockLlm } from "../src/llm/mock.mjs";
 import { buildConfig } from "../src/config.mjs";
-import { renderLine } from "../src/context/coplayerContext.mjs";
+import { renderLine } from "../src/context/lines.mjs";
 import { rollRequest, choice, checklist, cardProblems, cleanText, diceVerdict, rollSignature, cardStrings, cpLength, LIMITS } from "../src/hypertext.mjs";
 import { FakeApi } from "./fixtures/platform.mjs";
 
