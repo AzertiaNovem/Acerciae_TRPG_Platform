@@ -1422,14 +1422,13 @@ int main() {
         S.db->exec("DELETE FROM tts_audio_assets WHERE id=$1", {published["id"].asString()}); S.objectStore->remove(published["object_key"].asString());
     });
 
-    test("stand-ins keep the GM author but carry player event provenance", [&] {
+    test("a stand-in line from an older client is refused, never posted as the GM's", [&] {
         Json::Value body; body["character_id"] = c1; body["content"] = "Let me think about it."; body["stand_in"] = true;
-        auto line = S.chat->postMessage(gm, mainWin, body);
-        CHECK(line["stand_in"].asBool()); CHECK(line["author_id"].asString() == gmUser);
-        auto event = S.db->queryOne("SELECT actor_role, actor_user_id, character_id, payload FROM events WHERE message_id=$1", {line["id"].asString()});
-        CHECK(event["actor_role"] == "player"); CHECK(event["actor_user_id"].asString() == gmUser);
-        CHECK(event["character_id"].asString() == c1); CHECK(event["payload"]["stand_in"].asBool());
-        S.chat->recallMessage(p1, line["id"].asString());
+        bool refused = false; try { S.chat->postMessage(gm, mainWin, body); } catch (const ApiError& e) { refused = e.status() == 400; }
+        CHECK(refused);
+        CHECK(S.db->queryOne("SELECT count(*)::int AS n FROM messages WHERE content='Let me think about it.'")["n"].asInt() == 0);
+        body["stand_in"] = false; body["character_id"] = Json::nullValue; body["content"] = "The ferry waits.";
+        CHECK(S.chat->postMessage(gm, mainWin, body)["author_id"].asString() == gmUser);
     });
 
     test("recall: two minutes, the author only, not rolls; what cites the line is dismissed; a batch that held it forgets it", [&] {

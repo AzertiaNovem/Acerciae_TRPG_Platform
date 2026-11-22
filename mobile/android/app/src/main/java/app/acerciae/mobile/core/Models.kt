@@ -39,7 +39,6 @@ import kotlinx.serialization.json.*
     @SerialName("recalled_at") val recalledAt: String? = null,
     /** Seconds left, when the message arrived, for its author to recall it; null when it cannot be recalled. */
     @SerialName("recall_seconds_left") val recallSecondsLeft: Int? = null,
-    @SerialName("stand_in") val standIn: Boolean = false,
     /** Kind `hypertext` (an interactive message): the card as stored, read with Hypertext.parseDoc; null otherwise and
      *  on a recalled card. Kept as raw JSON: `content` is its plain-text fallback. */
     val hypertext: JsonObject? = null,
