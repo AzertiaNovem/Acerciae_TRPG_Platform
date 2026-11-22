@@ -23,7 +23,7 @@ async function socket(token, channelId) {
   return { ws, next };
 }
 
-test("bots: set up by maintainers, invited by any member, removed by the GM, tagged everywhere, never signed in", async () => {
+test("bots: set up by maintainers, invited by any member, removed by the GM, tagged everywhere, never signed in", async (t) => {
   const s = Math.random().toString(36).slice(2, 8); const u = {};
   for (const r of ["gm", "p1", "p2"]) u[r] = await call(null, "POST", "/api/auth/register", { username: `bt${r}${s}`, password: "password", display_name: `${r}-${s}` });
   const gm = u.gm.token, p1 = u.p1.token, p2 = u.p2.token;
@@ -54,6 +54,7 @@ test("bots: set up by maintainers, invited by any member, removed by the GM, tag
 
   // A player invites Mina: she joins at once, as a player, and the table hears about it.
   const sock = await socket(p2, ch);
+  t.after(() => sock.ws.close());   // even when an assertion fails, so the file does not hang
   const view = await call(p1, "GET", `/api/channels/${ch}/bots`);
   assert.equal(view.can_invite, true); assert.equal(view.can_remove, false); assert.equal(view.invitable.length, 3);
   const after = await call(p1, "POST", `/api/channels/${ch}/bots`, { bot_id: mina.id });
@@ -72,7 +73,8 @@ test("bots: set up by maintainers, invited by any member, removed by the GM, tag
   const main = (await call(gm, "GET", `/api/channels/${ch}/windows`))[0].id;
   const history = await call(p1, "GET", `/api/channels/${ch}/windows/${main}/messages`);
   const lines = Array.isArray(history) ? history : history.messages;
-  assert.ok(lines.every((m) => m.author_is_bot === false), "people's lines are not a bot's");
+  // Given a character, Mina takes the part up with a line of her own (docs/BOTS.md): flagged as a bot's; nobody else's is.
+  assert.ok(lines.every((m) => m.author_is_bot === (m.author_id === mina.user_id)), "only the bot's lines carry the bot flag");
 
   // The GM turns invitations off: players are refused; the limit per channel holds for the GM too.
   await call(gm, "PUT", `/api/channels/${ch}`, { bot_invites_enabled: false });
@@ -86,5 +88,4 @@ test("bots: set up by maintainers, invited by any member, removed by the GM, tag
   await call(gm, "DELETE", `/api/servers/${server.id}/bots/${ken.id}`);
   assert.deepEqual((await call(gm, "GET", `/api/channels/${ch}/bots`)).present, []);
   assert.deepEqual((await call(gm, "GET", `/api/servers/${server.id}/bots`)).map((b) => b.name).sort(), ["Lu", "Mina"]);
-  sock.ws.close();
 });
